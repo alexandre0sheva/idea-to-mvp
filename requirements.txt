@@ -1,0 +1,9 @@
+gradio
+langgraph
+langchain-core
+langchain-openai
+langchain-anthropic
+langchain-google-genai
+pydantic-settings
+python-dotenv
+markdown
