@@ -159,9 +159,9 @@ class SubmitService:
         mode: str,
         questions_state: list[str],
         summary_state: str,
-        turns_state: list[dict[str, str]],
-        transcript_state: list[dict[str, str]],
-        chat_state: list[dict[str, str]],
+        turns_state: list[dict[str, str]] | None = None,
+        transcript_state: list[dict[str, str]] | None = None,
+        chat_state: list[dict[str, str]] | None = None,
     ) -> Generator[tuple[Any, ...], None, None]:
         text = (user_text or "").strip()
         thread_id = (thread_id or "").strip() or str(uuid.uuid4())
@@ -169,6 +169,15 @@ class SubmitService:
         questions_state = questions_state or []
         summary_state = summary_state or ""
         turns_state = turns_state or []
+        if chat_state is None and transcript_state:
+            # Backward compatibility for older callers/tests that still pass
+            # `chat_state` in the previous positional slot.
+            if all(
+                isinstance(item, dict) and "role" in item and "kind" not in item
+                for item in transcript_state
+            ):
+                chat_state = transcript_state
+                transcript_state = []
         transcript_state = transcript_state or []
         chat_state = chat_state or []
 

@@ -40,7 +40,10 @@ def test_idea_mode_progresses_to_answers() -> None:
 
 
 def test_answers_mode_generates_architecture() -> None:
-    events = [{"architect": {"architecture": "## Option A\nSimple stack"}}]
+    events = [
+        {"architect": {"architecture": "## Option A\nSimple stack"}},
+        {"planner_offer": {"plan_offer_question": "Should I generate the execution pack now?"}},
+    ]
     service = SubmitService(AppContext(settings=Settings(), graph=DummyGraph(events)))
     chat_state = [{"role": "user", "content": "Original idea"}]
     outputs = list(
@@ -56,5 +59,6 @@ def test_answers_mode_generates_architecture() -> None:
         )
     )
     final = outputs[-1]
-    assert final[6] == "answers"
-    assert "Architect" in final[1][-1]["content"]
+    assert final[6] == "plan_offer"
+    assert any("Architect" in message["content"] for message in final[1])
+    assert "Planner" in final[1][-1]["content"]

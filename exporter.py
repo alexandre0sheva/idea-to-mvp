@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
-import re
 
 
 def _slugify(text: str, *, max_length: int = 64) -> str:
