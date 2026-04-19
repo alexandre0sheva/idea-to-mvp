@@ -5,7 +5,7 @@ from typing import Annotated, Literal, TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
-DiscussionPhase = Literal["idea", "answers"]
+DiscussionPhase = Literal["idea", "answers", "plan_bundle"]
 SpeakerName = Literal["PM", "Tech Lead", "Skeptic"]
 
 
@@ -18,6 +18,11 @@ class IdeaDiscussionState(TypedDict):
     generated_questions: list[str]
     user_answers: str
     architecture: str
+    plan_offer_question: str
+    planning_request: str
+    project_bundle_dir: str
+    project_bundle_files: list[str]
+    project_bundle_summary: str
     phase: DiscussionPhase
     next_speaker: SpeakerName
     max_rounds: int

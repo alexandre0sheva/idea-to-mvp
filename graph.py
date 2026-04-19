@@ -10,6 +10,8 @@ try:
     from .agents import (
         architect_node,
         discussion_node,
+        plan_bundle_node,
+        planner_offer_node,
         route_after_discussion,
         route_from_start,
         summarizer_node,
@@ -20,6 +22,8 @@ except ImportError:
     from agents import (
         architect_node,
         discussion_node,
+        plan_bundle_node,
+        planner_offer_node,
         route_after_discussion,
         route_from_start,
         summarizer_node,
@@ -36,11 +40,13 @@ def build_graph(enable_checkpointer: bool | None = None) -> CompiledStateGraph:
     builder.add_node("discussion", discussion_node)
     builder.add_node("summarizer", summarizer_node)
     builder.add_node("architect", architect_node)
+    builder.add_node("planner_offer", planner_offer_node)
+    builder.add_node("plan_bundle", plan_bundle_node)
 
     builder.add_conditional_edges(
         START,
         route_from_start,
-        {"discussion": "discussion", "architect": "architect"},
+        {"discussion": "discussion", "architect": "architect", "plan_bundle": "plan_bundle"},
     )
     builder.add_conditional_edges(
         "discussion",
@@ -48,7 +54,9 @@ def build_graph(enable_checkpointer: bool | None = None) -> CompiledStateGraph:
         {"discussion": "discussion", "summarizer": "summarizer"},
     )
     builder.add_edge("summarizer", END)
-    builder.add_edge("architect", END)
+    builder.add_edge("architect", "planner_offer")
+    builder.add_edge("planner_offer", END)
+    builder.add_edge("plan_bundle", END)
 
     if enable_checkpointer:
         return builder.compile(checkpointer=MemorySaver())

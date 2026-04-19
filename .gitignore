@@ -5,3 +5,5 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 *.pyc
+exports/
+project_blueprints/

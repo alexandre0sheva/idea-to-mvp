@@ -21,6 +21,7 @@ PANEL_CSS = """
 .speaker-card.speaker-summary { border-color:#2f7a50; background:#102218; }
 .speaker-card.speaker-questions { border-color:#8a6a2b; background:#241d0d; }
 .speaker-card.speaker-architect { border-color:#3a6ea5; background:#0d1a29; }
+.speaker-card.speaker-planner { border-color:#0f766e; background:#102424; }
 .speaker-head { color:#93c5fd; font-weight:700; margin-bottom:0.45rem; }
 .speaker-card.speaker-pm .speaker-head { color:#7dd3fc; }
 .speaker-card.speaker-tech-lead .speaker-head { color:#c4b5fd; }
@@ -28,6 +29,7 @@ PANEL_CSS = """
 .speaker-card.speaker-summary .speaker-head { color:#86efac; }
 .speaker-card.speaker-questions .speaker-head { color:#fcd34d; }
 .speaker-card.speaker-architect .speaker-head { color:#93c5fd; }
+.speaker-card.speaker-planner .speaker-head { color:#5eead4; }
 .speaker-body { color:#d1d5db; line-height:1.35; white-space:normal; }
 .speaker-body p { margin: 0.1rem 0 0.3rem 0; }
 .speaker-body p:last-child { margin-bottom: 0; }
@@ -43,6 +45,7 @@ SPEAKER_STYLE_CLASS: dict[str, str] = {
     "Summary": "speaker-summary",
     "Questions": "speaker-questions",
     "Architect": "speaker-architect",
+    "Planner": "speaker-planner",
 }
 
 
@@ -60,12 +63,12 @@ def _style_class_for_speaker(speaker: str) -> str:
     return SPEAKER_STYLE_CLASS.get(speaker, "")
 
 
-def thinking_block(speaker: str) -> str:
+def thinking_block(speaker: str, message: str = "Analyzing constraints and MVP tradeoffs...") -> str:
     style_class = _style_class_for_speaker(speaker)
     return (
         f"<details class='speaker-card thinking {style_class}' open>"
         f"<summary class='speaker-head'>{speaker} · thinking</summary>"
-        "<div class='speaker-body'>Analyzing constraints and MVP tradeoffs...</div>"
+        f"<div class='speaker-body'>{html.escape((message or '').strip() or 'Working...')}</div>"
         "</details>"
     )
 

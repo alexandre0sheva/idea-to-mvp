@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-04-19
+
+### Workflow
+- Added a planner follow-up after the architect step that asks whether to generate an execution pack.
+- Added project blueprint generation in `project_blueprints/` with scoped `AGENTS.md` files and a task-oriented `plan.md`.
+- Added Markdown export support so the visible session can be saved to `exports/` at any time.
+
+### Model and prompt updates
+- Fixed Gemini output budgeting by passing Google token limits at invocation time instead of relying only on model initialization.
+- Tightened the architect prompt to reduce overly detailed responses and lower the risk of truncated architecture output.
+- Simplified the planner `plan.md` prompt so it focuses on execution tasks, contracts, and tests instead of repeating project guidance.
+
+### UX
+- Added a `Save to Markdown` action in the UI.
+- Improved planner and architect progress states so the UI can show more specific in-progress messages.
+
+### Docs
+- Refreshed `README.md` and contributor documentation to match the current discussion, architect, planner, and export flow.
+
 ## [0.1.0] - 2026-04-11
 
 ### Core capabilities

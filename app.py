@@ -54,23 +54,35 @@ def make_ui(*, settings: Settings | None = None) -> gr.Blocks:
         )
         with gr.Row():
             run_btn = gr.Button("Run discussion", variant="primary")
+            save_btn = gr.Button("Save to Markdown")
             clear_btn = gr.Button("Clear")
+        export_file = gr.File(label="Saved Markdown file", visible=False)
 
         thread_id_state = gr.State(str(uuid.uuid4()))
         mode_state = gr.State("idea")
         questions_state = gr.State([])
         summary_state = gr.State("")
         turns_state = gr.State([])
+        transcript_state = gr.State([])
         chat_state = gr.State([])
 
         run_btn.click(
             service.handle_submit,
-            inputs=[input_tb, rounds_sl, thread_id_state, mode_state, questions_state, summary_state, turns_state, chat_state],
-            outputs=[status_md, chatbot, input_tb, rounds_sl, run_btn, thread_id_state, mode_state, questions_state, summary_state, turns_state, chat_state],
+            inputs=[input_tb, rounds_sl, thread_id_state, mode_state, questions_state, summary_state, turns_state, transcript_state, chat_state],
+            outputs=[status_md, chatbot, input_tb, rounds_sl, run_btn, thread_id_state, mode_state, questions_state, summary_state, turns_state, transcript_state, chat_state],
+        )
+        save_btn.click(
+            service.save_conversation,
+            inputs=[input_tb, thread_id_state, mode_state, transcript_state],
+            outputs=[status_md, export_file],
         )
         clear_btn.click(
             service.clear_session,
-            outputs=[status_md, chatbot, input_tb, rounds_sl, run_btn, thread_id_state, mode_state, questions_state, summary_state, turns_state, chat_state],
+            outputs=[status_md, chatbot, input_tb, rounds_sl, run_btn, thread_id_state, mode_state, questions_state, summary_state, turns_state, transcript_state, chat_state],
+        )
+        clear_btn.click(
+            lambda: gr.update(value=None, visible=False),
+            outputs=[export_file],
         )
     return demo
 
