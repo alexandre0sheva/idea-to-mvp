@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -26,7 +27,7 @@ try:
         SUMMARY_SYSTEM,
         TOKEN_TO_SPEAKER,
     )
-    from .state import IdeaDiscussionState, PlanDecision
+    from .state import ArchChoice, ExecutionStrategy, IdeaDiscussionState, PlanDecision
     from .text_utils import normalize_content
 except ImportError:
     from config import Provider, clear_settings_cache, get_settings
@@ -39,7 +40,7 @@ except ImportError:
         SUMMARY_SYSTEM,
         TOKEN_TO_SPEAKER,
     )
-    from state import IdeaDiscussionState, PlanDecision
+    from state import ArchChoice, ExecutionStrategy, IdeaDiscussionState, PlanDecision
     from text_utils import normalize_content
 
 LOGGER = logging.getLogger(__name__)
@@ -695,6 +696,121 @@ def collect_answers_node(state: IdeaDiscussionState) -> dict[str, Any]:
         }
     )
     return {"user_answers": str(answers or "").strip(), "stage": "answers"}
+
+
+def arch_choice_node(state: IdeaDiscussionState) -> dict[str, Any]:
+    decision = interrupt(
+        {
+            "kind": "arch_choice",
+            "question": (
+                "Which architecture option should the blueprint and implementation target: "
+                "Option A (fast and maintainable) or Option B (performance and scale)?"
+            ),
+            "architecture": state.get("architecture", ""),
+        }
+    )
+    if isinstance(decision, dict):
+        option = str(decision.get("option") or "A").strip().upper()
+        notes = str(decision.get("notes") or "").strip()
+    else:
+        option = str(decision or "A").strip().upper()
+        notes = ""
+    if option not in ("A", "B"):
+        option = "A"
+    arch_choice: ArchChoice = {"option": option, "notes": notes}
+    return {"arch_choice": arch_choice, "stage": "arch_choice"}
+
+
+_FALLBACK_STRATEGY: ExecutionStrategy = {
+    "mode": "subagents",
+    "reasoning": (
+        "Strategy output could not be parsed; defaulting to a single lead session with specialized "
+        "subagents, which is the safest mode for a small MVP."
+    ),
+    "workstreams": [
+        {
+            "name": "core-product",
+            "focus": "Implement the MVP end to end following plan.md.",
+            "deliverables": "Working application code with tests.",
+        },
+        {
+            "name": "quality",
+            "focus": "Test coverage, fixtures, and verification of every task in plan.md.",
+            "deliverables": "Passing unit/integration test suite.",
+        },
+    ],
+}
+
+
+def _strip_json_fences(text: str) -> str:
+    stripped = text.strip()
+    match = re.match(r"^```[a-zA-Z]*\s*\n(.*?)\n?```$", stripped, flags=re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return stripped
+
+
+def _parse_strategy(text: str) -> ExecutionStrategy | None:
+    try:
+        data = json.loads(_strip_json_fences(text))
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    mode = str(data.get("mode") or "").strip()
+    if mode not in ("subagents", "agent_team"):
+        return None
+    raw_workstreams = data.get("workstreams")
+    workstreams = []
+    if isinstance(raw_workstreams, list):
+        for item in raw_workstreams:
+            if not isinstance(item, dict):
+                continue
+            name = re.sub(r"[^a-z0-9-]+", "-", str(item.get("name") or "").strip().lower()).strip("-")
+            if not name:
+                continue
+            workstreams.append(
+                {
+                    "name": name,
+                    "focus": str(item.get("focus") or "").strip(),
+                    "deliverables": str(item.get("deliverables") or "").strip(),
+                }
+            )
+    if not workstreams:
+        return None
+    return {
+        "mode": mode,
+        "reasoning": str(data.get("reasoning") or "").strip(),
+        "workstreams": workstreams[:5],
+    }
+
+
+def strategy_node(state: IdeaDiscussionState) -> dict[str, Any]:
+    runtime = get_runtime("strategy")
+    arch_choice = state.get("arch_choice", {})
+    response = _invoke_with_runtime(
+        runtime,
+        [
+            SystemMessage(content=runtime.system_prompt),
+            HumanMessage(
+                content=(
+                    f"Idea:\n{state.get('user_idea', '').strip()}\n\n"
+                    f"Discussion summary:\n{state.get('summary', '').strip() or 'No summary.'}\n\n"
+                    f"User answers:\n{state.get('user_answers', '').strip() or 'No answers.'}\n\n"
+                    f"Architecture options:\n{state.get('architecture', '').strip() or 'No architecture.'}\n\n"
+                    f"User chose option: {arch_choice.get('option') or 'A'}\n"
+                    f"User notes: {arch_choice.get('notes') or 'None.'}\n\n"
+                    "Decide the execution mode and workstreams. Output the strict JSON now."
+                )
+            ),
+        ],
+    )
+    text = _extract_text_from_message(response) or normalize_content(response.content)
+    strategy = _parse_strategy(text)
+    if strategy is None:
+        LOGGER.warning("Strategy output was not valid JSON; using fallback strategy.")
+        strategy = _FALLBACK_STRATEGY
+    return {"execution_strategy": strategy, "stage": "strategy"}
 
 
 def plan_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:

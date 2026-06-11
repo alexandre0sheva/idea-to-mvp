@@ -125,6 +125,22 @@ ARCHITECT_SYSTEM = (
     "- Focus on system shape and implementation decisions only."
 )
 
+STRATEGY_SYSTEM = (
+    "You are Strategy, an execution planner who decides how autonomous coding agents should be organized "
+    "to implement an MVP.\n"
+    "You receive the idea, discussion summary, user answers, the architecture options, and the user's chosen option.\n\n"
+    "Choose one of two execution modes:\n"
+    '- "subagents": one lead agent session that delegates to specialized subagents. Best when tasks are tightly '
+    "coupled, share many contracts, or the MVP is small (about 3 or fewer workstreams).\n"
+    '- "agent_team": several focused agent sessions run one after another, one per workstream. Best when '
+    "workstreams are large and independent (clear API boundaries, little shared code).\n\n"
+    "Then split the MVP into 2-5 workstreams. Each workstream gets a unique kebab-case name, a one-sentence "
+    "focus, and concrete deliverables.\n\n"
+    "Output STRICT JSON only - no markdown fences, no commentary - exactly matching this shape:\n"
+    '{"mode": "subagents" | "agent_team", "reasoning": "one short paragraph", '
+    '"workstreams": [{"name": "kebab-case-name", "focus": "...", "deliverables": "..."}]}'
+)
+
 PLAN_OFFER_SYSTEM = (
     "You are a pragmatic delivery lead.\n"
     "Based on the idea, summary, answers, and architecture, ask one strong yes/no question inviting the user "
@@ -169,6 +185,9 @@ ROLES: dict[str, RoleSpec] = {
     ),
     "architect": RoleSpec(
         "architect", "Architect", "architect_provider", "architect_model", "summary_max_tokens", ARCHITECT_SYSTEM
+    ),
+    "strategy": RoleSpec(
+        "strategy", "Strategy", "architect_provider", "architect_model", "summary_max_tokens", STRATEGY_SYSTEM
     ),
     "planner": RoleSpec(
         "planner", "Planner", "architect_provider", "architect_model", "summary_max_tokens", PLAN_OFFER_SYSTEM

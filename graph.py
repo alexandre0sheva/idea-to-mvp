@@ -8,6 +8,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 try:
     from .agents import (
+        arch_choice_node,
         architect_node,
         collect_answers_node,
         discussion_node,
@@ -16,12 +17,14 @@ try:
         planner_offer_node,
         route_after_discussion,
         route_after_plan_gate,
+        strategy_node,
         summarizer_node,
     )
     from .config import get_settings
     from .state import IdeaDiscussionState
 except ImportError:
     from agents import (
+        arch_choice_node,
         architect_node,
         collect_answers_node,
         discussion_node,
@@ -30,6 +33,7 @@ except ImportError:
         planner_offer_node,
         route_after_discussion,
         route_after_plan_gate,
+        strategy_node,
         summarizer_node,
     )
     from config import get_settings
@@ -45,6 +49,8 @@ def build_graph(enable_checkpointer: bool | None = None) -> CompiledStateGraph:
     builder.add_node("summarizer", summarizer_node)
     builder.add_node("collect_answers", collect_answers_node)
     builder.add_node("architect", architect_node)
+    builder.add_node("arch_choice", arch_choice_node)
+    builder.add_node("strategy", strategy_node)
     builder.add_node("planner_offer", planner_offer_node)
     builder.add_node("plan_gate", plan_gate_node)
     builder.add_node("plan_bundle", plan_bundle_node)
@@ -57,7 +63,9 @@ def build_graph(enable_checkpointer: bool | None = None) -> CompiledStateGraph:
     )
     builder.add_edge("summarizer", "collect_answers")
     builder.add_edge("collect_answers", "architect")
-    builder.add_edge("architect", "planner_offer")
+    builder.add_edge("architect", "arch_choice")
+    builder.add_edge("arch_choice", "strategy")
+    builder.add_edge("strategy", "planner_offer")
     builder.add_edge("planner_offer", "plan_gate")
     builder.add_conditional_edges(
         "plan_gate",

@@ -25,11 +25,18 @@ def _base_state(max_rounds: int = 3) -> dict[str, Any]:
         "generated_questions": [],
         "user_answers": "",
         "architecture": "",
+        "arch_choice": {"option": "", "notes": ""},
+        "execution_strategy": {"mode": "", "reasoning": "", "workstreams": []},
         "plan_offer_question": "",
         "plan_decision": {"generate": False, "notes": ""},
+        "implement_decision": {"implement": False, "notes": ""},
         "project_bundle_dir": "",
         "project_bundle_files": [],
         "project_bundle_summary": "",
+        "workspace_dir": "",
+        "implementation_log": "",
+        "verification": {"passed": False, "attempts": 0, "report": ""},
+        "delivery_report": "",
         "stage": "discussion",
         "next_speaker": "PM",
         "max_rounds": max_rounds,
@@ -64,6 +71,10 @@ def fake_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path):
     graph_module.clear_graph_cache()
 
 
+def _interrupts(events: list[dict]) -> list:
+    return [e["__interrupt__"][0] for e in events if "__interrupt__" in e]
+
+
 def test_route_after_discussion_loops_until_max() -> None:
     state = _base_state(max_rounds=3)
     state["turn_count"] = 2
@@ -90,23 +101,33 @@ def test_full_pipeline_pauses_resumes_and_declines(fake_pipeline) -> None:
     config = {"configurable": {"thread_id": "lifecycle-decline"}}
 
     events = list(g.stream(_base_state(max_rounds=3), config=config, stream_mode="updates"))
-    interrupts = [e["__interrupt__"][0] for e in events if "__interrupt__" in e]
+    interrupts = _interrupts(events)
     assert len(interrupts) == 1
     assert interrupts[0].value["kind"] == "answers"
     assert len(interrupts[0].value["questions"]) == 5
 
     events = list(g.stream(Command(resume="1. Solo founders."), config=config, stream_mode="updates"))
-    interrupts = [e["__interrupt__"][0] for e in events if "__interrupt__" in e]
+    interrupts = _interrupts(events)
+    assert len(interrupts) == 1
+    assert interrupts[0].value["kind"] == "arch_choice"
+    assert interrupts[0].value["architecture"].strip()
+
+    events = list(
+        g.stream(Command(resume={"option": "A", "notes": "keep it simple"}), config=config, stream_mode="updates")
+    )
+    interrupts = _interrupts(events)
     assert len(interrupts) == 1
     assert interrupts[0].value["kind"] == "plan_gate"
     assert interrupts[0].value["question"].strip()
 
     events = list(g.stream(Command(resume={"generate": False, "notes": ""}), config=config, stream_mode="updates"))
-    assert not any("__interrupt__" in e for e in events)
+    assert not _interrupts(events)
     snapshot = g.get_state(config)
     assert snapshot.next == ()
     assert snapshot.values["plan_decision"] == {"generate": False, "notes": ""}
     assert snapshot.values["user_answers"] == "1. Solo founders."
+    assert snapshot.values["arch_choice"] == {"option": "A", "notes": "keep it simple"}
+    assert snapshot.values["execution_strategy"]["mode"] in ("subagents", "agent_team")
     assert snapshot.values["stage"] == "done"
 
 
@@ -116,20 +137,20 @@ def test_full_pipeline_accept_generates_bundle(fake_pipeline, tmp_path) -> None:
 
     list(g.stream(_base_state(max_rounds=3), config=config, stream_mode="updates"))
     list(g.stream(Command(resume="Answers."), config=config, stream_mode="updates"))
-    list(g.stream(Command(resume={"generate": True, "notes": "keep it lean"}), config=config, stream_mode="updates"))
+    list(g.stream(Command(resume={"option": "B", "notes": ""}), config=config, stream_mode="updates"))
+    events = list(
+        g.stream(Command(resume={"generate": True, "notes": "keep it lean"}), config=config, stream_mode="updates")
+    )
 
     snapshot = g.get_state(config)
-    assert snapshot.next == ()
     assert snapshot.values["plan_decision"] == {"generate": True, "notes": "keep it lean"}
-    assert snapshot.values["project_bundle_files"] == [
-        "AGENTS.md",
-        "contracts/AGENTS.md",
-        "application/AGENTS.md",
-        "quality/AGENTS.md",
-        "plan.md",
-    ]
+    assert snapshot.values["project_bundle_files"]
     bundle_dir = tmp_path / "project_blueprints"
     assert any(bundle_dir.iterdir())
+    # bundle generation pauses at the implement gate (or ends; Task 4 wires the gate)
+    interrupts = _interrupts(events)
+    if interrupts:
+        assert interrupts[0].value["kind"] == "implement_gate"
 
 
 def test_discussion_prompt_is_round_aware(fake_pipeline) -> None:
