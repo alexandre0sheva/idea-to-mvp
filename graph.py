@@ -11,14 +11,19 @@ try:
         arch_choice_node,
         architect_node,
         collect_answers_node,
+        delivery_report_node,
         discussion_node,
+        implement_gate_node,
+        implementer_node,
         plan_bundle_node,
         plan_gate_node,
         planner_offer_node,
         route_after_discussion,
+        route_after_implement_gate,
         route_after_plan_gate,
         strategy_node,
         summarizer_node,
+        verifier_node,
     )
     from .config import get_settings
     from .state import IdeaDiscussionState
@@ -27,14 +32,19 @@ except ImportError:
         arch_choice_node,
         architect_node,
         collect_answers_node,
+        delivery_report_node,
         discussion_node,
+        implement_gate_node,
+        implementer_node,
         plan_bundle_node,
         plan_gate_node,
         planner_offer_node,
         route_after_discussion,
+        route_after_implement_gate,
         route_after_plan_gate,
         strategy_node,
         summarizer_node,
+        verifier_node,
     )
     from config import get_settings
     from state import IdeaDiscussionState
@@ -54,6 +64,10 @@ def build_graph(enable_checkpointer: bool | None = None) -> CompiledStateGraph:
     builder.add_node("planner_offer", planner_offer_node)
     builder.add_node("plan_gate", plan_gate_node)
     builder.add_node("plan_bundle", plan_bundle_node)
+    builder.add_node("implement_gate", implement_gate_node)
+    builder.add_node("implementer", implementer_node)
+    builder.add_node("verifier", verifier_node)
+    builder.add_node("delivery_report", delivery_report_node)
 
     builder.add_edge(START, "discussion")
     builder.add_conditional_edges(
@@ -72,7 +86,15 @@ def build_graph(enable_checkpointer: bool | None = None) -> CompiledStateGraph:
         route_after_plan_gate,
         {"plan_bundle": "plan_bundle", "__end__": END},
     )
-    builder.add_edge("plan_bundle", END)
+    builder.add_edge("plan_bundle", "implement_gate")
+    builder.add_conditional_edges(
+        "implement_gate",
+        route_after_implement_gate,
+        {"implementer": "implementer", "__end__": END},
+    )
+    builder.add_edge("implementer", "verifier")
+    builder.add_edge("verifier", "delivery_report")
+    builder.add_edge("delivery_report", END)
 
     if enable_checkpointer:
         return builder.compile(checkpointer=MemorySaver())

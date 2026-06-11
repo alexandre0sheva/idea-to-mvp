@@ -18,6 +18,7 @@ from langgraph.types import interrupt
 try:
     from .blueprints import build_bundle_context, create_project_bundle
     from .config import Provider, clear_settings_cache, get_settings
+    from .implementer import prepare_workspace, run_fix, run_implementation, run_verification
     from .roles import (
         DISCUSSION_ROLE_KEYS,
         QUESTIONS_SYSTEM,
@@ -27,11 +28,19 @@ try:
         SUMMARY_SYSTEM,
         TOKEN_TO_SPEAKER,
     )
-    from .state import ArchChoice, ExecutionStrategy, IdeaDiscussionState, PlanDecision
+    from .state import (
+        ArchChoice,
+        ExecutionStrategy,
+        IdeaDiscussionState,
+        ImplementDecision,
+        PlanDecision,
+        VerificationResult,
+    )
     from .text_utils import normalize_content
 except ImportError:
     from blueprints import build_bundle_context, create_project_bundle
     from config import Provider, clear_settings_cache, get_settings
+    from implementer import prepare_workspace, run_fix, run_implementation, run_verification
     from roles import (
         DISCUSSION_ROLE_KEYS,
         QUESTIONS_SYSTEM,
@@ -41,7 +50,14 @@ except ImportError:
         SUMMARY_SYSTEM,
         TOKEN_TO_SPEAKER,
     )
-    from state import ArchChoice, ExecutionStrategy, IdeaDiscussionState, PlanDecision
+    from state import (
+        ArchChoice,
+        ExecutionStrategy,
+        IdeaDiscussionState,
+        ImplementDecision,
+        PlanDecision,
+        VerificationResult,
+    )
     from text_utils import normalize_content
 
 LOGGER = logging.getLogger(__name__)
@@ -702,6 +718,110 @@ def plan_bundle_node(state: IdeaDiscussionState) -> dict[str, Any]:
         "project_bundle_summary": summary,
         "stage": "plan_bundle",
     }
+
+
+def _generated_projects_root() -> Path:
+    return Path(__file__).resolve().parent / "generated_projects"
+
+
+def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
+    settings = get_settings()
+    question = (
+        f"The blueprint pack is ready in `{state.get('project_bundle_dir', '')}`. "
+        "Should I start the implementation stage now? Autonomous coding agents "
+        f"(model `{settings.implementer_model}`) will build the project in `generated_projects/`, then a "
+        "verification agent runs its test suite with up to "
+        f"{settings.max_fix_attempts} fix attempt(s). This spends real Anthropic API tokens "
+        f"(budget cap ${settings.implementer_max_budget_usd:.2f} per agent session) and the agents run "
+        "with file/shell access inside that workspace."
+    )
+    decision = interrupt(
+        {
+            "kind": "implement_gate",
+            "question": question,
+            "bundle_dir": state.get("project_bundle_dir", ""),
+        }
+    )
+    if isinstance(decision, dict):
+        implement = bool(decision.get("implement"))
+        notes = str(decision.get("notes") or "").strip()
+    else:
+        implement = bool(decision)
+        notes = ""
+    implement_decision: ImplementDecision = {"implement": implement, "notes": notes}
+    return {"implement_decision": implement_decision, "stage": "implementation" if implement else "done"}
+
+
+def route_after_implement_gate(state: IdeaDiscussionState) -> Literal["implementer", "__end__"]:
+    if state.get("implement_decision", {}).get("implement"):
+        return "implementer"
+    return "__end__"
+
+
+def implementer_node(state: IdeaDiscussionState) -> dict[str, Any]:
+    settings = get_settings()
+    workspace = prepare_workspace(Path(state["project_bundle_dir"]), _generated_projects_root())
+    LOGGER.info("Implementation workspace prepared at %s", workspace)
+    log = run_implementation(workspace, state.get("execution_strategy") or {}, settings)
+    return {"workspace_dir": str(workspace), "implementation_log": log, "stage": "verification"}
+
+
+def verifier_node(state: IdeaDiscussionState) -> dict[str, Any]:
+    settings = get_settings()
+    workspace = Path(state["workspace_dir"])
+    attempts = 0
+    result = run_verification(workspace, settings)
+    while not result.get("passed") and attempts < settings.max_fix_attempts:
+        attempts += 1
+        LOGGER.info("Verification failed; fix attempt %d/%d", attempts, settings.max_fix_attempts)
+        run_fix(workspace, str(result.get("report") or ""), settings)
+        result = run_verification(workspace, settings)
+    verification: VerificationResult = {
+        "passed": bool(result.get("passed")),
+        "attempts": attempts,
+        "report": str(result.get("report") or ""),
+    }
+    return {"verification": verification, "stage": "report"}
+
+
+_TREE_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", ".pytest_cache", ".ruff_cache"}
+
+
+def _workspace_file_tree(workspace: Path, limit: int = 60) -> str:
+    if not workspace.exists():
+        return "- (workspace not found)"
+    entries: list[str] = []
+    for path in sorted(workspace.rglob("*")):
+        relative = path.relative_to(workspace)
+        if any(part in _TREE_SKIP_DIRS for part in relative.parts):
+            continue
+        if not path.is_file():
+            continue
+        entries.append(f"- `{relative}`")
+        if len(entries) >= limit:
+            entries.append("- ... (truncated)")
+            break
+    return "\n".join(entries) or "- (empty workspace)"
+
+
+def delivery_report_node(state: IdeaDiscussionState) -> dict[str, Any]:
+    workspace_dir = state.get("workspace_dir", "")
+    verification = state.get("verification", {})
+    verdict = "PASSED ✅" if verification.get("passed") else "FAILED ❌"
+    attempts = int(verification.get("attempts") or 0)
+    report = (
+        "## Delivery report\n\n"
+        f"**Workspace:** `{workspace_dir}`\n\n"
+        f"**Verification:** {verdict} (after {attempts} fix attempt(s)).\n\n"
+        "**How to run:** see `README.md` inside the workspace.\n\n"
+        "### Files\n\n"
+        f"{_workspace_file_tree(Path(workspace_dir)) if workspace_dir else '- (no workspace)'}\n\n"
+        "### Verification report\n\n"
+        f"{str(verification.get('report') or 'No verification report.').strip()}\n\n"
+        "### Implementation summary\n\n"
+        f"{(state.get('implementation_log') or 'No implementation summary.').strip()}"
+    )
+    return {"delivery_report": report, "stage": "done"}
 
 
 def clear_runtime_caches() -> None:

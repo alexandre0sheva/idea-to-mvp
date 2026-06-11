@@ -147,10 +147,64 @@ def test_full_pipeline_accept_generates_bundle(fake_pipeline, tmp_path) -> None:
     assert snapshot.values["project_bundle_files"]
     bundle_dir = tmp_path / "project_blueprints"
     assert any(bundle_dir.iterdir())
-    # bundle generation pauses at the implement gate (or ends; Task 4 wires the gate)
     interrupts = _interrupts(events)
-    if interrupts:
-        assert interrupts[0].value["kind"] == "implement_gate"
+    assert len(interrupts) == 1
+    assert interrupts[0].value["kind"] == "implement_gate"
+    assert interrupts[0].value["question"].strip()
+
+
+def test_implement_gate_accept_builds_verifies_and_reports(fake_pipeline, monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "generated_projects" / "ws"
+    workspace.mkdir(parents=True)
+    (workspace / "README.md").write_text("readme")
+
+    fixes: list[str] = []
+    verifications = [
+        {"passed": False, "report": "2 failed\nVERDICT: FAIL"},
+        {"passed": True, "report": "all green\nVERDICT: PASS"},
+    ]
+    monkeypatch.setattr(agents, "prepare_workspace", lambda bundle, root: workspace)
+    monkeypatch.setattr(agents, "run_implementation", lambda ws, strategy, settings: "Implemented everything.")
+    monkeypatch.setattr(agents, "run_verification", lambda ws, settings: verifications.pop(0))
+    monkeypatch.setattr(agents, "run_fix", lambda ws, report, settings: fixes.append(report) or "fixed")
+
+    g = graph_module.build_graph(True)
+    config = {"configurable": {"thread_id": "lifecycle-implement"}}
+    list(g.stream(_base_state(max_rounds=3), config=config, stream_mode="updates"))
+    list(g.stream(Command(resume="Answers."), config=config, stream_mode="updates"))
+    list(g.stream(Command(resume={"option": "A", "notes": ""}), config=config, stream_mode="updates"))
+    list(g.stream(Command(resume={"generate": True, "notes": ""}), config=config, stream_mode="updates"))
+    events = list(g.stream(Command(resume={"implement": True, "notes": "go"}), config=config, stream_mode="updates"))
+
+    assert not _interrupts(events)
+    snapshot = g.get_state(config)
+    assert snapshot.next == ()
+    assert snapshot.values["implement_decision"] == {"implement": True, "notes": "go"}
+    assert snapshot.values["workspace_dir"] == str(workspace)
+    assert snapshot.values["implementation_log"] == "Implemented everything."
+    assert snapshot.values["verification"]["passed"] is True
+    assert snapshot.values["verification"]["attempts"] == 1
+    assert len(fixes) == 1
+    assert "Delivery report" in snapshot.values["delivery_report"]
+    assert str(workspace) in snapshot.values["delivery_report"]
+    assert snapshot.values["stage"] == "done"
+
+
+def test_implement_gate_decline_ends_run(fake_pipeline) -> None:
+    g = graph_module.build_graph(True)
+    config = {"configurable": {"thread_id": "lifecycle-no-implement"}}
+    list(g.stream(_base_state(max_rounds=3), config=config, stream_mode="updates"))
+    list(g.stream(Command(resume="Answers."), config=config, stream_mode="updates"))
+    list(g.stream(Command(resume={"option": "A", "notes": ""}), config=config, stream_mode="updates"))
+    list(g.stream(Command(resume={"generate": True, "notes": ""}), config=config, stream_mode="updates"))
+    events = list(g.stream(Command(resume={"implement": False, "notes": ""}), config=config, stream_mode="updates"))
+
+    assert not _interrupts(events)
+    snapshot = g.get_state(config)
+    assert snapshot.next == ()
+    assert snapshot.values["implement_decision"] == {"implement": False, "notes": ""}
+    assert snapshot.values["workspace_dir"] == ""
+    assert snapshot.values["stage"] == "done"
 
 
 def test_discussion_prompt_is_round_aware(fake_pipeline) -> None:
