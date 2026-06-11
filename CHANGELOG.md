@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Added
+- **Implementation stage**: after the blueprint is approved, Claude Agent SDK agents build the project in `generated_projects/` (gated behind an explicit confirmation with model + budget-cap warning; per-session `IMPLEMENTER_MAX_BUDGET_USD` cost cap).
+- **Verification stage**: a verification agent runs the generated project's own test suite with a bounded fix loop (`MAX_FIX_ATTEMPTS`), followed by a delivery report with file tree and verdict.
+- **Strategy agent**: auto-selects the execution mode — `subagents` (one lead session with per-workstream subagents) or `agent_team` (sequential focused sessions) — recorded in the blueprint's `STRATEGY.json`.
+- **Architecture choice gate**: the pipeline pauses for the user to pick Option A or Option B before planning.
+- **Blueprint v2**: packs now include `README.md`, `PRD.md` (numbered requirements), `ARCHITECTURE.md`, a `plan.md` with acceptance criteria and workstream ownership, and generated `.claude/agents/*.md` subagent definitions.
+- **Pipeline stage tracker** in the UI showing progress through all nine stages.
+
 ### Changed
 - Pipeline now runs as one continuous LangGraph thread with real `interrupt()` gates for answers and the plan decision (no more phase-flag routing or per-phase threads).
 - All role prompts and provider/model wiring moved to a declarative registry in `roles.py`.

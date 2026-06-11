@@ -31,8 +31,11 @@ pytest tests/test_agents_routing.py::test_name # single test
 1. **Discussion** — Three agents (PM, Tech Lead, Skeptic) debate the idea in a round-robin loop until `max_rounds` is reached.
 2. **Summarizer** — Produces an executive brief and exactly 5 clarifying MVP questions.
 3. **Answers gate** — the graph pauses at `collect_answers` (`interrupt()`); user answers resume it.
-4. **Architect** — generates two implementation options anchored to the user's answers.
-5. **Plan gate + Planner** — the graph pauses at `plan_gate`; a structured `{generate, notes}` decision resumes it and optionally creates the `project_blueprints/` pack.
+4. **Architect + architecture gate** — two options; the graph pauses at `arch_choice` for a structured `{option, notes}` decision.
+5. **Strategy** — a strategy agent emits strict-JSON `{mode, reasoning, workstreams}` choosing `subagents` vs `agent_team` (fallback strategy on parse failure).
+6. **Plan gate + Planner** — pause at `plan_gate`; `{generate, notes}` resumes and creates the blueprint v2 pack in `project_blueprints/`.
+7. **Implementation gate + Implementer** — pause at `implement_gate` with a cost warning; `{implement, notes}` resumes. `implementer.py` copies the bundle to `generated_projects/` and drives Claude Agent SDK sessions (lead+subagents or sequential team).
+8. **Verifier + Delivery report** — a verification agent runs the generated project's tests (`VERDICT: PASS|FAIL` sentinel) with a bounded fix loop, then a deterministic delivery report ends the run.
 
 ### Key Files
 
@@ -43,6 +46,8 @@ pytest tests/test_agents_routing.py::test_name # single test
 | `graph.py` | Builds the LangGraph `StateGraph` with nodes and conditional routing |
 | `agents.py` | All node functions, `LlmRuntime`/`AgentRuntime` dataclasses, LLM invocation logic |
 | `roles.py` | `RoleSpec` registry: all system prompts + provider/model/token wiring per agent |
+| `blueprints.py` | Blueprint v2 document prompts + `create_project_bundle()` (LLM-free; caller injects `generate_doc`) |
+| `implementer.py` | Claude Agent SDK sessions: workspace prep, implementation, verification, fix loop |
 | `submit_service.py` | `SubmitService` — stateful generator-based streaming bridge between Gradio and the graph |
 | `config.py` | Pydantic `Settings` loaded from `.env`; access via `get_settings()` |
 | `render.py` | HTML helpers (`thinking_block`, `turn_block`) for Gradio display |
@@ -56,9 +61,15 @@ START → discussion (loop until turn_count ≥ max_rounds)
       → summarizer
       → collect_answers   [interrupt: questions out, answers in]
       → architect
+      → arch_choice       [interrupt: options out, {option, notes} in]
+      → strategy
       → planner_offer
       → plan_gate         [interrupt: offer out, {generate, notes} in]
       → plan_bundle | END
+      → implement_gate    [interrupt: cost warning out, {implement, notes} in]
+      → implementer | END
+      → verifier (bounded fix loop)
+      → delivery_report → END
 ```
 
 The graph runs on a single checkpointer thread per session; the UI resumes interrupts with `Command(resume=...)`. There is no `phase` field — UI mode mirrors the interrupt the graph is paused at.
@@ -98,3 +109,5 @@ except ImportError:
 ### Test Isolation
 
 `config.py` exports `clear_settings_cache()` — call it in test teardown to reset the `lru_cache` between tests. `conftest.py` sets up the Python path so tests can import top-level modules.
+
+Graph lifecycle tests fake all LLM/SDK calls by monkeypatching `agents.get_runtime`, `agents._invoke_with_runtime`, and the implementer functions re-exported on `agents` (`prepare_workspace`, `run_implementation`, `run_verification`, `run_fix`) plus `agents._project_bundle_root` — see `tests/test_agents_routing.py`.

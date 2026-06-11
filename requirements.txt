@@ -7,3 +7,4 @@ langchain-google-genai
 pydantic-settings
 python-dotenv
 markdown
+claude-agent-sdk

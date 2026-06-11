@@ -7,3 +7,4 @@ __pycache__/
 *.pyc
 exports/
 project_blueprints/
+generated_projects/
