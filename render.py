@@ -37,7 +37,50 @@ PANEL_CSS = """
 .speaker-body li { margin: 0.04rem 0; }
 .speaker-body h1, .speaker-body h2, .speaker-body h3, .speaker-body h4 { margin: 0.15rem 0 0.25rem 0; line-height: 1.25; }
 .speaker-body code { background: rgba(255,255,255,0.08); padding: 0.08rem 0.3rem; border-radius: 5px; }
+.stage-tracker { display:flex; flex-wrap:wrap; gap:0.35rem; margin:0.4rem 0 0.6rem 0; }
+.stage-pill { border-radius:999px; padding:0.18rem 0.7rem; font-size:0.78rem; font-weight:600;
+  border:1px solid #334155; color:#64748b; background:#0b1220; }
+.stage-pill.done { border-color:#14532d; color:#86efac; background:#08160d; }
+.stage-pill.active { border-color:#1d4ed8; color:#bfdbfe; background:#0b1a36; }
 """
+PIPELINE_STAGES: list[tuple[str, str]] = [
+    ("discussion", "Panel"),
+    ("summary", "Summary"),
+    ("answers", "Answers"),
+    ("arch_choice", "Architecture"),
+    ("strategy", "Strategy"),
+    ("plan_bundle", "Blueprint"),
+    ("implementation", "Implementation"),
+    ("verification", "Verification"),
+    ("done", "Done"),
+]
+_STAGE_ALIASES: dict[str, str] = {
+    "architecture": "arch_choice",
+    "plan_gate": "plan_bundle",
+    "implement_gate": "implementation",
+    "report": "verification",
+}
+
+
+def stage_tracker(stage: str) -> str:
+    """Render the pipeline progress bar as a row of stage pills."""
+    key = _STAGE_ALIASES.get((stage or "").strip(), (stage or "").strip())
+    keys = [k for k, _ in PIPELINE_STAGES]
+    index = keys.index(key) if key in keys else 0
+    pills: list[str] = []
+    for position, (_, label) in enumerate(PIPELINE_STAGES):
+        if key == "done":
+            css = "done" if position < len(PIPELINE_STAGES) - 1 else "active"
+        elif position < index:
+            css = "done"
+        elif position == index:
+            css = "active"
+        else:
+            css = "todo"
+        pills.append(f"<span class='stage-pill {css}'>{html.escape(label)}</span>")
+    return "<div class='stage-tracker'>" + "".join(pills) + "</div>"
+
+
 SPEAKER_STYLE_CLASS: dict[str, str] = {
     "PM": "speaker-pm",
     "Tech Lead": "speaker-tech-lead",

@@ -9,13 +9,13 @@ import gradio as gr
 try:
     from .config import Settings, get_settings
     from .graph import build_graph
-    from .render import DEFAULT_IDEA, PANEL_CSS
-    from .submit_service import PLAN_CHOICE_GENERATE, PLAN_CHOICE_SKIP, AppContext, SubmitService
+    from .render import DEFAULT_IDEA, PANEL_CSS, stage_tracker
+    from .submit_service import ARCH_CHOICE_A, ARCH_CHOICE_B, AppContext, SubmitService
 except ImportError:
     from config import Settings, get_settings
     from graph import build_graph
-    from render import DEFAULT_IDEA, PANEL_CSS
-    from submit_service import PLAN_CHOICE_GENERATE, PLAN_CHOICE_SKIP, AppContext, SubmitService
+    from render import DEFAULT_IDEA, PANEL_CSS, stage_tracker
+    from submit_service import ARCH_CHOICE_A, ARCH_CHOICE_B, AppContext, SubmitService
 
 
 def _supports_param(callable_obj: object, param_name: str) -> bool:
@@ -38,7 +38,12 @@ def make_ui(*, settings: Settings | None = None) -> gr.Blocks:
         blocks_kwargs["css"] = PANEL_CSS
 
     with gr.Blocks(**blocks_kwargs) as demo:
-        gr.Markdown("## LangGraph Idea-to-MVP Orchestrator")
+        gr.Markdown(
+            "## Idea-to-MVP Orchestrator\n"
+            "From a rough idea to a built, tested first version — panel debate, architecture, "
+            "blueprints, and autonomous implementation agents, with you approving every gate."
+        )
+        tracker_html = gr.HTML(stage_tracker("discussion"))
         status_md = gr.Markdown("")
         chatbot_kwargs = {"label": "Discussion chat", "height": 700}
         if _supports_param(gr.Chatbot.__init__, "type"):
@@ -52,10 +57,10 @@ def make_ui(*, settings: Settings | None = None) -> gr.Blocks:
             step=1,
             label="Rounds per speaker",
         )
-        plan_choice = gr.Radio(
-            choices=[PLAN_CHOICE_GENERATE, PLAN_CHOICE_SKIP],
-            value=PLAN_CHOICE_GENERATE,
-            label="Execution pack decision",
+        decision_radio = gr.Radio(
+            choices=[ARCH_CHOICE_A, ARCH_CHOICE_B],
+            value=ARCH_CHOICE_A,
+            label="Decision",
             visible=False,
         )
         with gr.Row():
@@ -75,17 +80,18 @@ def make_ui(*, settings: Settings | None = None) -> gr.Blocks:
             chatbot,
             input_tb,
             rounds_sl,
-            plan_choice,
+            decision_radio,
             run_btn,
             thread_id_state,
             mode_state,
             turns_state,
             transcript_state,
             chat_state,
+            tracker_html,
         ]
         run_btn.click(
             service.handle_submit,
-            inputs=[input_tb, rounds_sl, plan_choice, thread_id_state, mode_state, turns_state, transcript_state, chat_state],
+            inputs=[input_tb, rounds_sl, decision_radio, thread_id_state, mode_state, turns_state, transcript_state, chat_state],
             outputs=submit_outputs,
         )
         save_btn.click(
