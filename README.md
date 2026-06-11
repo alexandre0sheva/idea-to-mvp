@@ -13,11 +13,13 @@
 
 ## Workflow
 
-1. Enter an idea and run the panel discussion.
-2. Review the summary and answer the generated MVP questions.
-3. Get two architecture options from the architect step.
-4. Optionally generate an execution pack with `AGENTS.md` files and `plan.md`.
-5. Save the session to `exports/` as Markdown if needed.
+1. Enter an idea and run the panel discussion (PM, Tech Lead, Skeptic debate over the rounds you choose).
+2. The pipeline pauses at the first gate: review the summary and answer the five MVP decision questions.
+3. The architect produces two architecture options anchored to your answers.
+4. The pipeline pauses at the second gate: choose whether to generate the execution pack (`AGENTS.md` files and `plan.md`), optionally adding planning notes.
+5. Save the session to `exports/` as Markdown at any time.
+
+The whole session runs as a single LangGraph thread; the gates are real `interrupt()` pauses that resume exactly where the graph stopped.
 
 ## Quick Start
 
@@ -72,7 +74,8 @@ pytest
 
 - `app.py`: Gradio UI entrypoint
 - `submit_service.py`: stateful submit flow and streaming updates
-- `agents.py`: prompts, model runtimes, and graph nodes
+- `agents.py`: model runtimes, LLM invocation, and graph nodes
+- `roles.py`: declarative role registry (providers, models, token budgets, system prompts)
 - `graph.py`: LangGraph construction
 - `render.py`: UI rendering helpers
 - `state.py`: shared graph state contract

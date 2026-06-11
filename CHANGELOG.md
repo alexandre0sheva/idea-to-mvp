@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Changed
+- Pipeline now runs as one continuous LangGraph thread with real `interrupt()` gates for answers and the plan decision (no more phase-flag routing or per-phase threads).
+- All role prompts and provider/model wiring moved to a declarative registry in `roles.py`.
+- Discussion prompts are round-aware: panelists know their round and must converge in the final round; the Skeptic must pair every objection with the cheapest resolving test.
+- The summarizer now reports panel disagreements and resolutions; architect options anchor to the user's stated constraints.
+- The plan gate is a structured choice (radio + optional notes) instead of free-text yes/no parsing.
+
 ## [0.2.0] - 2026-04-19
 
 ### Workflow
