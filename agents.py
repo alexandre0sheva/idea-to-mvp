@@ -13,6 +13,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
+from langgraph.types import interrupt
 
 try:
     from .config import Provider, clear_settings_cache, get_settings
@@ -25,7 +26,7 @@ try:
         SUMMARY_SYSTEM,
         TOKEN_TO_SPEAKER,
     )
-    from .state import IdeaDiscussionState
+    from .state import IdeaDiscussionState, PlanDecision
     from .text_utils import normalize_content
 except ImportError:
     from config import Provider, clear_settings_cache, get_settings
@@ -38,7 +39,7 @@ except ImportError:
         SUMMARY_SYSTEM,
         TOKEN_TO_SPEAKER,
     )
-    from state import IdeaDiscussionState
+    from state import IdeaDiscussionState, PlanDecision
     from text_utils import normalize_content
 
 LOGGER = logging.getLogger(__name__)
@@ -523,12 +524,22 @@ def discussion_node(state: IdeaDiscussionState) -> dict[str, Any]:
     runtime = runtimes[speaker]
 
     thread_md = _history_markdown(state["discussion_history"])
+    speakers_count = len(SPEAKER_ORDER)
+    total_rounds = max(1, state["max_rounds"] // speakers_count)
+    current_round = min(total_rounds, state["turn_count"] // speakers_count + 1)
+    round_rules = f"- This is your round {current_round} of {total_rounds} in this panel.\n"
+    if current_round >= total_rounds:
+        round_rules += (
+            "- This is your FINAL round: converge instead of expanding. State your position on the open "
+            "disagreements, what you would commit to building, and what you would cut. Do not open new threads.\n"
+        )
     turn_prompt = (
         f"Anchor idea:\n{state['user_idea']}\n\n"
         "Panel transcript so far (chronological):\n"
         f"{thread_md}\n\n"
         f"You are **{speaker}**. Write the next panel turn.\n"
         "Rules for this turn:\n"
+        f"{round_rules}"
         "- Explicitly reference at least one prior panelist by role name (PM, Tech Lead, Skeptic).\n"
         "- Build on or challenge a concrete claim from the transcript.\n"
         "- Add net-new decisions/assumptions/tradeoffs rather than repeating prior text.\n"
@@ -592,6 +603,7 @@ def discussion_node(state: IdeaDiscussionState) -> dict[str, Any]:
         "discussion_history": [ai_message],
         "next_speaker": _next_speaker(speaker),
         "turn_count": state["turn_count"] + 1,
+        "stage": "discussion",
     }
 
 
@@ -630,7 +642,7 @@ def summarizer_node(state: IdeaDiscussionState) -> dict[str, Any]:
     )
     questions_text = _extract_text_from_message(questions_response) or normalize_content(questions_response.content)
     questions = _ensure_questions(_extract_questions(questions_text))
-    return {"summary": summary_text, "generated_questions": questions}
+    return {"summary": summary_text, "generated_questions": questions, "stage": "summary"}
 
 
 def _run_architect(
@@ -674,12 +686,39 @@ def route_after_discussion(state: IdeaDiscussionState) -> Literal["discussion", 
     return "summarizer"
 
 
-def route_from_start(state: IdeaDiscussionState) -> Literal["discussion", "architect", "plan_bundle"]:
-    if state.get("phase") == "plan_bundle":
+def collect_answers_node(state: IdeaDiscussionState) -> dict[str, Any]:
+    answers = interrupt(
+        {
+            "kind": "answers",
+            "summary": state.get("summary", ""),
+            "questions": state.get("generated_questions", []),
+        }
+    )
+    return {"user_answers": str(answers or "").strip(), "stage": "answers"}
+
+
+def plan_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
+    decision = interrupt(
+        {
+            "kind": "plan_gate",
+            "question": state.get("plan_offer_question") or _default_plan_offer_question(),
+            "architecture": state.get("architecture", ""),
+        }
+    )
+    if isinstance(decision, dict):
+        generate = bool(decision.get("generate"))
+        notes = str(decision.get("notes") or "").strip()
+    else:
+        generate = bool(decision)
+        notes = ""
+    plan_decision: PlanDecision = {"generate": generate, "notes": notes}
+    return {"plan_decision": plan_decision, "stage": "plan_bundle" if generate else "done"}
+
+
+def route_after_plan_gate(state: IdeaDiscussionState) -> Literal["plan_bundle", "__end__"]:
+    if state.get("plan_decision", {}).get("generate"):
         return "plan_bundle"
-    if state.get("phase") == "answers":
-        return "architect"
-    return "discussion"
+    return "__end__"
 
 
 def architect_node(state: IdeaDiscussionState) -> dict[str, Any]:
@@ -689,7 +728,7 @@ def architect_node(state: IdeaDiscussionState) -> dict[str, Any]:
         questions=state.get("generated_questions", []),
         user_answers=state.get("user_answers", ""),
     )
-    return {"architecture": architecture}
+    return {"architecture": architecture, "stage": "architecture"}
 
 
 def planner_offer_node(state: IdeaDiscussionState) -> dict[str, Any]:
@@ -712,7 +751,7 @@ def planner_offer_node(state: IdeaDiscussionState) -> dict[str, Any]:
     if isinstance(planner.llm, ChatOpenAI):
         _log_openai_response("planner_offer", planner.model, response)
     question = _extract_text_from_message(response) or normalize_content(response.content).strip()
-    return {"plan_offer_question": question or _default_plan_offer_question()}
+    return {"plan_offer_question": question or _default_plan_offer_question(), "stage": "plan_gate"}
 
 
 def plan_bundle_node(state: IdeaDiscussionState) -> dict[str, Any]:
@@ -722,12 +761,13 @@ def plan_bundle_node(state: IdeaDiscussionState) -> dict[str, Any]:
         questions=state.get("generated_questions", []),
         user_answers=state.get("user_answers", ""),
         architecture=state.get("architecture", ""),
-        planning_request=state.get("planning_request", ""),
+        planning_request=state.get("plan_decision", {}).get("notes", ""),
     )
     return {
         "project_bundle_dir": project_dir,
         "project_bundle_files": created_files,
         "project_bundle_summary": summary,
+        "stage": "done",
     }
 
 
