@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     default_rounds: int = 3
     enable_checkpointer: bool = True
 
+    # Implementation stage (Claude Agent SDK). Requires ANTHROPIC_API_KEY (or a
+    # logged-in Claude Code install) and spends real tokens; every run is gated
+    # behind explicit user approval in the UI.
+    implementer_model: str = "claude-opus-4-8"
+    implementer_permission_mode: str = "bypassPermissions"
+    implementer_max_turns: int = 120
+    implementer_max_budget_usd: float = 10.0
+    verifier_max_turns: int = 40
+    max_fix_attempts: int = 2
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
