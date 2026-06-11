@@ -4,7 +4,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 from typing import Any, Literal
 
@@ -16,148 +16,32 @@ from langchain_openai import ChatOpenAI
 
 try:
     from .config import Provider, clear_settings_cache, get_settings
+    from .roles import (
+        DISCUSSION_ROLE_KEYS,
+        QUESTIONS_SYSTEM,
+        ROLES,
+        SPEAKER_NAME_TOKEN,
+        SPEAKER_ORDER,
+        SUMMARY_SYSTEM,
+        TOKEN_TO_SPEAKER,
+    )
     from .state import IdeaDiscussionState
     from .text_utils import normalize_content
 except ImportError:
     from config import Provider, clear_settings_cache, get_settings
+    from roles import (
+        DISCUSSION_ROLE_KEYS,
+        QUESTIONS_SYSTEM,
+        ROLES,
+        SPEAKER_NAME_TOKEN,
+        SPEAKER_ORDER,
+        SUMMARY_SYSTEM,
+        TOKEN_TO_SPEAKER,
+    )
     from state import IdeaDiscussionState
     from text_utils import normalize_content
 
-SPEAKER_ORDER: list[str] = ["PM", "Tech Lead", "Skeptic"]
 LOGGER = logging.getLogger(__name__)
-SPEAKER_NAME_TOKEN: dict[str, str] = {
-    "PM": "pm",
-    "Tech Lead": "tech_lead",
-    "Skeptic": "skeptic",
-}
-TOKEN_TO_SPEAKER: dict[str, str] = {v: k for k, v in SPEAKER_NAME_TOKEN.items()}
-
-SHARED_DISCUSSION_RULES = (
-    "You are in a live panel with two other AIs. The human message is the anchor idea, "
-    "and the remaining messages are prior panel turns.\n\n"
-    "How to participate:\n"
-    "- Read the whole thread and directly reference at least one concrete claim from another panelist.\n"
-    "- Prioritize this order in every turn: (1) functionality and user workflows, (2) technical implementation, "
-    "(3) business model/GTM.\n"
-    "- Cover the full arc when relevant: problem and user workflow -> scope/MVP -> build/ops -> validation/launch "
-    "-> business model/pricing -> risks.\n"
-    "- Improve the idea with concrete tradeoffs, metrics, and what to cut.\n"
-    "- Use concise Markdown with short sections and bullets.\n"
-    "- Keep each turn compact: target 200-250 words, max 7 bullets total.\n"
-    "- Avoid generic essays and avoid repeating the idea verbatim.\n"
-    "- Keep outputs RAG-friendly: use explicit claims, assumptions, and decisions as bullet points.\n"
-)
-
-PM_SYSTEM = (
-    "You are PM in an idea lab: product strategist and market shaper.\n"
-    + SHARED_DISCUSSION_RULES
-    + "\nYour angle: core user journeys, MVP functionality, feature prioritization, and implementation-ready scope. "
-    "After that, add business model implications only if they affect product decisions. "
-    "Each turn, expose 1-2 risky assumptions and suggest 2-3 practical improvements.\n"
-    "End with **Functionality recommendation** and **Implementation-scoped next test**.\n"
-)
-
-TECH_LEAD_SYSTEM = (
-    "You are Tech Lead in an idea lab: pragmatic architect and delivery realist.\n"
-    + SHARED_DISCUSSION_RULES
-    + "\nYour angle: architecture choices, stack constraints, integration complexity, operational reliability, "
-    "and build sequencing for the highest-priority product functionality. "
-    "Address business model only after feasibility and implementation are clear. "
-    "React to PM/Skeptic claims with feasibility notes and hidden technical risk.\n"
-    "End with **Tech / build notes** and **Validation steps**.\n"
-)
-
-SKEPTIC_SYSTEM = (
-    "You are Skeptic in an idea lab: critical analyst focused on failure modes.\n"
-    + SHARED_DISCUSSION_RULES
-    + "\nYour angle: weak assumptions in functionality, technical design gaps, edge cases, adoption friction, "
-    "and legal/compliance concerns. Raise business-model concerns after product and implementation risks.\n"
-    "Challenge overconfident claims and force evidence-backed decisions.\n"
-    "End with **Pushback on functionality/implementation** and **Evidence needed next**.\n"
-)
-
-SUMMARY_SYSTEM = (
-    "You are a neutral session synthesizer. You receive the user's idea and the full multi-agent discussion.\n"
-    "Produce a concise Markdown brief the user can immediately execute:\n\n"
-    "## Executive summary\n"
-    "(3-4 concise sentences)\n\n"
-    "## Functional specification snapshot\n"
-    "(2-4 bullets: primary user workflows, core capabilities, clear MVP boundaries)\n\n"
-    "## Technical implementation snapshot\n"
-    "(2-4 bullets: architecture shape, key integrations, sequencing, operational constraints)\n\n"
-    "## Refined idea\n"
-    "(2-3 bullets: how the concept evolved after functionality + technical discussion)\n\n"
-    "## SWOT snapshot\n"
-    "- Strengths\n- Weaknesses\n- Opportunities\n- Threats\n\n"
-    "## Business model notes\n"
-    "(2-3 bullets only; add only notes that affect MVP decisions)\n\n"
-    "## Risks & mitigations\n"
-    "(3-5 bullets, include disagreements where relevant)\n\n"
-    "## Recommended next steps\n"
-    "(4-6 bullets; prioritize functionality then implementation then business tests)\n\n"
-    "Hard limits: keep total output under 600 words and avoid repeating similar points."
-)
-
-QUESTIONS_SYSTEM = (
-    "You are an MVP planning interviewer.\n"
-    "Generate exactly 5 high-leverage questions that must be answered before implementing the MVP.\n"
-    "Questions must be:\n"
-    "- directly actionable for scoping and architecture decisions\n"
-    "- specific to this idea (user workflows, scope, data model, integrations, constraints, then business model)\n"
-    "- answerable in free text\n"
-    "- one line each, max 24 words\n"
-    "Output format (strict):\n"
-    "1. ...\n2. ...\n3. ...\n4. ...\n5. ...\n"
-    "Do not output any extra sections or commentary."
-)
-
-ARCHITECT_SYSTEM = (
-    "You are Architect, a principal system architect focused on turning validated MVP ideas into practical implementation plans.\n"
-    "You receive: (1) original idea, (2) discussion summary, (3) clarification questions, (4) user answers.\n"
-    "Your job is to produce exactly two architecture options at the right level for MVP planning.\n\n"
-    "Output format (strict):\n"
-    "## Option A - Fast implementation and maintainability\n"
-    "- Proposed architecture style and key services/components\n"
-    "- Recommended languages/frameworks/tools\n"
-    "- State and persistence approach (high-level only)\n"
-    "- Integrations and infrastructure\n"
-    "- Security/reliability baseline\n"
-    "- Tradeoffs and expected limits\n\n"
-    "## Option B - Maximum performance and scale\n"
-    "- Proposed architecture style and key services/components\n"
-    "- Recommended languages/frameworks/tools\n"
-    "- State and persistence approach (high-level only)\n"
-    "- Integrations and infrastructure\n"
-    "- Security/reliability baseline\n"
-    "- Tradeoffs and expected limits\n\n"
-    "## Shared components (if applicable)\n"
-    "(List overlaps if the two options have common parts. Similarity is acceptable.)\n\n"
-    "## Architect recommendation\n"
-    "- Select one architecture as the ideal target for high performance and high load.\n"
-    "- Explain why it is still suitable for quick MVP launch.\n"
-    "- Provide a phased rollout: MVP phase -> scale-up phase.\n\n"
-    "Constraints:\n"
-    "- Keep output concise and practical (target 350-450 words total).\n"
-    "- Do NOT be overly detailed. Prefer high-level choices over walkthroughs.\n"
-    "- Keep each bullet to one short sentence and do not use sub-bullets.\n"
-    "- Do not add implementation examples, edge-case catalogs, or long justification paragraphs.\n"
-    "- Do NOT include database table schemas, ERDs, field-by-field models, or code/type definitions.\n"
-    "- Focus on system shape and implementation decisions only."
-)
-
-PLAN_OFFER_SYSTEM = (
-    "You are a pragmatic delivery lead.\n"
-    "Based on the idea, summary, answers, and architecture, ask one strong yes/no question inviting the user "
-    "to generate an agent-ready execution pack.\n"
-    "That pack includes AGENTS.md guidance files plus a complete MVP `plan.md` with task order, data contracts, "
-    "and testing expectations.\n"
-    "Constraints:\n"
-    "- 1-2 sentences total\n"
-    "- under 45 words\n"
-    "- direct, concrete, and implementation-focused\n"
-    "- mention the pack contents in natural language\n"
-    "- do not add greetings or extra commentary"
-)
 
 ROOT_AGENTS_SYSTEM = (
     "You are writing a root AGENTS.md file for a brand-new MVP project folder.\n"
@@ -328,71 +212,24 @@ def _invoke_with_runtime(
     return runtime.llm.invoke(messages, **_invoke_kwargs(runtime, max_tokens=retry_max_tokens))
 
 
-@lru_cache(maxsize=1)
-def get_discussion_runtimes() -> dict[str, AgentRuntime]:
+@cache
+def get_runtime(role_key: str) -> AgentRuntime:
     settings = get_settings()
-    return {
-        "PM": AgentRuntime(
-            llm=_build_llm(settings.pm_provider, settings.pm_model, settings.discussion_max_tokens),
-            provider=_resolve_provider(settings.pm_provider, settings.pm_model),
-            model=settings.pm_model,
-            max_tokens=settings.discussion_max_tokens,
-            system_prompt=PM_SYSTEM,
-        ),
-        "Tech Lead": AgentRuntime(
-            llm=_build_llm(
-                settings.tech_lead_provider,
-                settings.tech_lead_model,
-                settings.discussion_max_tokens,
-            ),
-            provider=_resolve_provider(settings.tech_lead_provider, settings.tech_lead_model),
-            model=settings.tech_lead_model,
-            max_tokens=settings.discussion_max_tokens,
-            system_prompt=TECH_LEAD_SYSTEM,
-        ),
-        "Skeptic": AgentRuntime(
-            llm=_build_llm(
-                settings.skeptic_provider,
-                settings.skeptic_model,
-                settings.skeptic_max_tokens,
-            ),
-            provider=_resolve_provider(settings.skeptic_provider, settings.skeptic_model),
-            model=settings.skeptic_model,
-            max_tokens=settings.skeptic_max_tokens,
-            system_prompt=SKEPTIC_SYSTEM,
-        ),
-    }
-
-
-@lru_cache(maxsize=1)
-def get_summarizer_runtime() -> LlmRuntime:
-    settings = get_settings()
-    return LlmRuntime(
-        llm=_build_llm(
-            settings.summarizer_provider,
-            settings.summarizer_model,
-            settings.summary_max_tokens,
-        ),
-        provider=_resolve_provider(settings.summarizer_provider, settings.summarizer_model),
-        model=settings.summarizer_model,
-        max_tokens=settings.summary_max_tokens,
-    )
-
-
-@lru_cache(maxsize=1)
-def get_architect_runtime() -> AgentRuntime:
-    settings = get_settings()
+    spec = ROLES[role_key]
+    configured_provider = getattr(settings, spec.provider_setting)
+    model = getattr(settings, spec.model_setting)
+    max_tokens = getattr(settings, spec.max_tokens_setting)
     return AgentRuntime(
-        llm=_build_llm(
-            settings.architect_provider,
-            settings.architect_model,
-            settings.summary_max_tokens,
-        ),
-        provider=_resolve_provider(settings.architect_provider, settings.architect_model),
-        model=settings.architect_model,
-        max_tokens=settings.summary_max_tokens,
-        system_prompt=ARCHITECT_SYSTEM,
+        llm=_build_llm(configured_provider, model, max_tokens),
+        provider=_resolve_provider(configured_provider, model),
+        model=model,
+        max_tokens=max_tokens,
+        system_prompt=spec.system_prompt,
     )
+
+
+def get_discussion_runtimes() -> dict[str, AgentRuntime]:
+    return {ROLES[key].display_name: get_runtime(key) for key in DISCUSSION_ROLE_KEYS}
 
 
 def _next_speaker(current_speaker: str) -> str:
@@ -569,7 +406,7 @@ def _create_project_bundle(
     architecture: str,
     planning_request: str,
 ) -> tuple[str, list[str], str]:
-    runtime = get_architect_runtime()
+    runtime = get_runtime("architect")
     context_block = _build_bundle_context(
         user_idea=user_idea,
         summary=summary,
@@ -759,7 +596,7 @@ def discussion_node(state: IdeaDiscussionState) -> dict[str, Any]:
 
 
 def summarizer_node(state: IdeaDiscussionState) -> dict[str, Any]:
-    summarizer = get_summarizer_runtime()
+    summarizer = get_runtime("summarizer")
     thread_md = _history_markdown(state["discussion_history"])
     summary_response = _invoke_with_runtime(
         summarizer,
@@ -803,7 +640,7 @@ def _run_architect(
     questions: list[str],
     user_answers: str,
 ) -> str:
-    architect = get_architect_runtime()
+    architect = get_runtime("architect")
     normalized_questions = _ensure_questions(questions)
     question_block = "\n".join(normalized_questions) if normalized_questions else "No explicit questions provided."
     response = _invoke_with_runtime(
@@ -856,11 +693,11 @@ def architect_node(state: IdeaDiscussionState) -> dict[str, Any]:
 
 
 def planner_offer_node(state: IdeaDiscussionState) -> dict[str, Any]:
-    architect = get_architect_runtime()
+    planner = get_runtime("planner")
     response = _invoke_with_runtime(
-        architect,
+        planner,
         [
-            SystemMessage(content=PLAN_OFFER_SYSTEM),
+            SystemMessage(content=planner.system_prompt),
             HumanMessage(
                 content=(
                     f"Initial idea:\n{state['user_idea'].strip()}\n\n"
@@ -872,8 +709,8 @@ def planner_offer_node(state: IdeaDiscussionState) -> dict[str, Any]:
             ),
         ],
     )
-    if isinstance(architect.llm, ChatOpenAI):
-        _log_openai_response("planner_offer", architect.model, response)
+    if isinstance(planner.llm, ChatOpenAI):
+        _log_openai_response("planner_offer", planner.model, response)
     question = _extract_text_from_message(response) or normalize_content(response.content).strip()
     return {"plan_offer_question": question or _default_plan_offer_question()}
 
@@ -896,6 +733,4 @@ def plan_bundle_node(state: IdeaDiscussionState) -> dict[str, Any]:
 
 def clear_runtime_caches() -> None:
     clear_settings_cache()
-    get_discussion_runtimes.cache_clear()
-    get_summarizer_runtime.cache_clear()
-    get_architect_runtime.cache_clear()
+    get_runtime.cache_clear()
