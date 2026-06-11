@@ -10,58 +10,53 @@ from typing import Any
 import gradio as gr
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 
 try:
-    from .agents import SPEAKER_ORDER, display_speaker_name
+    from .agents import display_speaker_name
     from .config import Settings
     from .exporter import save_session_markdown
     from .render import architect_block, questions_block, summary_block, thinking_block, turn_block
+    from .roles import SPEAKER_ORDER
     from .state import IdeaDiscussionState
     from .text_utils import normalize_message_content
 except ImportError:
-    from agents import SPEAKER_ORDER, display_speaker_name
+    from agents import display_speaker_name
     from config import Settings
     from exporter import save_session_markdown
     from render import architect_block, questions_block, summary_block, thinking_block, turn_block
+    from roles import SPEAKER_ORDER
     from state import IdeaDiscussionState
     from text_utils import normalize_message_content
 
 LOGGER = logging.getLogger(__name__)
+
+MODE_IDEA = "idea"
+MODE_ANSWERS = "answers"
+MODE_PLAN_GATE = "plan_gate"
+MODE_DONE = "done"
+
+PLAN_CHOICE_GENERATE = "Generate the execution pack"
+PLAN_CHOICE_SKIP = "Skip for now"
+
+_INPUT_LABELS: dict[str, tuple[str, str]] = {
+    MODE_IDEA: ("Describe your idea", "Describe your product idea..."),
+    MODE_ANSWERS: ("Your answers to MVP decision questions", "1. ...\n2. ..."),
+    MODE_PLAN_GATE: ("Planning notes (optional)", "Anything the planner should account for..."),
+    MODE_DONE: ("Describe your next idea", "Describe your product idea..."),
+}
+_BUTTON_LABELS: dict[str, str] = {
+    MODE_IDEA: "Run discussion",
+    MODE_ANSWERS: "Submit answers",
+    MODE_PLAN_GATE: "Send decision",
+    MODE_DONE: "Run discussion",
+}
 
 
 @dataclass(frozen=True)
 class AppContext:
     settings: Settings
     graph: CompiledStateGraph
-
-
-def _pack(
-    status: str,
-    chat_state: list[dict[str, str]],
-    turns_state: list[dict[str, str]],
-    transcript_state: list[dict[str, str]],
-    input_box: Any,
-    rounds_box: Any,
-    run_btn: Any,
-    thread_id: str,
-    mode: str,
-    questions_state: list[str],
-    summary_state: str,
-) -> tuple[Any, ...]:
-    return (
-        gr.update(value=status),
-        chat_state,
-        input_box,
-        rounds_box,
-        run_btn,
-        thread_id,
-        mode,
-        questions_state,
-        summary_state,
-        turns_state,
-        transcript_state,
-        chat_state,
-    )
 
 
 def _initial_state(idea: str, rounds: int) -> IdeaDiscussionState:
@@ -73,11 +68,11 @@ def _initial_state(idea: str, rounds: int) -> IdeaDiscussionState:
         "user_answers": "",
         "architecture": "",
         "plan_offer_question": "",
-        "planning_request": "",
+        "plan_decision": {"generate": False, "notes": ""},
         "project_bundle_dir": "",
         "project_bundle_files": [],
         "project_bundle_summary": "",
-        "phase": "idea",
+        "stage": "discussion",
         "next_speaker": SPEAKER_ORDER[0],
         "max_rounds": rounds * len(SPEAKER_ORDER),
         "turn_count": 0,
@@ -95,637 +90,391 @@ def _error_hint(stage: str, exc: Exception) -> str:
     return f"{stage} failed with `{type(exc).__name__}`: {exc}"
 
 
-def _latest_transcript_content(transcript_state: list[dict[str, str]], kind: str) -> str:
-    for entry in reversed(transcript_state or []):
-        if (entry.get("kind") or "").strip() == kind:
-            return (entry.get("content") or "").strip()
-    return ""
-
-
-def _is_affirmative(text: str) -> bool:
-    normalized = (text or "").strip().lower()
-    if not normalized:
-        return False
-    yes_prefixes = (
-        "y",
-        "yes",
-        "sure",
-        "ok",
-        "okay",
-        "please do",
-        "do it",
-        "generate",
-        "create",
-        "go ahead",
-        "proceed",
-    )
-    return any(normalized.startswith(prefix) for prefix in yes_prefixes)
-
-
-def _is_negative(text: str) -> bool:
-    normalized = (text or "").strip().lower()
-    if not normalized:
-        return False
-    no_prefixes = ("n", "no", "not now", "skip", "later", "nope")
-    return any(normalized.startswith(prefix) for prefix in no_prefixes)
-
-
 class SubmitService:
+    """Bridges Gradio submits to one continuously checkpointed graph thread.
+
+    The graph pauses at `interrupt()` gates; the UI mode mirrors the gate the
+    graph is paused at and the next submit resumes it with `Command(resume=...)`.
+    """
+
     def __init__(self, context: AppContext):
         self._context = context
         self._project_dir = Path(__file__).resolve().parent
 
-    def clear_session(self) -> tuple[Any, ...]:
+    # ------------------------------------------------------------------ UI
+
+    def _pack(
+        self,
+        *,
+        status: str,
+        mode: str,
+        thread_id: str,
+        turns_state: list[dict[str, str]],
+        transcript_state: list[dict[str, str]],
+        chat_state: list[dict[str, str]],
+        clear_input: bool = False,
+    ) -> tuple[Any, ...]:
+        label, placeholder = _INPUT_LABELS.get(mode, _INPUT_LABELS[MODE_IDEA])
+        input_update = (
+            gr.update(value="", label=label, placeholder=placeholder)
+            if clear_input
+            else gr.update(label=label, placeholder=placeholder)
+        )
         return (
-            gr.update(value=""),
-            [],
-            gr.update(value="", label="Describe your idea", placeholder="Describe your product idea..."),
-            gr.update(visible=True, value=self._context.settings.default_rounds),
-            gr.update(value="Run discussion"),
-            str(uuid.uuid4()),
-            "idea",
-            [],
-            "",
-            [],
-            [],
-            [],
+            gr.update(value=status),
+            chat_state,
+            input_update,
+            gr.update(visible=mode in (MODE_IDEA, MODE_DONE)),
+            gr.update(visible=mode == MODE_PLAN_GATE),
+            gr.update(value=_BUTTON_LABELS.get(mode, _BUTTON_LABELS[MODE_IDEA])),
+            thread_id,
+            mode,
+            turns_state,
+            transcript_state,
+            chat_state,
         )
 
-    def handle_submit(
+    def clear_session(self) -> tuple[Any, ...]:
+        return self._pack(
+            status="",
+            mode=MODE_IDEA,
+            thread_id=str(uuid.uuid4()),
+            turns_state=[],
+            transcript_state=[],
+            chat_state=[],
+            clear_input=True,
+        )
+
+    # ------------------------------------------------------- chat helpers
+
+    @staticmethod
+    def _append_thinking(
+        chat_state: list[dict[str, str]],
+        transcript_state: list[dict[str, str]],
+        speaker: str,
+        message: str,
+    ) -> None:
+        chat_state.append({"role": "assistant", "content": thinking_block(speaker, message)})
+        transcript_state.append({"kind": "thinking", "speaker": speaker, "content": message})
+
+    @staticmethod
+    def _replace_or_append(
+        chat_state: list[dict[str, str]],
+        transcript_state: list[dict[str, str]],
+        chat_html: str,
+        kind: str,
+        speaker: str,
+        content: str,
+    ) -> None:
+        entry = {"kind": kind, "speaker": speaker, "content": content}
+        message = {"role": "assistant", "content": chat_html}
+        if transcript_state and (transcript_state[-1].get("kind") or "") == "thinking":
+            transcript_state[-1] = entry
+            chat_state[-1] = message
+        else:
+            transcript_state.append(entry)
+            chat_state.append(message)
+
+    # ------------------------------------------------------ event mapping
+
+    def _apply_discussion(
         self,
-        user_text: str,
-        rounds: int,
+        update: dict[str, Any],
+        max_turns: int,
+        turns_state: list[dict[str, str]],
+        transcript_state: list[dict[str, str]],
+        chat_state: list[dict[str, str]],
+    ) -> str | None:
+        history = update.get("discussion_history") or []
+        message = history[-1] if history else None
+        if not isinstance(message, AIMessage):
+            return None
+        speaker = display_speaker_name(message.name) if message.name else "Panelist"
+        content = normalize_message_content(message)
+        self._replace_or_append(
+            chat_state, transcript_state, turn_block(speaker, content), "discussion", speaker, content
+        )
+        turns_state.append({"speaker": speaker, "content": content})
+        turn = int(update.get("turn_count", 0))
+        if turn < max_turns:
+            nxt = update.get("next_speaker", SPEAKER_ORDER[0])
+            self._append_thinking(chat_state, transcript_state, nxt, f"{nxt} is drafting the next panel turn...")
+            return f"Turn {turn}/{max_turns} complete. Next: {nxt}."
+        self._append_thinking(
+            chat_state,
+            transcript_state,
+            "Summarizer",
+            "Synthesizing the discussion into a summary and MVP questions...",
+        )
+        return f"Turn {turn}/{max_turns} complete. Summarizer is preparing the brief."
+
+    def _apply_summary(
+        self,
+        update: dict[str, Any],
+        transcript_state: list[dict[str, str]],
+        chat_state: list[dict[str, str]],
+    ) -> str:
+        summary = (update.get("summary") or "").strip()
+        self._replace_or_append(chat_state, transcript_state, summary_block(summary), "summary", "Summary", summary)
+        return "Summary ready. Preparing MVP decision questions..."
+
+    def _apply_architect(
+        self,
+        update: dict[str, Any],
+        transcript_state: list[dict[str, str]],
+        chat_state: list[dict[str, str]],
+    ) -> str:
+        architecture = (update.get("architecture") or "").strip() or (
+            "Architect returned an empty architecture proposal."
+        )
+        self._replace_or_append(
+            chat_state, transcript_state, architect_block(architecture), "architect", "Architect", architecture
+        )
+        self._append_thinking(chat_state, transcript_state, "Planner", "Preparing the execution-pack question...")
+        return "Architecture ready. Planner is preparing the next step..."
+
+    def _apply_plan_bundle(
+        self,
+        update: dict[str, Any],
+        transcript_state: list[dict[str, str]],
+        chat_state: list[dict[str, str]],
+    ) -> str:
+        summary = (update.get("project_bundle_summary") or "").strip()
+        summary = summary or (update.get("project_bundle_dir") or "").strip()
+        summary = summary or "Project pack generation returned no visible summary."
+        self._replace_or_append(
+            chat_state, transcript_state, turn_block("Planner", summary), "project_bundle", "Planner", summary
+        )
+        return "Project pack ready."
+
+    def _apply_interrupt(
+        self,
+        interrupts: Any,
+        transcript_state: list[dict[str, str]],
+        chat_state: list[dict[str, str]],
+    ) -> tuple[str, str]:
+        value = interrupts[0].value if interrupts else None
+        payload = value if isinstance(value, dict) else {}
+        kind = payload.get("kind")
+        if kind == "answers":
+            questions = [str(q) for q in payload.get("questions") or []]
+            block = questions_block(questions)
+            if block:
+                self._replace_or_append(
+                    chat_state, transcript_state, block, "questions", "Questions", "\n".join(questions)
+                )
+            return MODE_ANSWERS, "Answer the MVP decision questions to continue."
+        if kind == "plan_gate":
+            question = str(payload.get("question") or "").strip() or "Generate the execution pack?"
+            self._replace_or_append(
+                chat_state, transcript_state, turn_block("Planner", question), "planner_offer", "Planner", question
+            )
+            return MODE_PLAN_GATE, "Choose whether to generate the execution pack. Notes are optional."
+        return MODE_DONE, "Pipeline paused at an unknown gate. Use Clear to restart."
+
+    # ------------------------------------------------------------ running
+
+    def _run(
+        self,
+        *,
+        payload: Any,
+        max_turns: int,
         thread_id: str,
         mode: str,
-        questions_state: list[str],
-        summary_state: str,
-        turns_state: list[dict[str, str]] | None = None,
-        transcript_state: list[dict[str, str]] | None = None,
-        chat_state: list[dict[str, str]] | None = None,
+        turns_state: list[dict[str, str]],
+        transcript_state: list[dict[str, str]],
+        chat_state: list[dict[str, str]],
     ) -> Generator[tuple[Any, ...], None, None]:
-        text = (user_text or "").strip()
-        thread_id = (thread_id or "").strip() or str(uuid.uuid4())
-        mode = mode or "idea"
-        questions_state = questions_state or []
-        summary_state = summary_state or ""
-        turns_state = turns_state or []
-        if chat_state is None and transcript_state:
-            # Backward compatibility for older callers/tests that still pass
-            # `chat_state` in the previous positional slot.
-            if all(
-                isinstance(item, dict) and "role" in item and "kind" not in item
-                for item in transcript_state
-            ):
-                chat_state = transcript_state
-                transcript_state = []
-        transcript_state = transcript_state or []
-        chat_state = chat_state or []
-
-        if not text:
-            yield _pack(
-                "Please enter text before submitting.",
-                chat_state,
-                turns_state,
-                transcript_state,
-                gr.update(),
-                gr.update(),
-                gr.update(),
-                thread_id,
-                mode,
-                questions_state,
-                summary_state,
-            )
-            return
-
-        if mode == "answers":
-            yield from self._run_architect_mode(
-                text=text,
-                thread_id=thread_id,
-                questions_state=questions_state,
-                summary_state=summary_state,
-                turns_state=turns_state,
-                transcript_state=transcript_state,
-                chat_state=chat_state,
-            )
-            return
-
-        if mode == "plan_offer":
-            if _is_affirmative(text):
-                yield from self._run_plan_bundle_mode(
-                    text=text,
-                    thread_id=thread_id,
-                    questions_state=questions_state,
-                    summary_state=summary_state,
-                    turns_state=turns_state,
-                    transcript_state=transcript_state,
-                    chat_state=chat_state,
-                )
-                return
-
-            if _is_negative(text):
-                chat_state += [
-                    {"role": "user", "content": text},
-                    {
-                        "role": "assistant",
-                        "content": turn_block(
-                            "Planner",
-                            "No problem. If you want the agent-ready project pack later, reply with `yes` and I will generate it.",
-                        ),
-                    },
-                ]
-                transcript_state += [
-                    {"kind": "planner_decision", "speaker": "You", "content": text},
-                    {
-                        "kind": "planner_note",
-                        "speaker": "Planner",
-                        "content": "User declined project-pack generation for now.",
-                    },
-                ]
-                yield _pack(
-                    "Skipped project-pack generation. You can still answer `yes` later.",
-                    chat_state,
-                    turns_state,
-                    transcript_state,
-                    gr.update(value="", label="Reply `yes` later to generate the project pack"),
-                    gr.update(visible=False),
-                    gr.update(value="Send"),
-                    thread_id,
-                    "plan_offer",
-                    questions_state,
-                    summary_state,
-                )
-                return
-
-            yield _pack(
-                "Please answer with `yes` to generate the project pack or `no` to skip it for now.",
-                chat_state,
-                turns_state,
-                transcript_state,
-                gr.update(value=text, label="Do you want the execution pack?", placeholder="yes / no"),
-                gr.update(visible=False),
-                gr.update(value="Send"),
-                thread_id,
-                mode,
-                questions_state,
-                summary_state,
-            )
-            return
-
-        yield from self._run_idea_mode(
-            text=text,
-            rounds=rounds,
+        config = {"configurable": {"thread_id": thread_id}}
+        next_mode = MODE_DONE
+        final_status = "Pipeline finished. Use Clear to start a fresh session, or describe a new idea."
+        try:
+            for event in self._context.graph.stream(payload, config=config, stream_mode="updates"):
+                if "__interrupt__" in event:
+                    next_mode, final_status = self._apply_interrupt(
+                        event["__interrupt__"], transcript_state, chat_state
+                    )
+                    continue
+                status: str | None = None
+                if "discussion" in event:
+                    status = self._apply_discussion(
+                        event["discussion"], max_turns, turns_state, transcript_state, chat_state
+                    )
+                elif "summarizer" in event:
+                    status = self._apply_summary(event["summarizer"], transcript_state, chat_state)
+                elif "architect" in event:
+                    status = self._apply_architect(event["architect"], transcript_state, chat_state)
+                elif "plan_bundle" in event:
+                    status = self._apply_plan_bundle(event["plan_bundle"], transcript_state, chat_state)
+                # collect_answers / plan_gate / planner_offer updates need no chat output:
+                # their visible content arrives via the interrupt payloads.
+                if status:
+                    yield self._pack(
+                        status=status,
+                        mode=mode,
+                        thread_id=thread_id,
+                        turns_state=turns_state,
+                        transcript_state=transcript_state,
+                        chat_state=chat_state,
+                    )
+        except Exception as exc:
+            LOGGER.exception("Pipeline run failed")
+            hint = _error_hint("Pipeline", exc)
+            chat_state.append({"role": "assistant", "content": f"### Orchestrator error\n\n{hint}"})
+            transcript_state.append({"kind": "system", "speaker": "Orchestrator error", "content": hint})
+            next_mode = mode if mode in (MODE_ANSWERS, MODE_PLAN_GATE) else MODE_IDEA
+            final_status = "Run failed. See the error in chat; you can retry your last input."
+        yield self._pack(
+            status=final_status,
+            mode=next_mode,
             thread_id=thread_id,
             turns_state=turns_state,
             transcript_state=transcript_state,
             chat_state=chat_state,
         )
 
-    def _run_architect_mode(
+    # ------------------------------------------------------------- submit
+
+    def handle_submit(
         self,
-        *,
-        text: str,
-        thread_id: str,
-        questions_state: list[str],
-        summary_state: str,
-        turns_state: list[dict[str, str]],
-        transcript_state: list[dict[str, str]],
-        chat_state: list[dict[str, str]],
-    ) -> Generator[tuple[Any, ...], None, None]:
-        chat_state += [
-            {"role": "user", "content": text},
-            {
-                "role": "assistant",
-                "content": thinking_block("Architect", "Turning your answers into two concise architecture options..."),
-            },
-        ]
-        transcript_state += [
-            {"kind": "user_answers", "speaker": "You", "content": text},
-            {
-                "kind": "thinking",
-                "speaker": "Architect",
-                "content": "Designing system options...",
-            },
-        ]
-        yield _pack(
-            "Answers captured. Architect is designing system options...",
-            chat_state,
-            turns_state,
-            transcript_state,
-            gr.update(value="", label="Add clarifications (optional)"),
-            gr.update(visible=False),
-            gr.update(value="Update answers"),
-            thread_id,
-            "answers",
-            questions_state,
-            summary_state,
-        )
-
-        initial_idea = ""
-        for item in chat_state:
-            if item.get("role") == "user":
-                initial_idea = (item.get("content") or "").strip()
-                if initial_idea:
-                    break
-        try:
-            architect_state: IdeaDiscussionState = {
-                "user_idea": initial_idea or text,
-                "discussion_history": [HumanMessage(content=initial_idea or text)],
-                "summary": summary_state,
-                "generated_questions": questions_state,
-                "user_answers": text,
-                "architecture": "",
-                "plan_offer_question": "",
-                "planning_request": "",
-                "project_bundle_dir": "",
-                "project_bundle_files": [],
-                "project_bundle_summary": "",
-                "phase": "answers",
-                "next_speaker": SPEAKER_ORDER[0],
-                "max_rounds": 0,
-                "turn_count": 0,
-            }
-            architecture_text = ""
-            planner_question = ""
-            for event in self._context.graph.stream(
-                architect_state,
-                config={"configurable": {"thread_id": thread_id}},
-                stream_mode="updates",
-            ):
-                if "architect" in event:
-                    architecture_text = (event["architect"].get("architecture") or "").strip()
-                    chat_state[-1] = {"role": "assistant", "content": architect_block(architecture_text or "Architect returned an empty architecture proposal.")}
-                    transcript_state[-1] = {
-                        "kind": "architect",
-                        "speaker": "Architect",
-                        "content": architecture_text or "Architect returned an empty architecture proposal.",
-                    }
-                    chat_state.append(
-                        {
-                            "role": "assistant",
-                            "content": thinking_block("Planner", "Preparing the next-step question about generating the execution pack..."),
-                        }
-                    )
-                    transcript_state.append(
-                        {
-                            "kind": "thinking",
-                            "speaker": "Planner",
-                            "content": "Preparing the next-step delivery question...",
-                        }
-                    )
-                    yield _pack(
-                        "Architecture ready. Preparing the next implementation step...",
-                        chat_state,
-                        turns_state,
-                        transcript_state,
-                        gr.update(value="", label="Add clarifications (optional)"),
-                        gr.update(visible=False),
-                        gr.update(value="Update answers"),
-                        thread_id,
-                        "answers",
-                        questions_state,
-                        summary_state,
-                    )
-                if "planner_offer" in event:
-                    planner_question = (event["planner_offer"].get("plan_offer_question") or "").strip()
-            if not architecture_text:
-                architecture_text = "Architect returned an empty architecture proposal."
-            if not planner_question:
-                planner_question = (
-                    "Should I generate an agent-ready project pack next with scoped `AGENTS.md` files and a full `plan.md` "
-                    "covering task order, data contracts, and test expectations for the MVP?"
-                )
-        except Exception as exc:
-            LOGGER.exception("Architect stage failed")
-            architecture_text = _error_hint("Architect stage", exc)
-            planner_question = ""
-        if not transcript_state or (transcript_state[-1].get("kind") or "") != "planner_offer":
-            if not transcript_state or (transcript_state[-1].get("kind") or "") != "thinking":
-                chat_state.append({"role": "assistant", "content": architect_block(architecture_text)})
-                transcript_state.append(
-                    {
-                        "kind": "architect",
-                        "speaker": "Architect",
-                        "content": architecture_text,
-                    }
-                )
-            elif (transcript_state[-1].get("speaker") or "") == "Architect":
-                chat_state[-1] = {"role": "assistant", "content": architect_block(architecture_text)}
-                transcript_state[-1] = {
-                    "kind": "architect",
-                    "speaker": "Architect",
-                    "content": architecture_text,
-                }
-
-        if planner_question:
-            if chat_state and transcript_state and (transcript_state[-1].get("kind") or "") == "thinking":
-                chat_state[-1] = {"role": "assistant", "content": turn_block("Planner", planner_question)}
-                transcript_state[-1] = {
-                    "kind": "planner_offer",
-                    "speaker": "Planner",
-                    "content": planner_question,
-                }
-            else:
-                chat_state.append({"role": "assistant", "content": turn_block("Planner", planner_question)})
-                transcript_state.append(
-                    {
-                        "kind": "planner_offer",
-                        "speaker": "Planner",
-                        "content": planner_question,
-                    }
-                )
-        yield _pack(
-            "Architecture options ready. Decide whether to generate the execution pack.",
-            chat_state,
-            turns_state,
-            transcript_state,
-            gr.update(value="", label=planner_question or "Generate the execution pack?", placeholder="yes / no"),
-            gr.update(visible=False),
-            gr.update(value="Send"),
-            thread_id,
-            "plan_offer",
-            questions_state,
-            summary_state,
-        )
-
-    def _run_plan_bundle_mode(
-        self,
-        *,
-        text: str,
-        thread_id: str,
-        questions_state: list[str],
-        summary_state: str,
-        turns_state: list[dict[str, str]],
-        transcript_state: list[dict[str, str]],
-        chat_state: list[dict[str, str]],
-    ) -> Generator[tuple[Any, ...], None, None]:
-        architecture_text = _latest_transcript_content(transcript_state, "architect")
-        initial_idea = ""
-        for item in chat_state:
-            if item.get("role") == "user":
-                initial_idea = (item.get("content") or "").strip()
-                if initial_idea:
-                    break
-
-        chat_state += [
-            {"role": "user", "content": text},
-            {
-                "role": "assistant",
-                "content": thinking_block("Planner", "Generating `AGENTS.md` guidance files and a task-only `plan.md`..."),
-            },
-        ]
-        transcript_state += [
-            {"kind": "planner_decision", "speaker": "You", "content": text},
-            {
-                "kind": "thinking",
-                "speaker": "Planner",
-                "content": "Generating the project pack and execution plan...",
-            },
-        ]
-        yield _pack(
-            "Generating the agent-ready project pack...",
-            chat_state,
-            turns_state,
-            transcript_state,
-            gr.update(value="", label="Add planning notes (optional)"),
-            gr.update(visible=False),
-            gr.update(value="Generate again"),
-            thread_id,
-            "plan_offer",
-            questions_state,
-            summary_state,
-        )
-
-        try:
-            plan_state: IdeaDiscussionState = {
-                "user_idea": initial_idea or text,
-                "discussion_history": [HumanMessage(content=initial_idea or text)],
-                "summary": summary_state,
-                "generated_questions": questions_state,
-                "user_answers": _latest_transcript_content(transcript_state, "user_answers"),
-                "architecture": architecture_text,
-                "plan_offer_question": _latest_transcript_content(transcript_state, "planner_offer"),
-                "planning_request": text,
-                "project_bundle_dir": "",
-                "project_bundle_files": [],
-                "project_bundle_summary": "",
-                "phase": "plan_bundle",
-                "next_speaker": SPEAKER_ORDER[0],
-                "max_rounds": 0,
-                "turn_count": 0,
-            }
-            plan_summary = ""
-            bundle_dir = ""
-            for event in self._context.graph.stream(
-                plan_state,
-                config={"configurable": {"thread_id": f"{thread_id}-plan"}},
-                stream_mode="updates",
-            ):
-                if "plan_bundle" in event:
-                    bundle_event = event["plan_bundle"]
-                    plan_summary = (bundle_event.get("project_bundle_summary") or "").strip()
-                    bundle_dir = (bundle_event.get("project_bundle_dir") or "").strip()
-            if not plan_summary:
-                plan_summary = bundle_dir or "Project pack generation returned no visible summary."
-        except Exception as exc:
-            LOGGER.exception("Project pack generation failed")
-            plan_summary = _error_hint("Project pack generation", exc)
-
-        chat_state[-1] = {"role": "assistant", "content": turn_block("Planner", plan_summary)}
-        transcript_state[-1] = {
-            "kind": "project_bundle",
-            "speaker": "Planner",
-            "content": plan_summary,
-        }
-        yield _pack(
-            "Project pack ready.",
-            chat_state,
-            turns_state,
-            transcript_state,
-            gr.update(
-                value="",
-                label="Reply `yes` to generate another version, or add extra planning notes and submit again",
-            ),
-            gr.update(visible=False),
-            gr.update(value="Send"),
-            thread_id,
-            "plan_offer",
-            questions_state,
-            summary_state,
-        )
-
-    def _run_idea_mode(
-        self,
-        *,
-        text: str,
+        user_text: str,
         rounds: int,
+        plan_choice: str,
         thread_id: str,
-        turns_state: list[dict[str, str]],
-        transcript_state: list[dict[str, str]],
-        chat_state: list[dict[str, str]],
+        mode: str,
+        turns_state: list[dict[str, str]] | None = None,
+        transcript_state: list[dict[str, str]] | None = None,
+        chat_state: list[dict[str, str]] | None = None,
     ) -> Generator[tuple[Any, ...], None, None]:
-        state = _initial_state(text, int(rounds))
-        max_turns = state["max_rounds"]
-        turns_state = []
-        chat_state = [
-            {"role": "user", "content": text},
-            {
-                "role": "assistant",
-                "content": thinking_block(state["next_speaker"], f"{state['next_speaker']} is drafting the next panel turn..."),
-            },
-        ]
-        transcript_state = [
-            {"kind": "idea", "speaker": "You", "content": text},
-            {
-                "kind": "thinking",
-                "speaker": state["next_speaker"],
-                "content": f"{state['next_speaker']} is drafting the next panel turn...",
-            },
-        ]
-        yield _pack(
-            "Running panel discussion...",
-            chat_state,
-            turns_state,
-            transcript_state,
-            gr.update(value="", label="Your answers to MVP decision questions"),
-            gr.update(visible=False),
-            gr.update(value="Submit answers"),
-            thread_id,
-            "idea",
-            [],
-            "",
-        )
-        try:
-            for event in self._context.graph.stream(
-                state,
-                config={"configurable": {"thread_id": thread_id}},
-                stream_mode="updates",
-            ):
-                if "discussion" in event:
-                    d = event["discussion"]
-                    msg = (d.get("discussion_history") or [None])[-1]
-                    speaker = display_speaker_name(msg.name) if isinstance(msg, AIMessage) and msg.name else "Panelist"
-                    content = normalize_message_content(msg)
-                    chat_state[-1] = {"role": "assistant", "content": turn_block(speaker, content)}
-                    turns_state.append({"speaker": speaker, "content": content})
-                    transcript_state[-1] = {
-                        "kind": "discussion",
-                        "speaker": speaker,
-                        "content": content,
-                    }
-                    turn = int(d.get("turn_count", 0))
-                    if turn < max_turns:
-                        nxt = d.get("next_speaker", SPEAKER_ORDER[0])
-                        chat_state.append(
-                            {
-                                "role": "assistant",
-                                "content": thinking_block(nxt, f"{nxt} is drafting the next panel turn..."),
-                            }
-                        )
-                        transcript_state.append(
-                            {
-                                "kind": "thinking",
-                                "speaker": nxt,
-                                "content": f"{nxt} is drafting the next panel turn...",
-                            }
-                        )
-                        yield _pack(
-                            f"Turn {turn}/{max_turns} complete. Next: {nxt}.",
-                            chat_state,
-                            turns_state,
-                            transcript_state,
-                            gr.update(),
-                            gr.update(visible=False),
-                            gr.update(value="Submit answers"),
-                            thread_id,
-                            "idea",
-                            [],
-                            "",
-                        )
-                    else:
-                        chat_state.append(
-                            {
-                                "role": "assistant",
-                                "content": thinking_block("Summarizer", "Synthesizing the discussion into a summary and MVP questions..."),
-                            }
-                        )
-                        transcript_state.append(
-                            {
-                                "kind": "thinking",
-                                "speaker": "Summarizer",
-                                "content": "Preparing summary and MVP questions...",
-                            }
-                        )
-                        yield _pack(
-                            "Discussion complete. Summarizer is preparing MVP questions.",
-                            chat_state,
-                            turns_state,
-                            transcript_state,
-                            gr.update(),
-                            gr.update(visible=False),
-                            gr.update(value="Submit answers"),
-                            thread_id,
-                            "idea",
-                            [],
-                            "",
-                        )
+        text = (user_text or "").strip()
+        thread_id = (thread_id or "").strip() or str(uuid.uuid4())
+        mode = (mode or MODE_IDEA).strip() or MODE_IDEA
+        turns_state = list(turns_state or [])
+        transcript_state = list(transcript_state or [])
+        chat_state = list(chat_state or [])
 
-                if "summarizer" in event:
-                    s = event["summarizer"]
-                    summary = (s.get("summary") or "").strip()
-                    questions = (s.get("generated_questions") or [])[:5]
-                    q_block = questions_block(questions)
-                    chat_state[-1] = {"role": "assistant", "content": summary_block(summary)}
-                    transcript_state[-1] = {
-                        "kind": "summary",
-                        "speaker": "Summary",
-                        "content": summary,
-                    }
-                    if q_block:
-                        chat_state.append({"role": "assistant", "content": q_block})
-                        transcript_state.append(
-                            {
-                                "kind": "questions",
-                                "speaker": "Questions",
-                                "content": "\n".join(questions),
-                            }
-                        )
-                    yield _pack(
-                        "Done. Answer MVP decision questions to continue.",
-                        chat_state,
-                        turns_state,
-                        transcript_state,
-                        gr.update(value="", label="Your answers to MVP decision questions", placeholder="1. ...\n2. ..."),
-                        gr.update(visible=False),
-                        gr.update(value="Submit answers"),
-                        thread_id,
-                        "answers",
-                        questions,
-                        summary,
-                    )
-        except Exception as exc:
-            LOGGER.exception("Orchestrator run failed")
-            error_text = _error_hint("Orchestrator run", exc)
-            chat_state.append({"role": "assistant", "content": f"### Orchestrator error\n\n{error_text}"})
-            transcript_state.append(
-                {
-                    "kind": "system",
-                    "speaker": "Orchestrator error",
-                    "content": error_text,
-                }
-            )
-            yield _pack(
-                "Run failed. See error in chat.",
+        if mode in (MODE_IDEA, MODE_DONE):
+            if not text:
+                yield self._pack(
+                    status="Please describe your idea first.",
+                    mode=MODE_IDEA,
+                    thread_id=thread_id,
+                    turns_state=turns_state,
+                    transcript_state=transcript_state,
+                    chat_state=chat_state,
+                )
+                return
+            if mode == MODE_DONE:
+                thread_id = str(uuid.uuid4())
+            turns_state, transcript_state, chat_state = [], [], []
+            state = _initial_state(text, int(rounds))
+            chat_state.append({"role": "user", "content": text})
+            transcript_state.append({"kind": "idea", "speaker": "You", "content": text})
+            self._append_thinking(
                 chat_state,
-                turns_state,
                 transcript_state,
-                gr.update(),
-                gr.update(visible=False),
-                gr.update(value="Run discussion"),
-                thread_id,
-                "idea",
-                [],
-                "",
+                state["next_speaker"],
+                f"{state['next_speaker']} is drafting the next panel turn...",
             )
+            yield self._pack(
+                status="Running panel discussion...",
+                mode=MODE_IDEA,
+                thread_id=thread_id,
+                turns_state=turns_state,
+                transcript_state=transcript_state,
+                chat_state=chat_state,
+                clear_input=True,
+            )
+            yield from self._run(
+                payload=state,
+                max_turns=state["max_rounds"],
+                thread_id=thread_id,
+                mode=MODE_IDEA,
+                turns_state=turns_state,
+                transcript_state=transcript_state,
+                chat_state=chat_state,
+            )
+            return
+
+        if mode == MODE_ANSWERS:
+            if not text:
+                yield self._pack(
+                    status="Please answer the questions before submitting.",
+                    mode=mode,
+                    thread_id=thread_id,
+                    turns_state=turns_state,
+                    transcript_state=transcript_state,
+                    chat_state=chat_state,
+                )
+                return
+            chat_state.append({"role": "user", "content": text})
+            transcript_state.append({"kind": "user_answers", "speaker": "You", "content": text})
+            self._append_thinking(
+                chat_state, transcript_state, "Architect", "Turning your answers into two architecture options..."
+            )
+            yield self._pack(
+                status="Answers captured. Architect is designing system options...",
+                mode=mode,
+                thread_id=thread_id,
+                turns_state=turns_state,
+                transcript_state=transcript_state,
+                chat_state=chat_state,
+                clear_input=True,
+            )
+            yield from self._run(
+                payload=Command(resume=text),
+                max_turns=0,
+                thread_id=thread_id,
+                mode=mode,
+                turns_state=turns_state,
+                transcript_state=transcript_state,
+                chat_state=chat_state,
+            )
+            return
+
+        if mode == MODE_PLAN_GATE:
+            generate = (plan_choice or "").strip() == PLAN_CHOICE_GENERATE
+            decision_label = PLAN_CHOICE_GENERATE if generate else PLAN_CHOICE_SKIP
+            shown = decision_label + (f" — {text}" if text else "")
+            chat_state.append({"role": "user", "content": shown})
+            transcript_state.append({"kind": "planner_decision", "speaker": "You", "content": shown})
+            if generate:
+                self._append_thinking(
+                    chat_state,
+                    transcript_state,
+                    "Planner",
+                    "Generating `AGENTS.md` guidance files and a task-only `plan.md`...",
+                )
+                yield self._pack(
+                    status="Generating the agent-ready project pack...",
+                    mode=mode,
+                    thread_id=thread_id,
+                    turns_state=turns_state,
+                    transcript_state=transcript_state,
+                    chat_state=chat_state,
+                    clear_input=True,
+                )
+            yield from self._run(
+                payload=Command(resume={"generate": generate, "notes": text}),
+                max_turns=0,
+                thread_id=thread_id,
+                mode=mode,
+                turns_state=turns_state,
+                transcript_state=transcript_state,
+                chat_state=chat_state,
+            )
+            return
+
+        yield self._pack(
+            status=f"Unknown mode `{mode}`. Use Clear to reset the session.",
+            mode=MODE_IDEA,
+            thread_id=thread_id,
+            turns_state=turns_state,
+            transcript_state=transcript_state,
+            chat_state=chat_state,
+        )
+
+    # -------------------------------------------------------------- export
 
     def save_conversation(
         self,

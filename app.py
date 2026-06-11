@@ -10,12 +10,12 @@ try:
     from .config import Settings, get_settings
     from .graph import build_graph
     from .render import DEFAULT_IDEA, PANEL_CSS
-    from .submit_service import AppContext, SubmitService
+    from .submit_service import PLAN_CHOICE_GENERATE, PLAN_CHOICE_SKIP, AppContext, SubmitService
 except ImportError:
     from config import Settings, get_settings
     from graph import build_graph
     from render import DEFAULT_IDEA, PANEL_CSS
-    from submit_service import AppContext, SubmitService
+    from submit_service import PLAN_CHOICE_GENERATE, PLAN_CHOICE_SKIP, AppContext, SubmitService
 
 
 def _supports_param(callable_obj: object, param_name: str) -> bool:
@@ -52,6 +52,12 @@ def make_ui(*, settings: Settings | None = None) -> gr.Blocks:
             step=1,
             label="Rounds per speaker",
         )
+        plan_choice = gr.Radio(
+            choices=[PLAN_CHOICE_GENERATE, PLAN_CHOICE_SKIP],
+            value=PLAN_CHOICE_GENERATE,
+            label="Execution pack decision",
+            visible=False,
+        )
         with gr.Row():
             run_btn = gr.Button("Run discussion", variant="primary")
             save_btn = gr.Button("Save to Markdown")
@@ -60,26 +66,34 @@ def make_ui(*, settings: Settings | None = None) -> gr.Blocks:
 
         thread_id_state = gr.State(str(uuid.uuid4()))
         mode_state = gr.State("idea")
-        questions_state = gr.State([])
-        summary_state = gr.State("")
         turns_state = gr.State([])
         transcript_state = gr.State([])
         chat_state = gr.State([])
 
+        submit_outputs = [
+            status_md,
+            chatbot,
+            input_tb,
+            rounds_sl,
+            plan_choice,
+            run_btn,
+            thread_id_state,
+            mode_state,
+            turns_state,
+            transcript_state,
+            chat_state,
+        ]
         run_btn.click(
             service.handle_submit,
-            inputs=[input_tb, rounds_sl, thread_id_state, mode_state, questions_state, summary_state, turns_state, transcript_state, chat_state],
-            outputs=[status_md, chatbot, input_tb, rounds_sl, run_btn, thread_id_state, mode_state, questions_state, summary_state, turns_state, transcript_state, chat_state],
+            inputs=[input_tb, rounds_sl, plan_choice, thread_id_state, mode_state, turns_state, transcript_state, chat_state],
+            outputs=submit_outputs,
         )
         save_btn.click(
             service.save_conversation,
             inputs=[input_tb, thread_id_state, mode_state, transcript_state],
             outputs=[status_md, export_file],
         )
-        clear_btn.click(
-            service.clear_session,
-            outputs=[status_md, chatbot, input_tb, rounds_sl, run_btn, thread_id_state, mode_state, questions_state, summary_state, turns_state, transcript_state, chat_state],
-        )
+        clear_btn.click(service.clear_session, outputs=submit_outputs)
         clear_btn.click(
             lambda: gr.update(value=None, visible=False),
             outputs=[export_file],

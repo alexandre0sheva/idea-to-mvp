@@ -1,26 +1,56 @@
 from langchain_core.messages import AIMessage
+from langgraph.types import Command
 
 from config import Settings
-from submit_service import AppContext, SubmitService
+from submit_service import (
+    MODE_ANSWERS,
+    MODE_DONE,
+    MODE_IDEA,
+    MODE_PLAN_GATE,
+    PLAN_CHOICE_GENERATE,
+    PLAN_CHOICE_SKIP,
+    AppContext,
+    SubmitService,
+)
+
+# Output tuple positions (see SubmitService._pack):
+# 0 status, 1 chatbot, 2 input_tb, 3 rounds_sl, 4 plan_choice, 5 run_btn,
+# 6 thread_id, 7 mode, 8 turns_state, 9 transcript_state, 10 chat_state
+POS_THREAD = 6
+POS_MODE = 7
+POS_TRANSCRIPT = 9
+POS_CHAT = 10
+
+
+class FakeInterrupt:
+    def __init__(self, value):
+        self.value = value
 
 
 class DummyGraph:
-    def __init__(self, events: list[dict]):
+    def __init__(self, events):
         self._events = events
+        self.calls = []
 
-    def stream(self, *_args, **_kwargs):
+    def stream(self, payload, *args, **kwargs):
+        self.calls.append(payload)
         yield from self._events
 
 
+def _service(events):
+    graph = DummyGraph(events)
+    return SubmitService(AppContext(settings=Settings(), graph=graph)), graph
+
+
 def test_clear_session_resets_core_state() -> None:
-    service = SubmitService(AppContext(settings=Settings(), graph=DummyGraph([])))
+    service, _ = _service([])
     result = service.clear_session()
-    assert result[6] == "idea"
-    assert result[7] == []
-    assert result[8] == ""
+    assert result[POS_MODE] == MODE_IDEA
+    assert result[POS_TRANSCRIPT] == []
+    assert result[POS_CHAT] == []
 
 
-def test_idea_mode_progresses_to_answers() -> None:
+def test_idea_mode_runs_to_answers_gate() -> None:
     events = [
         {
             "discussion": {
@@ -30,35 +60,76 @@ def test_idea_mode_progresses_to_answers() -> None:
             }
         },
         {"summarizer": {"summary": "Executive summary", "generated_questions": ["1. Who is the user?"]}},
+        {
+            "__interrupt__": (
+                FakeInterrupt({"kind": "answers", "questions": ["1. Who is the user?"], "summary": "Executive summary"}),
+            )
+        },
     ]
-    service = SubmitService(AppContext(settings=Settings(), graph=DummyGraph(events)))
-    outputs = list(service.handle_submit("Build x", 1, "thread-1", "idea", [], "", [], []))
+    service, graph = _service(events)
+    outputs = list(service.handle_submit("Build x", 1, PLAN_CHOICE_GENERATE, "thread-1", MODE_IDEA, [], [], []))
     final = outputs[-1]
-    assert final[6] == "answers"
-    assert final[7] == ["1. Who is the user?"]
-    assert final[8] == "Executive summary"
+    assert final[POS_MODE] == MODE_ANSWERS
+    assert any("Who is the user?" in m["content"] for m in final[POS_CHAT])
+    assert isinstance(graph.calls[0], dict)
+    assert graph.calls[0]["user_idea"] == "Build x"
 
 
-def test_answers_mode_generates_architecture() -> None:
+def test_answers_mode_resumes_to_plan_gate() -> None:
     events = [
         {"architect": {"architecture": "## Option A\nSimple stack"}},
-        {"planner_offer": {"plan_offer_question": "Should I generate the execution pack now?"}},
+        {"planner_offer": {"plan_offer_question": "Generate the pack?"}},
+        {
+            "__interrupt__": (
+                FakeInterrupt({"kind": "plan_gate", "question": "Generate the pack?", "architecture": "## Option A"}),
+            )
+        },
     ]
-    service = SubmitService(AppContext(settings=Settings(), graph=DummyGraph(events)))
-    chat_state = [{"role": "user", "content": "Original idea"}]
+    service, graph = _service(events)
     outputs = list(
-        service.handle_submit(
-            "User clarification",
-            1,
-            "thread-2",
-            "answers",
-            ["1. What scope?"],
-            "Summary text",
-            [],
-            chat_state,
-        )
+        service.handle_submit("1. Solo founders.", 1, PLAN_CHOICE_GENERATE, "thread-2", MODE_ANSWERS, [], [], [])
     )
     final = outputs[-1]
-    assert final[6] == "plan_offer"
-    assert any("Architect" in message["content"] for message in final[1])
-    assert "Planner" in final[1][-1]["content"]
+    assert final[POS_MODE] == MODE_PLAN_GATE
+    assert isinstance(graph.calls[0], Command)
+    assert graph.calls[0].resume == "1. Solo founders."
+    assert any("Architect" in m["content"] for m in final[POS_CHAT])
+    assert "Generate the pack?" in final[POS_CHAT][-1]["content"]
+
+
+def test_plan_gate_generate_resumes_with_structured_decision() -> None:
+    events = [
+        {"plan_bundle": {"project_bundle_summary": "Generated pack in `dir`.", "project_bundle_dir": "dir"}},
+    ]
+    service, graph = _service(events)
+    outputs = list(
+        service.handle_submit("keep it lean", 1, PLAN_CHOICE_GENERATE, "thread-3", MODE_PLAN_GATE, [], [], [])
+    )
+    final = outputs[-1]
+    assert final[POS_MODE] == MODE_DONE
+    assert isinstance(graph.calls[0], Command)
+    assert graph.calls[0].resume == {"generate": True, "notes": "keep it lean"}
+    assert any("Generated pack" in m["content"] for m in final[POS_CHAT])
+
+
+def test_plan_gate_skip_finishes_session() -> None:
+    service, graph = _service([])
+    outputs = list(service.handle_submit("", 1, PLAN_CHOICE_SKIP, "thread-4", MODE_PLAN_GATE, [], [], []))
+    final = outputs[-1]
+    assert final[POS_MODE] == MODE_DONE
+    assert graph.calls[0].resume == {"generate": False, "notes": ""}
+
+
+def test_error_mid_run_reports_stage_and_keeps_mode() -> None:
+    class ExplodingGraph:
+        calls: list = []
+
+        def stream(self, payload, *args, **kwargs):
+            raise TimeoutError("model timed out")
+            yield  # pragma: no cover
+
+    service = SubmitService(AppContext(settings=Settings(), graph=ExplodingGraph()))
+    outputs = list(service.handle_submit("Answers", 1, PLAN_CHOICE_GENERATE, "thread-5", MODE_ANSWERS, [], [], []))
+    final = outputs[-1]
+    assert final[POS_MODE] == MODE_ANSWERS  # retryable
+    assert any("error" in m["content"].lower() for m in final[POS_CHAT])
