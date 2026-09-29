@@ -1,6 +1,6 @@
 """Implementation stage: drives Claude Agent SDK sessions that build the MVP.
 
-The blueprint bundle is copied into ``generated_projects/<bundle-name>/`` and one
+The blueprint bundle is copied into ``<projects_dir>/<bundle-name>/`` and one
 or more agent sessions implement it there, sandboxed to that working directory.
 Two execution modes (chosen by the strategy agent):
 
@@ -25,11 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    try:
-        from .config import Settings
-    except ImportError:
-        from config import Settings
-
+    from idea_to_mvp.config import Settings
 LOGGER = logging.getLogger(__name__)
 
 LEAD_PROMPT = (
@@ -138,7 +134,7 @@ async def _run_agent_async(
     options = ClaudeAgentOptions(
         cwd=str(workspace),
         model=settings.implementer_model,
-        permission_mode=settings.implementer_permission_mode,  # type: ignore[arg-type]
+        permission_mode=settings.implementer_permission_mode,
         max_turns=max_turns,
         max_budget_usd=settings.implementer_max_budget_usd,
         agents=agents or None,
@@ -174,6 +170,10 @@ def _run_agent(
 
 def run_implementation(workspace: Path, strategy: dict[str, Any], settings: Settings) -> str:
     """Build the project in `workspace` according to the execution strategy."""
+    if settings.demo_mode:
+        from idea_to_mvp.demo.implementer import demo_implement
+
+        return demo_implement(Path(workspace), strategy)
     workspace = Path(workspace)
     mode = (strategy or {}).get("mode") or "subagents"
     workstreams = (strategy or {}).get("workstreams") or []
@@ -208,6 +208,10 @@ def run_implementation(workspace: Path, strategy: dict[str, Any], settings: Sett
 
 def run_verification(workspace: Path, settings: Settings) -> dict[str, Any]:
     """Run the generated project's own test suite via a verification agent."""
+    if settings.demo_mode:
+        from idea_to_mvp.demo.implementer import demo_verify
+
+        return demo_verify(Path(workspace))
     report = _run_agent(
         VERIFICATION_PROMPT,
         workspace=Path(workspace),
@@ -225,6 +229,10 @@ def run_verification(workspace: Path, settings: Settings) -> dict[str, Any]:
 
 def run_fix(workspace: Path, report: str, settings: Settings) -> str:
     """Feed a failed verification report back to an implementation agent."""
+    if settings.demo_mode:
+        from idea_to_mvp.demo.implementer import demo_fix
+
+        return demo_fix(report)
     return _run_agent(
         FIX_PROMPT.format(report=report or "No report available."),
         workspace=Path(workspace),

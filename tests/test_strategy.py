@@ -1,7 +1,9 @@
 import pytest
-from langchain_core.messages import AIMessage
 
-import agents
+from idea_to_mvp import llm
+from idea_to_mvp.llm.structured import StructuredOutputError
+from idea_to_mvp.nodes.strategy import fallback_strategy, strategy_node
+from idea_to_mvp.schemas import ExecutionStrategy, Workstream
 
 
 class FakeRuntime:
@@ -11,13 +13,6 @@ class FakeRuntime:
         self.model = "fake-model"
         self.max_tokens = 256
         self.system_prompt = system_prompt
-
-
-STRATEGY_JSON = (
-    '{"mode": "agent_team", "reasoning": "Independent workstreams.", '
-    '"workstreams": [{"name": "backend-api", "focus": "API", "deliverables": "REST API"}, '
-    '{"name": "web-ui", "focus": "UI", "deliverables": "Frontend"}]}'
-)
 
 
 def _state() -> dict:
@@ -33,42 +28,48 @@ def _state() -> dict:
 
 @pytest.fixture()
 def fake_runtime(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(agents, "get_runtime", lambda key: FakeRuntime(f"system::{key}"))
+    monkeypatch.setattr(llm, "get_runtime", lambda key: FakeRuntime(f"system::{key}"))
 
 
-def test_strategy_node_parses_strict_json(fake_runtime, monkeypatch) -> None:
-    monkeypatch.setattr(
-        agents, "_invoke_with_runtime", lambda runtime, messages, **kw: AIMessage(content=STRATEGY_JSON)
+def test_strategy_node_stores_the_validated_strategy_as_a_dict(fake_runtime, monkeypatch) -> None:
+    chosen = ExecutionStrategy(
+        mode="agent_team",
+        reasoning="Independent workstreams.",
+        workstreams=[
+            Workstream(name="backend-api", focus="API", deliverables="REST API"),
+            Workstream(name="web-ui", focus="UI", deliverables="Frontend"),
+        ],
     )
-    update = agents.strategy_node(_state())
+    seen: dict = {}
+
+    def fake_structured(runtime, messages, schema, *, fallback=None):
+        seen["schema"] = schema
+        seen["prompt"] = "\n".join(str(m.content) for m in messages)
+        return chosen
+
+    monkeypatch.setattr(llm, "invoke_structured", fake_structured)
+    update = strategy_node(_state())
+    assert seen["schema"] is ExecutionStrategy
+    assert "User chose option: A" in seen["prompt"]
     strategy = update["execution_strategy"]
     assert strategy["mode"] == "agent_team"
     assert [w["name"] for w in strategy["workstreams"]] == ["backend-api", "web-ui"]
     assert update["stage"] == "strategy"
 
 
-def test_strategy_node_strips_markdown_fences(fake_runtime, monkeypatch) -> None:
-    fenced = f"```json\n{STRATEGY_JSON}\n```"
-    monkeypatch.setattr(
-        agents, "_invoke_with_runtime", lambda runtime, messages, **kw: AIMessage(content=fenced)
-    )
-    strategy = agents.strategy_node(_state())["execution_strategy"]
-    assert strategy["mode"] == "agent_team"
+def test_strategy_node_passes_a_valid_fallback(fake_runtime, monkeypatch) -> None:
+    captured = {}
 
+    def fake_structured(runtime, messages, schema, *, fallback=None):
+        captured["fallback"] = fallback
+        return fallback()
 
-def test_strategy_node_falls_back_on_invalid_json(fake_runtime, monkeypatch) -> None:
-    monkeypatch.setattr(
-        agents, "_invoke_with_runtime", lambda runtime, messages, **kw: AIMessage(content="not json at all")
-    )
-    strategy = agents.strategy_node(_state())["execution_strategy"]
+    monkeypatch.setattr(llm, "invoke_structured", fake_structured)
+    strategy = strategy_node(_state())["execution_strategy"]
     assert strategy["mode"] == "subagents"
     assert strategy["workstreams"], "fallback must still define at least one workstream"
+    assert captured["fallback"] is fallback_strategy
 
 
-def test_strategy_node_rejects_unknown_mode(fake_runtime, monkeypatch) -> None:
-    bad_mode = STRATEGY_JSON.replace("agent_team", "swarm")
-    monkeypatch.setattr(
-        agents, "_invoke_with_runtime", lambda runtime, messages, **kw: AIMessage(content=bad_mode)
-    )
-    strategy = agents.strategy_node(_state())["execution_strategy"]
-    assert strategy["mode"] == "subagents"
+def test_strategy_errors_are_not_swallowed_when_no_fallback_exists() -> None:
+    assert issubclass(StructuredOutputError, RuntimeError)

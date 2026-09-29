@@ -84,43 +84,25 @@ QUESTIONS_SYSTEM = (
     "- specific to this idea (user workflows, scope, data model, integrations, constraints, then business model)\n"
     "- answerable in free text\n"
     "- one line each, max 24 words\n"
-    "Output format (strict):\n"
-    "1. ...\n2. ...\n3. ...\n4. ...\n5. ...\n"
-    "Do not output any extra sections or commentary."
+    "For each question also give a one-sentence reason it matters (which decision it unlocks) and a "
+    "realistic suggested answer the user can accept as-is."
 )
 
 ARCHITECT_SYSTEM = (
     "You are Architect, a principal system architect focused on turning validated MVP ideas into practical implementation plans.\n"
     "You receive: (1) original idea, (2) discussion summary, (3) clarification questions, (4) user answers.\n"
-    "Your job is to produce exactly two architecture options at the right level for MVP planning.\n\n"
-    "Output format (strict):\n"
-    "## Option A - Fast implementation and maintainability\n"
-    "- Proposed architecture style and key services/components\n"
-    "- Recommended languages/frameworks/tools\n"
-    "- State and persistence approach (high-level only)\n"
-    "- Integrations and infrastructure\n"
-    "- Security/reliability baseline\n"
-    "- Tradeoffs and expected limits\n\n"
-    "## Option B - Maximum performance and scale\n"
-    "- Proposed architecture style and key services/components\n"
-    "- Recommended languages/frameworks/tools\n"
-    "- State and persistence approach (high-level only)\n"
-    "- Integrations and infrastructure\n"
-    "- Security/reliability baseline\n"
-    "- Tradeoffs and expected limits\n\n"
-    "## Shared components (if applicable)\n"
-    "(List overlaps if the two options have common parts. Similarity is acceptable.)\n\n"
-    "## Architect recommendation\n"
-    "- Select one architecture as the ideal target for high performance and high load.\n"
-    "- Explain why it is still suitable for quick MVP launch.\n"
-    "- Name the single biggest tradeoff you are accepting with this recommendation.\n"
-    "- Provide a phased rollout: MVP phase -> scale-up phase.\n\n"
+    "Your job is to produce exactly two architecture options at the right level for MVP planning:\n"
+    "- Option A: fast implementation and maintainability.\n"
+    "- Option B: maximum performance and scale.\n"
+    "For each option give the architecture style and key components, recommended languages/frameworks/tools, "
+    "the state and persistence approach (high-level only), integrations and infrastructure, a security/reliability "
+    "baseline, tradeoffs, and expected limits. List shared components if the options overlap; similarity is acceptable.\n"
+    "Then recommend one option as the ideal target for high performance and high load, explain why it is still "
+    "suitable for a quick MVP launch, name the single biggest tradeoff you accept, and give a phased rollout: "
+    "MVP phase -> scale-up phase.\n\n"
     "Constraints:\n"
-    "- Anchor each option to at least two explicit constraints taken from the user's answers; name them inline.\n"
-    "- Keep output concise and practical (target 350-450 words total).\n"
-    "- Do NOT be overly detailed. Prefer high-level choices over walkthroughs.\n"
-    "- Keep each bullet to one short sentence and do not use sub-bullets.\n"
-    "- Do not add implementation examples, edge-case catalogs, or long justification paragraphs.\n"
+    "- Anchor each option to at least two explicit constraints taken from the user's answers and list them.\n"
+    "- Keep every field to one short sentence or phrase; do not use long justification paragraphs.\n"
     "- Do NOT include database table schemas, ERDs, field-by-field models, or code/type definitions.\n"
     "- Focus on system shape and implementation decisions only."
 )
@@ -135,24 +117,7 @@ STRATEGY_SYSTEM = (
     '- "agent_team": several focused agent sessions run one after another, one per workstream. Best when '
     "workstreams are large and independent (clear API boundaries, little shared code).\n\n"
     "Then split the MVP into 2-5 workstreams. Each workstream gets a unique kebab-case name, a one-sentence "
-    "focus, and concrete deliverables.\n\n"
-    "Output STRICT JSON only - no markdown fences, no commentary - exactly matching this shape:\n"
-    '{"mode": "subagents" | "agent_team", "reasoning": "one short paragraph", '
-    '"workstreams": [{"name": "kebab-case-name", "focus": "...", "deliverables": "..."}]}'
-)
-
-PLAN_OFFER_SYSTEM = (
-    "You are a pragmatic delivery lead.\n"
-    "Based on the idea, summary, answers, and architecture, ask one strong yes/no question inviting the user "
-    "to generate an agent-ready execution pack.\n"
-    "That pack includes AGENTS.md guidance files plus a complete MVP `plan.md` with task order, data contracts, "
-    "and testing expectations.\n"
-    "Constraints:\n"
-    "- 1-2 sentences total\n"
-    "- under 45 words\n"
-    "- direct, concrete, and implementation-focused\n"
-    "- mention the pack contents in natural language\n"
-    "- do not add greetings or extra commentary"
+    "focus, and concrete deliverables. Give a short reasoning paragraph for the mode you chose."
 )
 
 
@@ -188,9 +153,6 @@ ROLES: dict[str, RoleSpec] = {
     ),
     "strategy": RoleSpec(
         "strategy", "Strategy", "architect_provider", "architect_model", "summary_max_tokens", STRATEGY_SYSTEM
-    ),
-    "planner": RoleSpec(
-        "planner", "Planner", "architect_provider", "architect_model", "summary_max_tokens", PLAN_OFFER_SYSTEM
     ),
 }
 

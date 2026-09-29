@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal, TypedDict
+import operator
+from typing import Annotated, Any, Literal, TypedDict, cast
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph.message import add_messages
+
+from idea_to_mvp.roles import SPEAKER_ORDER
+from idea_to_mvp.usage import UsageRecord
 
 Stage = Literal[
     "discussion",
@@ -37,22 +41,6 @@ class ArchChoice(TypedDict):
     notes: str
 
 
-class Workstream(TypedDict):
-    """One independent slice of implementation work."""
-
-    name: str
-    focus: str
-    deliverables: str
-
-
-class ExecutionStrategy(TypedDict):
-    """How implementation agents should be organized."""
-
-    mode: str  # "subagents" | "agent_team"
-    reasoning: str
-    workstreams: list[Workstream]
-
-
 class ImplementDecision(TypedDict):
     """Structured result of the implementation gate interrupt."""
 
@@ -74,12 +62,13 @@ class IdeaDiscussionState(TypedDict):
     user_idea: str
     discussion_history: Annotated[list[BaseMessage], add_messages]
     summary: str
-    generated_questions: list[str]
+    questions: list[dict[str, Any]]  # MvpQuestion dumps (schemas.py)
+    generated_questions: list[str]  # the same questions rendered as numbered lines
     user_answers: str
-    architecture: str
+    architecture: str  # markdown rendered from architecture_proposal
+    architecture_proposal: dict[str, Any]  # ArchitectureProposal dump
     arch_choice: ArchChoice
-    execution_strategy: ExecutionStrategy
-    plan_offer_question: str
+    execution_strategy: dict[str, Any]  # ExecutionStrategy dump
     plan_decision: PlanDecision
     implement_decision: ImplementDecision
     project_bundle_dir: str
@@ -89,7 +78,38 @@ class IdeaDiscussionState(TypedDict):
     implementation_log: str
     verification: VerificationResult
     delivery_report: str
+    usage: Annotated[list[UsageRecord], operator.add]  # model calls, accumulated over the run
     stage: Stage
     next_speaker: SpeakerName
     max_rounds: int
     turn_count: int
+
+
+def make_initial_state(idea: str, rounds: int) -> IdeaDiscussionState:
+    """Fresh state for a new pipeline run; the single place every field gets its default."""
+    return {
+        "user_idea": idea,
+        "discussion_history": [HumanMessage(content=idea)],
+        "summary": "",
+        "questions": [],
+        "generated_questions": [],
+        "user_answers": "",
+        "architecture": "",
+        "architecture_proposal": {},
+        "arch_choice": {"option": "", "notes": ""},
+        "execution_strategy": {"mode": "", "reasoning": "", "workstreams": []},
+        "plan_decision": {"generate": False, "notes": ""},
+        "implement_decision": {"implement": False, "notes": ""},
+        "project_bundle_dir": "",
+        "project_bundle_files": [],
+        "project_bundle_summary": "",
+        "workspace_dir": "",
+        "implementation_log": "",
+        "verification": {"passed": False, "attempts": 0, "report": ""},
+        "delivery_report": "",
+        "usage": [],
+        "stage": "discussion",
+        "next_speaker": cast(SpeakerName, SPEAKER_ORDER[0]),
+        "max_rounds": rounds * len(SPEAKER_ORDER),
+        "turn_count": 0,
+    }

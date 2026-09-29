@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import html
 import re
+from collections.abc import Callable
 
+render_markdown: Callable[..., str] | None
 try:
     from markdown import markdown as render_markdown
 except ImportError:  # pragma: no cover - optional runtime fallback
@@ -163,13 +165,25 @@ def _normalize_question_text(q: str) -> str:
     return text
 
 
-def questions_block(questions: list[str]) -> str:
+def questions_block(questions: list[str], items: list[dict[str, str]] | None = None) -> str:
+    """Render the MVP questions; typed `items` (schemas.MvpQuestion dumps) add why-it-matters + suggestion."""
     cleaned = [_normalize_question_text(q) for q in questions]
     cleaned = [q for q in cleaned if q][:5]
     if not cleaned:
         return ""
-    lines = "\n".join(f"{i}. {q}" for i, q in enumerate(cleaned, start=1))
-    body = _safe_markdown_to_html(lines)
+    details = items if items and len(items) == len(cleaned) else None
+    rows: list[str] = []
+    for index, question in enumerate(cleaned, start=1):
+        row = f"{index}. {question}"
+        if details:
+            why = str(details[index - 1].get("why_it_matters") or "").strip()
+            suggestion = str(details[index - 1].get("suggested_answer") or "").strip()
+            if why:
+                row += f"\n\n    *Why it matters:* {why}"
+            if suggestion:
+                row += f"\n\n    *Suggested answer:* {suggestion}"
+        rows.append(row)
+    body = _safe_markdown_to_html("\n\n".join(rows))
     return (
         f"<details class='speaker-card summary {_style_class_for_speaker('Questions')}' open>"
         "<summary class='speaker-head'>Questions before MVP build</summary>"

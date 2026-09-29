@@ -16,12 +16,12 @@ Idea
  → Planner                blueprint pack: PRD, ARCHITECTURE, AGENTS guides, plan.md,
                           .claude/agents/* subagent definitions, STRATEGY.json
  🔒 Implementation gate    explicit confirmation — this spends real API tokens
- → Implementer            Claude Agent SDK agents build the project in generated_projects/
+ → Implementer            Claude Agent SDK agents build the project in OUTPUT_DIR/projects/
  → Verifier               runs the generated project's own test suite, bounded fix loop
  → Delivery report        file tree, verification verdict, how to run your product
 ```
 
-The whole session is one continuously checkpointed LangGraph thread; every 🔒 gate is a real `interrupt()` pause resumed with `Command(resume=...)`.
+The whole session is one continuously checkpointed LangGraph thread (stored in SQLite, so sessions survive restarts); every 🔒 gate is a real `interrupt()` pause resumed with `Command(resume=...)`.
 
 ## Execution strategies
 
@@ -34,18 +34,27 @@ The decision and reasoning are recorded in the blueprint's `STRATEGY.json`.
 
 ## Quick Start
 
+### Try it without API keys
+
+```bash
+uv sync
+DEMO_MODE=true uv run idea-to-mvp
+```
+
+Demo mode walks the whole pipeline — panel, gates, blueprint pack, a stand-in implementation, verification, delivery report — with canned outputs. No keys, no spend.
+
 ### Requirements
 
-- Python 3.11+
-- API keys for the providers you use (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`)
+- [uv](https://docs.astral.sh/uv/) (installs the right Python for you; 3.11–3.13 supported)
+- API keys for the providers you use (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`) — not needed for demo mode
 - The implementation stage requires `ANTHROPIC_API_KEY` (it drives the Claude Agent SDK)
 
 ### Install
 
+Uses [uv](https://docs.astral.sh/uv/) (Python 3.11+ is fetched automatically):
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync
 ```
 
 ### Configure
@@ -54,65 +63,52 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Fill in the provider API keys and adjust model selections if needed.
+Fill in the provider API keys and adjust model selections if needed. `.env.example` is the reference for every setting.
 
 ### Run
 
 ```bash
-python app.py
+uv run idea-to-mvp
 ```
 
 Describe your idea, choose rounds per speaker, and follow the gates. At the final gate you decide whether implementation agents build the product — the cost warning shows the model and per-session budget cap before anything runs.
 
+### Troubleshooting
+
+Run `uv run idea-to-mvp doctor` to verify your API keys, model IDs, and the agent CLI before a run (`--offline` checks configuration only). Optional LangSmith tracing is described in `.env.example`.
+
 ## Outputs
+
+Everything is written under `OUTPUT_DIR` (default `~/idea-to-mvp`, deliberately outside this repository):
 
 | Folder | Contents |
 |---|---|
+| `sessions.db` | Checkpoints and the session list: reopen the app, pick a session under *Saved sessions*, and continue where you stopped |
 | `exports/` | Saved conversation Markdown files (any time, via *Save to Markdown*) |
-| `project_blueprints/` | Blueprint packs: `README.md`, `PRD.md`, `ARCHITECTURE.md`, `AGENTS.md` guides, `plan.md`, `.claude/agents/*.md`, `STRATEGY.json` |
-| `generated_projects/` | Implemented projects (a copy of the blueprint plus the code the agents built and tested) |
+| `blueprints/` | Blueprint packs: `README.md`, `PRD.md`, `ARCHITECTURE.md`, `AGENTS.md` guides, `plan.md`, `.claude/agents/*.md`, `STRATEGY.json` |
+| `projects/` | Implemented projects (a copy of the blueprint plus the code the agents built and tested) |
 
 ## Configuration
 
-All settings load from `.env` (see `.env.example`). Key variables:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `*_PROVIDER`, `*_MODEL` | see `.env.example` | Provider/model per discussion & pipeline role |
-| `DISCUSSION_MAX_TOKENS`, `SKEPTIC_MAX_TOKENS`, `SUMMARY_MAX_TOKENS` | 900/1200/2000 | Output budgets |
-| `IMPLEMENTER_MODEL` | `claude-opus-4-8` | Model for implementation/verification agents |
-| `IMPLEMENTER_MAX_TURNS` / `VERIFIER_MAX_TURNS` | 120 / 40 | Agent session turn caps |
-| `IMPLEMENTER_MAX_BUDGET_USD` | 10.0 | Hard cost cap per agent session |
-| `MAX_FIX_ATTEMPTS` | 2 | Verification fix-loop bound |
-| `IMPLEMENTER_PERMISSION_MODE` | `bypassPermissions` | Agent SDK permission mode (see security note) |
-| `ENABLE_CHECKPOINTER` | `true` | LangGraph in-memory checkpointing |
+All settings load from `.env`; [`.env.example`](.env.example) documents every variable and its default (providers and models per role, token budgets, implementation caps).
 
 ### Cost & security notes
 
-- The implementation stage runs autonomous agents with **file and shell access inside the workspace** (`generated_projects/<project>/`). The default `bypassPermissions` mode is what makes unattended building possible — only run it on machines/projects where that is acceptable, and review `IMPLEMENTER_MAX_BUDGET_USD` before starting.
+- The implementation stage runs autonomous agents with **file and shell access inside the workspace** (`projects/<project>/` under `OUTPUT_DIR`). The default `bypassPermissions` mode is what makes unattended building possible — only run it on machines/projects where that is acceptable, and review `IMPLEMENTER_MAX_BUDGET_USD` before starting.
 - Nothing implementation-related runs without your explicit confirmation at the implementation gate.
 - Never commit `.env` files or API keys.
 
 ## Development
 
 ```bash
-ruff check .
-pytest
+uv run ruff check .
+uv run mypy
+uv run pytest
 ```
 
 ## Project Layout
 
-- `app.py` — Gradio UI entrypoint
-- `graph.py` — LangGraph construction (nodes, gates, routing)
-- `agents.py` — node functions, model runtimes, LLM invocation
-- `roles.py` — declarative role registry (providers, models, token budgets, system prompts)
-- `blueprints.py` — blueprint v2 document prompts and pack generation
-- `implementer.py` — Claude Agent SDK implementation/verification sessions
-- `submit_service.py` — stateful submit flow: starts/resumes the graph thread, maps events to UI
-- `state.py` — shared graph state contract
-- `render.py` — UI rendering helpers and the pipeline stage tracker
-- `exporter.py` — Markdown export builder
-- `config.py` — Pydantic settings from `.env`
+Source lives in `src/idea_to_mvp/`; the module map, pipeline internals, and conventions are in [docs/architecture.md](docs/architecture.md).
 
 ## Security
 

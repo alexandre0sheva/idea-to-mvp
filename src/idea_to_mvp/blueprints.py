@@ -298,10 +298,13 @@ def build_bundle_context(
     arch_choice: dict[str, Any] | None,
     strategy: dict[str, Any] | None,
     planning_request: str,
+    chosen_option_details: str = "",
 ) -> str:
     choice = arch_choice or {}
     extra_guidance = (planning_request or "").strip()
     strategy_text = json.dumps(strategy, indent=2) if strategy else "No execution strategy available."
+    details = chosen_option_details.strip()
+    details_block = f"Chosen option details:\n{details}\n\n" if details else ""
     return (
         f"Original idea:\n{user_idea.strip()}\n\n"
         f"Discussion summary:\n{summary.strip() or 'No summary available.'}\n\n"
@@ -310,6 +313,7 @@ def build_bundle_context(
         f"Architecture options:\n{architecture.strip() or 'No architecture provided.'}\n\n"
         f"Chosen architecture option: {choice.get('option') or 'A'}"
         f" (user notes: {choice.get('notes') or 'none'})\n\n"
+        f"{details_block}"
         f"Execution strategy:\n{strategy_text}\n\n"
         f"Extra planning guidance from user:\n{extra_guidance or 'No extra guidance beyond generating the execution pack.'}"
     )

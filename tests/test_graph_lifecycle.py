@@ -1,11 +1,16 @@
 from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
-import agents
-import graph as graph_module
+from idea_to_mvp import graph as graph_module
+from idea_to_mvp import implementer, llm
+from idea_to_mvp.config import clear_settings_cache
+from idea_to_mvp.demo.fixtures import respond_structured
+from idea_to_mvp.nodes.discussion import discussion_node, route_after_discussion
+from idea_to_mvp.nodes.gates import route_after_plan_gate
+from idea_to_mvp.state import make_initial_state
 
 
 class FakeRuntime:
@@ -18,30 +23,9 @@ class FakeRuntime:
 
 
 def _base_state(max_rounds: int = 3) -> dict[str, Any]:
-    return {
-        "user_idea": "idea",
-        "discussion_history": [HumanMessage(content="idea")],
-        "summary": "",
-        "generated_questions": [],
-        "user_answers": "",
-        "architecture": "",
-        "arch_choice": {"option": "", "notes": ""},
-        "execution_strategy": {"mode": "", "reasoning": "", "workstreams": []},
-        "plan_offer_question": "",
-        "plan_decision": {"generate": False, "notes": ""},
-        "implement_decision": {"implement": False, "notes": ""},
-        "project_bundle_dir": "",
-        "project_bundle_files": [],
-        "project_bundle_summary": "",
-        "workspace_dir": "",
-        "implementation_log": "",
-        "verification": {"passed": False, "attempts": 0, "report": ""},
-        "delivery_report": "",
-        "stage": "discussion",
-        "next_speaker": "PM",
-        "max_rounds": max_rounds,
-        "turn_count": 0,
-    }
+    state = dict(make_initial_state("idea", 1))
+    state["max_rounds"] = max_rounds
+    return state
 
 
 @pytest.fixture()
@@ -53,22 +37,25 @@ def fake_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path):
 
     def fake_invoke(runtime, messages, *, max_tokens=None):
         captured_prompts.append("\n".join(str(m.content) for m in messages))
-        return AIMessage(
-            content=(
-                "1. What is the MVP scope?\n"
-                "2. Who is the first user?\n"
-                "3. What data model is required?\n"
-                "4. Which integrations are mandatory?\n"
-                "5. What latency constraints exist?"
-            )
+        return (
+            "1. What is the MVP scope?\n"
+            "2. Who is the first user?\n"
+            "3. What data model is required?\n"
+            "4. Which integrations are mandatory?\n"
+            "5. What latency constraints exist?"
         )
 
-    monkeypatch.setattr(agents, "get_runtime", fake_get_runtime)
-    monkeypatch.setattr(agents, "_invoke_with_runtime", fake_invoke)
-    monkeypatch.setattr(agents, "_project_bundle_root", lambda: tmp_path / "project_blueprints")
-    graph_module.clear_graph_cache()
+    monkeypatch.setattr(llm, "get_runtime", fake_get_runtime)
+    monkeypatch.setattr(llm, "invoke_text", fake_invoke)
+    monkeypatch.setattr(
+        llm,
+        "invoke_structured",
+        lambda runtime, messages, schema, *, fallback=None: respond_structured(schema, messages),
+    )
+    monkeypatch.setenv("OUTPUT_DIR", str(tmp_path))
+    clear_settings_cache()
     yield captured_prompts
-    graph_module.clear_graph_cache()
+    clear_settings_cache()
 
 
 def _interrupts(events: list[dict]) -> list:
@@ -78,26 +65,26 @@ def _interrupts(events: list[dict]) -> list:
 def test_route_after_discussion_loops_until_max() -> None:
     state = _base_state(max_rounds=3)
     state["turn_count"] = 2
-    assert agents.route_after_discussion(state) == "discussion"
+    assert route_after_discussion(state) == "discussion"
 
 
 def test_route_after_discussion_moves_to_summarizer() -> None:
     state = _base_state(max_rounds=3)
     state["turn_count"] = 3
-    assert agents.route_after_discussion(state) == "summarizer"
+    assert route_after_discussion(state) == "summarizer"
 
 
 def test_route_after_plan_gate() -> None:
     declined = _base_state()
     declined["plan_decision"] = {"generate": False, "notes": ""}
-    assert agents.route_after_plan_gate(declined) == "__end__"
+    assert route_after_plan_gate(declined) == "__end__"
     accepted = _base_state()
     accepted["plan_decision"] = {"generate": True, "notes": "go"}
-    assert agents.route_after_plan_gate(accepted) == "plan_bundle"
+    assert route_after_plan_gate(accepted) == "plan_bundle"
 
 
 def test_full_pipeline_pauses_resumes_and_declines(fake_pipeline) -> None:
-    g = graph_module.build_graph(True)
+    g = graph_module.build_graph(MemorySaver())
     config = {"configurable": {"thread_id": "lifecycle-decline"}}
 
     events = list(g.stream(_base_state(max_rounds=3), config=config, stream_mode="updates"))
@@ -132,7 +119,7 @@ def test_full_pipeline_pauses_resumes_and_declines(fake_pipeline) -> None:
 
 
 def test_full_pipeline_accept_generates_bundle(fake_pipeline, tmp_path) -> None:
-    g = graph_module.build_graph(True)
+    g = graph_module.build_graph(MemorySaver())
     config = {"configurable": {"thread_id": "lifecycle-accept"}}
 
     list(g.stream(_base_state(max_rounds=3), config=config, stream_mode="updates"))
@@ -145,7 +132,7 @@ def test_full_pipeline_accept_generates_bundle(fake_pipeline, tmp_path) -> None:
     snapshot = g.get_state(config)
     assert snapshot.values["plan_decision"] == {"generate": True, "notes": "keep it lean"}
     assert snapshot.values["project_bundle_files"]
-    bundle_dir = tmp_path / "project_blueprints"
+    bundle_dir = tmp_path / "blueprints"
     assert any(bundle_dir.iterdir())
     interrupts = _interrupts(events)
     assert len(interrupts) == 1
@@ -154,7 +141,7 @@ def test_full_pipeline_accept_generates_bundle(fake_pipeline, tmp_path) -> None:
 
 
 def test_implement_gate_accept_builds_verifies_and_reports(fake_pipeline, monkeypatch, tmp_path) -> None:
-    workspace = tmp_path / "generated_projects" / "ws"
+    workspace = tmp_path / "projects" / "ws"
     workspace.mkdir(parents=True)
     (workspace / "README.md").write_text("readme")
 
@@ -163,12 +150,12 @@ def test_implement_gate_accept_builds_verifies_and_reports(fake_pipeline, monkey
         {"passed": False, "report": "2 failed\nVERDICT: FAIL"},
         {"passed": True, "report": "all green\nVERDICT: PASS"},
     ]
-    monkeypatch.setattr(agents, "prepare_workspace", lambda bundle, root: workspace)
-    monkeypatch.setattr(agents, "run_implementation", lambda ws, strategy, settings: "Implemented everything.")
-    monkeypatch.setattr(agents, "run_verification", lambda ws, settings: verifications.pop(0))
-    monkeypatch.setattr(agents, "run_fix", lambda ws, report, settings: fixes.append(report) or "fixed")
+    monkeypatch.setattr(implementer, "prepare_workspace", lambda bundle, root: workspace)
+    monkeypatch.setattr(implementer, "run_implementation", lambda ws, strategy, settings: "Implemented everything.")
+    monkeypatch.setattr(implementer, "run_verification", lambda ws, settings: verifications.pop(0))
+    monkeypatch.setattr(implementer, "run_fix", lambda ws, report, settings: fixes.append(report) or "fixed")
 
-    g = graph_module.build_graph(True)
+    g = graph_module.build_graph(MemorySaver())
     config = {"configurable": {"thread_id": "lifecycle-implement"}}
     list(g.stream(_base_state(max_rounds=3), config=config, stream_mode="updates"))
     list(g.stream(Command(resume="Answers."), config=config, stream_mode="updates"))
@@ -191,7 +178,7 @@ def test_implement_gate_accept_builds_verifies_and_reports(fake_pipeline, monkey
 
 
 def test_implement_gate_decline_ends_run(fake_pipeline) -> None:
-    g = graph_module.build_graph(True)
+    g = graph_module.build_graph(MemorySaver())
     config = {"configurable": {"thread_id": "lifecycle-no-implement"}}
     list(g.stream(_base_state(max_rounds=3), config=config, stream_mode="updates"))
     list(g.stream(Command(resume="Answers."), config=config, stream_mode="updates"))
@@ -209,9 +196,9 @@ def test_implement_gate_decline_ends_run(fake_pipeline) -> None:
 
 def test_discussion_prompt_is_round_aware(fake_pipeline) -> None:
     state = _base_state(max_rounds=6)  # 2 rounds per speaker
-    agents.discussion_node(state)
+    discussion_node(state)
     assert "round 1 of 2" in fake_pipeline[-1]
     state["turn_count"] = 5  # last turn of final round
-    agents.discussion_node(state)
+    discussion_node(state)
     assert "round 2 of 2" in fake_pipeline[-1]
     assert "FINAL round" in fake_pipeline[-1]

@@ -1,5 +1,11 @@
-from config import Settings
-from roles import DISCUSSION_ROLE_KEYS, ROLES, SPEAKER_NAME_TOKEN, SPEAKER_ORDER, TOKEN_TO_SPEAKER
+from idea_to_mvp.config import Settings
+from idea_to_mvp.roles import (
+    DISCUSSION_ROLE_KEYS,
+    ROLES,
+    SPEAKER_NAME_TOKEN,
+    SPEAKER_ORDER,
+    TOKEN_TO_SPEAKER,
+)
 
 
 def test_every_role_references_real_settings_fields() -> None:
@@ -13,7 +19,7 @@ def test_every_role_references_real_settings_fields() -> None:
 
 
 def test_expected_roles_present() -> None:
-    assert set(ROLES) == {"pm", "tech_lead", "skeptic", "summarizer", "architect", "strategy", "planner"}
+    assert set(ROLES) == {"pm", "tech_lead", "skeptic", "summarizer", "architect", "strategy"}
 
 
 def test_speaker_order_derives_from_registry() -> None:

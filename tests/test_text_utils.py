@@ -1,6 +1,6 @@
 from langchain_core.messages import HumanMessage
 
-from text_utils import normalize_content, normalize_message_content
+from idea_to_mvp.text_utils import normalize_content, normalize_message_content
 
 
 def test_normalize_content_handles_mixed_list() -> None:

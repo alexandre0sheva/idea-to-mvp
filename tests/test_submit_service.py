@@ -1,210 +1,192 @@
-from langchain_core.messages import AIMessage
-from langgraph.types import Command
+"""SubmitService behaviour on a real graph (demo models, SQLite checkpointer)."""
 
-from config import Settings
-from submit_service import (
-    ARCH_CHOICE_A,
+from pathlib import Path
+
+import pytest
+from service_helpers import (
+    POS_BUTTON,
+    POS_DECISION,
+    POS_ROUNDS,
+    POS_SESSIONS,
+    POS_STATUS,
+    POS_THREAD,
+    POS_TRACKER,
+    chat_text,
+    mode_of,
+    submit,
+    update_value,
+)
+
+from idea_to_mvp import graph as graph_module
+from idea_to_mvp.ui.view import (
     ARCH_CHOICE_B,
     IMPL_CHOICE_SKIP,
-    IMPL_CHOICE_START,
     MODE_ANSWERS,
     MODE_ARCH_CHOICE,
     MODE_DONE,
     MODE_IDEA,
     MODE_IMPL_GATE,
+    MODE_INTERRUPTED,
     MODE_PLAN_GATE,
     PLAN_CHOICE_GENERATE,
     PLAN_CHOICE_SKIP,
-    AppContext,
-    SubmitService,
 )
 
-# Output tuple positions (see SubmitService._pack):
-# 0 status, 1 chatbot, 2 input_tb, 3 rounds_sl, 4 decision_radio, 5 run_btn,
-# 6 thread_id, 7 mode, 8 turns_state, 9 transcript_state, 10 chat_state
-POS_THREAD = 6
-POS_MODE = 7
-POS_TRANSCRIPT = 9
-POS_CHAT = 10
+
+async def _to_arch_gate(service, thread: str) -> None:
+    await submit(service, "Build a climbing app", "", thread)
+    await submit(service, "1. Solo climbers.", "", thread)
+    assert await mode_of(service, thread) == MODE_ARCH_CHOICE
 
 
-class FakeInterrupt:
-    def __init__(self, value):
-        self.value = value
+async def _to_plan_gate(service, thread: str) -> None:
+    await _to_arch_gate(service, thread)
+    await submit(service, "prefer simple", ARCH_CHOICE_B, thread)
+    assert await mode_of(service, thread) == MODE_PLAN_GATE
 
 
-class DummyGraph:
-    def __init__(self, events):
-        self._events = events
-        self.calls = []
-
-    def stream(self, payload, *args, **kwargs):
-        self.calls.append(payload)
-        yield from self._events
-
-
-def _service(events):
-    graph = DummyGraph(events)
-    return SubmitService(AppContext(settings=Settings(), graph=graph)), graph
+async def test_idea_runs_to_the_answers_gate_and_streams_progress(demo_service) -> None:
+    service, _ = demo_service
+    outputs = await submit(service, "Build a climbing app", "", "t1")
+    assert await mode_of(service, "t1") == MODE_ANSWERS
+    first, last = outputs[0], outputs[-1]
+    assert "drafting the next panel turn" in chat_text(first)  # optimistic overlay before the graph moved
+    assert "Build a climbing app" in chat_text(last)
+    assert update_value(last[POS_BUTTON], "value") == "Submit answers"
+    assert update_value(last[POS_ROUNDS], "visible") is False
+    assert "Answer the MVP" in update_value(last[POS_STATUS], "value")
+    assert "stage-pill active'>Answers" in update_value(last[POS_TRACKER], "value")
 
 
-def test_clear_session_resets_core_state() -> None:
-    service, _ = _service([])
-    result = service.clear_session()
-    assert result[POS_MODE] == MODE_IDEA
-    assert result[POS_TRANSCRIPT] == []
-    assert result[POS_CHAT] == []
+async def test_empty_idea_and_empty_answers_are_rejected_without_running_the_graph(demo_service) -> None:
+    service, _ = demo_service
+    outputs = await submit(service, "   ", "", "t2")
+    assert len(outputs) == 1 and "describe your idea" in update_value(outputs[0][POS_STATUS], "value")
+    assert await mode_of(service, "t2") == MODE_IDEA
+
+    await submit(service, "Build x", "", "t2")
+    outputs = await submit(service, "", "", "t2")
+    assert "answer the questions" in update_value(outputs[0][POS_STATUS], "value").lower()
+    assert await mode_of(service, "t2") == MODE_ANSWERS
 
 
-def test_idea_mode_runs_to_answers_gate() -> None:
-    events = [
-        {
-            "discussion": {
-                "discussion_history": [AIMessage(content="Panel output", name="pm")],
-                "turn_count": 1,
-                "next_speaker": "Tech Lead",
-            }
-        },
-        {"summarizer": {"summary": "Executive summary", "generated_questions": ["1. Who is the user?"]}},
-        {
-            "__interrupt__": (
-                FakeInterrupt({"kind": "answers", "questions": ["1. Who is the user?"], "summary": "Executive summary"}),
-            )
-        },
-    ]
-    service, graph = _service(events)
-    outputs = list(service.handle_submit("Build x", 1, "", "thread-1", MODE_IDEA, [], [], []))
+async def test_gate_decisions_reach_the_graph_as_resume_payloads(demo_service) -> None:
+    service, graphs = demo_service
+    thread = "t3"
+    await _to_plan_gate(service, thread)
+    graph = await graphs.get()
+    values = (await graph.aget_state({"configurable": {"thread_id": thread}})).values
+    assert values["arch_choice"] == {"option": "B", "notes": "prefer simple"}
+    assert values["execution_strategy"]["mode"] in ("subagents", "agent_team")
+
+    outputs = await submit(service, "keep it lean", PLAN_CHOICE_GENERATE, thread)
+    assert await mode_of(service, thread) == MODE_IMPL_GATE
+    values = (await graph.aget_state({"configurable": {"thread_id": thread}})).values
+    assert values["plan_decision"] == {"generate": True, "notes": "keep it lean"}
+    assert "Generate the execution pack — keep it lean" in chat_text(outputs[-1])
+    assert update_value(outputs[-1][POS_DECISION], "visible") is True
+
+
+async def test_declining_the_plan_ends_the_run(demo_service) -> None:
+    service, graphs = demo_service
+    thread = "t4"
+    await _to_plan_gate(service, thread)
+    outputs = await submit(service, "", PLAN_CHOICE_SKIP, thread)
+    assert await mode_of(service, thread) == MODE_DONE
+    assert "Skip for now" in chat_text(outputs[-1])
+    assert update_value(outputs[-1][POS_ROUNDS], "visible") is True  # ready for the next idea
+    assert "Pipeline finished" in update_value(outputs[-1][POS_STATUS], "value")
+
+
+async def test_declining_implementation_ends_after_the_blueprint(demo_service) -> None:
+    service, graphs = demo_service
+    thread = "t5"
+    await _to_plan_gate(service, thread)
+    await submit(service, "", PLAN_CHOICE_GENERATE, thread)
+    outputs = await submit(service, "", IMPL_CHOICE_SKIP, thread)
+    assert await mode_of(service, thread) == MODE_DONE
+    text = chat_text(outputs[-1])
+    assert "Stop here (blueprint only)" in text and "Delivery report" not in text
+
+
+async def test_new_idea_after_completion_starts_a_fresh_thread(demo_service) -> None:
+    service, _ = demo_service
+    await _to_plan_gate(service, "old")
+    await submit(service, "", PLAN_CHOICE_SKIP, "old")
+    outputs = await submit(service, "A second idea", "", "old")
+    new_thread = outputs[-1][POS_THREAD]
+    assert new_thread != "old"
+    assert "A second idea" in chat_text(outputs[-1]) and "climbing" not in chat_text(outputs[-1])
+    assert await mode_of(service, "old") == MODE_DONE  # the old session is untouched
+
+
+async def test_failure_mid_run_shows_the_error_and_can_continue(
+    demo_service, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, _ = demo_service
+    thread = "t6"
+    await _to_arch_gate(service, thread)
+
+    monkeypatch.setattr(graph_module, "strategy_node", lambda state: (_ for _ in ()).throw(TimeoutError("slow")))
+    service._context.graphs._graph = None  # recompile so the patched node is used
+    await service._context.graphs.aclose()
+    outputs = await submit(service, "", "", thread)  # arch gate: default option A
     final = outputs[-1]
-    assert final[POS_MODE] == MODE_ANSWERS
-    assert any("Who is the user?" in m["content"] for m in final[POS_CHAT])
-    assert isinstance(graph.calls[0], dict)
-    assert graph.calls[0]["user_idea"] == "Build x"
+    assert "error" in chat_text(final).lower() and "timed out" in chat_text(final)
+    assert "Run failed" in update_value(final[POS_STATUS], "value")
+    assert await mode_of(service, thread) == MODE_INTERRUPTED  # gate decision kept; strategy still to run
+    assert update_value(final[POS_BUTTON], "value") == "Continue"
+
+    monkeypatch.undo()
+    await service._context.graphs.aclose()
+    outputs = await submit(service, "", "", thread)  # Continue
+    assert await mode_of(service, thread) == MODE_PLAN_GATE
+    assert "error" not in chat_text(outputs[-1]).lower()
 
 
-def test_answers_mode_resumes_to_arch_choice() -> None:
-    events = [
-        {"architect": {"architecture": "## Option A\nSimple stack"}},
-        {
-            "__interrupt__": (
-                FakeInterrupt({"kind": "arch_choice", "question": "Pick A or B?", "architecture": "## Option A"}),
-            )
-        },
-    ]
-    service, graph = _service(events)
-    outputs = list(service.handle_submit("1. Solo founders.", 1, "", "thread-2", MODE_ANSWERS, [], [], []))
-    final = outputs[-1]
-    assert final[POS_MODE] == MODE_ARCH_CHOICE
-    assert isinstance(graph.calls[0], Command)
-    assert graph.calls[0].resume == "1. Solo founders."
-    assert any("Architect" in m["content"] for m in final[POS_CHAT])
-    assert "Pick A or B?" in final[POS_CHAT][-1]["content"]
+async def test_clear_gives_a_new_empty_thread(demo_service) -> None:
+    service, _ = demo_service
+    output = await service.clear_session()
+    assert output[POS_THREAD] and output[1] == []
+    assert update_value(output[POS_BUTTON], "value") == "Run discussion"
 
 
-def test_arch_choice_resumes_to_plan_gate() -> None:
-    events = [
-        {
-            "strategy": {
-                "execution_strategy": {
-                    "mode": "subagents",
-                    "reasoning": "Small MVP.",
-                    "workstreams": [{"name": "core", "focus": "all", "deliverables": "app"}],
-                }
-            }
-        },
-        {"planner_offer": {"plan_offer_question": "Generate the pack?"}},
-        {
-            "__interrupt__": (
-                FakeInterrupt({"kind": "plan_gate", "question": "Generate the pack?", "architecture": "## A"}),
-            )
-        },
-    ]
-    service, graph = _service(events)
-    outputs = list(
-        service.handle_submit("prefer simple", 1, ARCH_CHOICE_B, "thread-3", MODE_ARCH_CHOICE, [], [], [])
-    )
-    final = outputs[-1]
-    assert final[POS_MODE] == MODE_PLAN_GATE
-    assert graph.calls[0].resume == {"option": "B", "notes": "prefer simple"}
-    assert any("subagents" in m["content"] for m in final[POS_CHAT])
-    assert "Generate the pack?" in final[POS_CHAT][-1]["content"]
+async def test_sessions_can_be_listed_resumed_and_deleted(demo_service) -> None:
+    service, graphs = demo_service
+    await submit(service, "Idea about climbing", "", "s1")
+    await submit(service, "Idea about cooking", "", "s2")
+
+    listing = await service.initial_view("s2")
+    choices = update_value(listing[POS_SESSIONS], "choices")
+    assert [value for _label, value in choices] == ["s2", "s1"]
+    assert "cooking" in choices[0][0] and "waiting: answers" in choices[0][0]
+
+    resumed = await service.load_session("s1", "s2")
+    assert resumed[POS_THREAD] == "s1"
+    assert "climbing" in chat_text(resumed) and "cooking" not in chat_text(resumed)
+    assert update_value(resumed[POS_BUTTON], "value") == "Submit answers"  # back at its gate
+
+    assert "Pick a saved session" in update_value((await service.load_session(None, "s1"))[POS_STATUS], "value")
+
+    after = await service.delete_session("s1", "s2")
+    assert after[POS_THREAD] == "s2"
+    graph = await graphs.get()
+    assert not (await graph.aget_state({"configurable": {"thread_id": "s1"}})).values
+    assert [s.thread_id for s in service._context.sessions.list()] == ["s2"]
+
+    cleared = await service.delete_session("s2", "s2")  # deleting the open session resets the view
+    assert cleared[POS_THREAD] != "s2" and cleared[1] == []
 
 
-def test_arch_choice_option_a_parsed() -> None:
-    events = [
-        {
-            "__interrupt__": (
-                FakeInterrupt({"kind": "plan_gate", "question": "Generate?", "architecture": ""}),
-            )
-        },
-    ]
-    service, graph = _service(events)
-    list(service.handle_submit("", 1, ARCH_CHOICE_A, "thread-3b", MODE_ARCH_CHOICE, [], [], []))
-    assert graph.calls[0].resume == {"option": "A", "notes": ""}
+async def test_save_conversation_exports_the_state_derived_transcript(demo_service, demo_env: Path) -> None:
+    service, _ = demo_service
+    await submit(service, "Export me please", "", "s3")
+    status, file_update = await service.save_conversation("", "s3")
+    path = Path(update_value(file_update, "value"))
+    assert path.parent == demo_env / "exports"
+    text = path.read_text(encoding="utf-8")
+    assert "Export me please" in text and "## Panel Discussion" in text and "## Summary" in text
+    assert "Saved conversation" in update_value(status, "value")
 
-
-def test_plan_gate_generate_resumes_to_implement_gate() -> None:
-    events = [
-        {"plan_bundle": {"project_bundle_summary": "Generated pack in `dir`.", "project_bundle_dir": "dir"}},
-        {
-            "__interrupt__": (
-                FakeInterrupt({"kind": "implement_gate", "question": "Build it now?", "bundle_dir": "dir"}),
-            )
-        },
-    ]
-    service, graph = _service(events)
-    outputs = list(
-        service.handle_submit("keep it lean", 1, PLAN_CHOICE_GENERATE, "thread-4", MODE_PLAN_GATE, [], [], [])
-    )
-    final = outputs[-1]
-    assert final[POS_MODE] == MODE_IMPL_GATE
-    assert graph.calls[0].resume == {"generate": True, "notes": "keep it lean"}
-    assert any("Generated pack" in m["content"] for m in final[POS_CHAT])
-    assert "Build it now?" in final[POS_CHAT][-1]["content"]
-
-
-def test_plan_gate_skip_finishes_session() -> None:
-    service, graph = _service([])
-    outputs = list(service.handle_submit("", 1, PLAN_CHOICE_SKIP, "thread-5", MODE_PLAN_GATE, [], [], []))
-    final = outputs[-1]
-    assert final[POS_MODE] == MODE_DONE
-    assert graph.calls[0].resume == {"generate": False, "notes": ""}
-
-
-def test_implement_gate_start_runs_to_delivery_report() -> None:
-    events = [
-        {"implementer": {"workspace_dir": "/tmp/ws", "implementation_log": "Built everything."}},
-        {"verifier": {"verification": {"passed": True, "attempts": 0, "report": "VERDICT: PASS"}}},
-        {"delivery_report": {"delivery_report": "## Delivery report\n\nAll done."}},
-    ]
-    service, graph = _service(events)
-    outputs = list(
-        service.handle_submit("notes for builder", 1, IMPL_CHOICE_START, "thread-6", MODE_IMPL_GATE, [], [], [])
-    )
-    final = outputs[-1]
-    assert final[POS_MODE] == MODE_DONE
-    assert graph.calls[0].resume == {"implement": True, "notes": "notes for builder"}
-    assert any("Built everything." in m["content"] for m in final[POS_CHAT])
-    assert any("Delivery report" in m["content"] for m in final[POS_CHAT])
-
-
-def test_implement_gate_skip_finishes_session() -> None:
-    service, graph = _service([])
-    outputs = list(service.handle_submit("", 1, IMPL_CHOICE_SKIP, "thread-7", MODE_IMPL_GATE, [], [], []))
-    final = outputs[-1]
-    assert final[POS_MODE] == MODE_DONE
-    assert graph.calls[0].resume == {"implement": False, "notes": ""}
-
-
-def test_error_mid_run_reports_stage_and_keeps_mode() -> None:
-    class ExplodingGraph:
-        calls: list = []
-
-        def stream(self, payload, *args, **kwargs):
-            raise TimeoutError("model timed out")
-            yield  # pragma: no cover
-
-    service = SubmitService(AppContext(settings=Settings(), graph=ExplodingGraph()))
-    outputs = list(service.handle_submit("Answers", 1, "", "thread-8", MODE_ANSWERS, [], [], []))
-    final = outputs[-1]
-    assert final[POS_MODE] == MODE_ANSWERS  # retryable
-    assert any("error" in m["content"].lower() for m in final[POS_CHAT])
+    empty_status, _ = await service.save_conversation("", "never-used")
+    assert "Nothing to save" in update_value(empty_status, "value")

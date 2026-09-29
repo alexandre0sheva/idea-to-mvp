@@ -1,6 +1,6 @@
 import json
 
-from blueprints import bundle_file_plan, create_project_bundle
+from idea_to_mvp.blueprints import bundle_file_plan, create_project_bundle
 
 STRATEGY = {
     "mode": "agent_team",

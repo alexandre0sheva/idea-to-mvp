@@ -4,6 +4,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from idea_to_mvp.ui.view import ViewEntry
+
 
 def _slugify(text: str, *, max_length: int = 64) -> str:
     ascii_text = (text or "").encode("ascii", "ignore").decode("ascii")
@@ -29,14 +31,13 @@ def _append_section(lines: list[str], heading: str, body: str) -> None:
 
 def build_session_markdown(
     *,
-    transcript_state: list[dict[str, str]],
+    entries: list[ViewEntry],
     thread_id: str,
     mode: str,
     draft_input: str = "",
     saved_at: datetime | None = None,
 ) -> str:
     timestamp = saved_at or datetime.now().astimezone()
-    transcript = transcript_state or []
 
     idea = ""
     discussion_turns: list[dict[str, str]] = []
@@ -48,10 +49,10 @@ def build_session_markdown(
     other_entries: list[dict[str, str]] = []
     seen_user_text: set[str] = set()
 
-    for entry in transcript:
-        kind = (entry.get("kind") or "").strip()
-        speaker = (entry.get("speaker") or "").strip() or "Assistant"
-        content = (entry.get("content") or "").strip()
+    for entry in entries:
+        kind = entry.kind.strip()
+        speaker = entry.speaker.strip() or "Assistant"
+        content = entry.content.strip()
         if kind == "idea" and content and not idea:
             idea = content
             seen_user_text.add(content)
@@ -113,9 +114,9 @@ def build_session_markdown(
         heading = "## Architect Output" if idx == 1 else f"## Architect Output Revision {idx}"
         _append_section(lines, heading, architecture)
 
-    for idx, entry in enumerate(other_entries, start=1):
-        heading = f"## {entry['speaker']}" if idx == 1 else f"## {entry['speaker']} {idx}"
-        _append_section(lines, heading, entry["content"])
+    for idx, other in enumerate(other_entries, start=1):
+        heading = f"## {other['speaker']}" if idx == 1 else f"## {other['speaker']} {idx}"
+        _append_section(lines, heading, other["content"])
 
     if visible_thinking:
         lines.extend(["## Visible In-Progress Steps", ""])
@@ -132,15 +133,15 @@ def build_session_markdown(
 
 def save_session_markdown(
     *,
-    project_dir: Path,
-    transcript_state: list[dict[str, str]],
+    exports_dir: Path,
+    entries: list[ViewEntry],
     thread_id: str,
     mode: str,
     draft_input: str = "",
 ) -> Path:
     timestamp = datetime.now().astimezone()
     export_text = build_session_markdown(
-        transcript_state=transcript_state,
+        entries=entries,
         thread_id=thread_id,
         mode=mode,
         draft_input=draft_input,
@@ -148,13 +149,12 @@ def save_session_markdown(
     )
     seed_text = next(
         (
-            (entry.get("content") or "").strip()
-            for entry in transcript_state or []
-            if (entry.get("kind") or "").strip() == "idea" and (entry.get("content") or "").strip()
+            entry.content.strip()
+            for entry in entries
+            if entry.kind.strip() == "idea" and entry.content.strip()
         ),
         (draft_input or "").strip(),
     )
-    exports_dir = project_dir / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
     file_name = f"{timestamp.strftime('%Y%m%d-%H%M%S')}-{_slugify(seed_text)}.md"
     export_path = exports_dir / file_name

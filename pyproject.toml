@@ -1,18 +1,45 @@
 [project]
 name = "idea-to-mvp"
-version = "0.1.0"
+version = "0.3.0.dev0"
 description = "Multi-agent idea-to-MVP orchestrator with Gradio and LangGraph."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "idea-to-mvp contributors" }]
-
-[project.optional-dependencies]
-dev = [
-  "pytest>=8.0.0",
-  "ruff>=0.6.0",
-  "mypy>=1.10.0",
+dependencies = [
+  "gradio>=6.29",
+  "langgraph>=1.2",
+  "langchain-core>=1.6",
+  "langchain-openai>=1.6",
+  "langchain-anthropic>=1.7",
+  "langchain-google-genai>=4.4",
+  "pydantic-settings>=2.15",
+  "python-dotenv>=1.0",
+  "markdown>=3.7",
+  "claude-agent-sdk>=0.2.162",
+  "langgraph-checkpoint-sqlite>=3.1.1",
+  "aiosqlite>=0.22.1",
 ]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.24",
+  "pytest-cov>=5.0",
+  "ruff>=0.6",
+  "mypy>=1.10",
+  "types-Markdown",
+]
+
+[project.scripts]
+idea-to-mvp = "idea_to_mvp.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/idea_to_mvp"]
 
 [tool.ruff]
 line-length = 100
@@ -25,11 +52,16 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+asyncio_mode = "auto"
+markers = ["live: calls real provider APIs (deselected by default; run with `pytest -m live`)"]
+addopts = "-m 'not live'"
 
 [tool.mypy]
-python_version = "3.11"
+files = ["src"]
+mypy_path = "src"
+explicit_package_bases = true
 check_untyped_defs = true
-disallow_untyped_defs = false
 warn_unused_ignores = true
 warn_redundant_casts = true
-exclude = ["tests/"]
+ignore_missing_imports = true
+exclude = ["tests/", "\\.venv/"]

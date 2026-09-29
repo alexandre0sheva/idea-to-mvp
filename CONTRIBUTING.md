@@ -5,17 +5,19 @@ Thanks for contributing.
 ## Development Setup
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync          # creates .venv from uv.lock, including dev tools
 cp .env.example .env
 ```
 
 ## Run Locally
 
 ```bash
-python app.py
+uv run idea-to-mvp                 # real providers (needs keys in .env)
+DEMO_MODE=true uv run idea-to-mvp  # offline: canned outputs, no keys, no spend
+uv run idea-to-mvp doctor          # verify keys and models before a real run
 ```
+
+Use demo mode to exercise UI and graph changes end to end. When you add an LLM call, structured schema, or agent session, add its fixture in `src/idea_to_mvp/demo/` so demo mode and `tests/test_e2e_demo.py` keep covering the whole pipeline.
 
 ## Suggested Workflow
 
@@ -27,9 +29,12 @@ python app.py
 ## Quality Checks
 
 ```bash
-ruff check .
-pytest
+uv run ruff check .
+uv run mypy
+uv run pytest
 ```
+
+Dependencies live only in `pyproject.toml`; after changing them run `uv lock` and commit `uv.lock` (CI uses `uv sync --locked`).
 
 If you change planner output, exported Markdown, or prompt-driven behavior, verify the relevant flow manually in the UI as well.
 
