@@ -53,9 +53,16 @@ async def to_implement_gate(service: Any, thread: str) -> None:
     assert await mode_of(service, thread) == MODE_IMPL_GATE
 
 
-async def test_tasks_move_across_the_board_while_the_console_fills(demo_service: Any) -> None:
+async def test_tasks_move_across_the_board_while_the_console_fills(demo_service: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     service, _ = demo_service
     thread = "iv-board"
+    real = executor._run_demo_session
+
+    async def unhurried(workspace: Path, task: Any, emit: Any) -> Any:
+        await asyncio.sleep(0.5)  # long enough that a slow runner renders "running" before the task finishes
+        return await real(workspace, task, emit)
+
+    monkeypatch.setattr(executor, "_run_demo_session", unhurried)
     await to_implement_gate(service, thread)
     outputs = await submit(service, "", IMPL_CHOICE_START, thread)
 
@@ -64,6 +71,7 @@ async def test_tasks_move_across_the_board_while_the_console_fills(demo_service:
     path = [state_of("T01", cols) for cols in seen if state_of("T01", cols)]
     assert "running" in path and path[-1] == "done"  # it was on the board as running, and ended as done
     assert path.index("running") < path.index("done") and "pending" not in path[path.index("done") :]
+    assert "running" not in path[path.index("done") :]  # a finished task never flickers back to running
     final = seen[-1]
     assert final["done"] == ["T01", "T02", "T03"] and final["running"] == [] and final["failed"] == []
 

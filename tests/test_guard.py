@@ -143,7 +143,7 @@ def test_tools_the_guard_does_not_know_are_left_to_the_normal_permission_system(
         "ls /var/db",
         "find / -name '*.pem'",
         "cp /var/log/install.log .",
-        "tar czf - /Users | wc -c",
+        "tar czf - /var/lib | wc -c",  # an existing directory outside the workspace, on macOS and Linux
     ],
 )
 def test_dangerous_shell_commands_are_denied(command: str, workspace: Path) -> None:

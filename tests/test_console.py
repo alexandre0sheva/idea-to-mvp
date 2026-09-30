@@ -51,6 +51,13 @@ def test_a_task_moves_across_the_board_as_it_runs_and_finishes() -> None:
     assert columns(render_task_board(plan, {"T01": result("T01")}, set()))["done"] == ["T01"]
 
 
+def test_a_finished_task_is_done_even_if_a_late_start_event_still_says_running() -> None:
+    """The board reads results from disk and the running set from the event stream; the stream can lag behind,
+    and a task that already finished must not flicker back to running when its start event arrives."""
+    cols = columns(render_task_board(plan_dict(), {"T01": result("T01")}, {"T01"}))
+    assert cols["done"] == ["T01"] and cols["running"] == []
+
+
 def test_a_task_that_is_being_retried_counts_as_running_even_with_an_old_failure() -> None:
     cols = columns(render_task_board(plan_dict(), {"T02": result("T02", "failed")}, {"T02"}))
     assert cols["running"] == ["T02"] and cols["failed"] == []

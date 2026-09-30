@@ -28,13 +28,20 @@ def _e(value: object) -> str:
 
 
 def task_state(task_id: str, results: Mapping[str, TaskResult], running: Collection[str]) -> str:
-    """The board column of a task. A task that is running again after a failure is running."""
+    """The board column of a task.
+
+    Results come from disk and `running` from the event stream, which can lag behind the disk, so a finished
+    task stays done even if its start event is only now being seen. A task that is running again after a
+    failure is running (a failed result is not final).
+    """
+    result = results.get(task_id)
+    if result is not None and result["status"] == "done":
+        return "done"
     if task_id in running:
         return "running"
-    result = results.get(task_id)
     if result is None:
         return "pending"
-    return "done" if result["status"] == "done" else "failed"
+    return "failed"
 
 
 def _text_block(text: str) -> str:
