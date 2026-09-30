@@ -89,14 +89,3 @@ def summarize_usage(records: list[UsageRecord]) -> dict[str, Any]:
         "cost_usd": cost_total,
         "by_role": by_role,
     }
-
-
-def format_usage(records: list[UsageRecord]) -> str:
-    """One compact line for the UI status area ('' when nothing was spent yet)."""
-    if not records:
-        return ""
-    summary = summarize_usage(records)
-    parts = [f"{summary['input_tokens']:,} in / {summary['output_tokens']:,} out tokens"]
-    if summary["cost_usd"] is not None:
-        parts.append(f"${summary['cost_usd']:.2f} agents")
-    return " · ".join(parts)

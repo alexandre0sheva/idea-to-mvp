@@ -1,3 +1,5 @@
+from datetime import UTC
+
 from langchain_core.messages import AIMessage, HumanMessage
 
 from idea_to_mvp.state import make_initial_state
@@ -102,7 +104,19 @@ def test_plan_and_implement_decisions_are_derived_from_stage_and_state() -> None
     assert "implement_decision" not in _kinds(transcript_from_state(at_implement_gate, {"kind": "implement_gate"}))
 
 
-def test_verification_and_delivery_are_rendered_at_the_end() -> None:
+def test_the_verification_result_is_shown_until_the_delivery_dashboard_replaces_it() -> None:
+    values = _values(
+        stage="report",
+        plan_decision={"generate": True, "notes": ""},
+        implement_decision={"implement": True, "notes": ""},
+        verification={"passed": True, "attempts": 1, "report": "all green"},
+    )
+    entries = transcript_from_state(values, None)
+    assert _kinds(entries)[-1] == "verification"
+    assert "passed" in entries[-1].content and "1 fix attempt" in entries[-1].content
+
+
+def test_the_delivery_report_is_one_entry_that_carries_the_state_for_the_dashboard() -> None:
     values = _values(
         stage="done",
         plan_decision={"generate": True, "notes": ""},
@@ -111,8 +125,8 @@ def test_verification_and_delivery_are_rendered_at_the_end() -> None:
         delivery_report="## Delivery report",
     )
     entries = transcript_from_state(values, None)
-    assert _kinds(entries)[-2:] == ["verification", "delivery_report"]
-    assert "passed" in entries[-2].content and "1 fix attempt" in entries[-2].content
+    assert _kinds(entries)[-1] == "delivery_report" and "verification" not in _kinds(entries)
+    assert entries[-1].content == "## Delivery report" and entries[-1].data is values
 
 
 def test_overlays_replace_the_pending_gate_card() -> None:
@@ -142,12 +156,18 @@ def test_mode_from_state() -> None:
 
 def test_running_step_and_status() -> None:
     values = _values(next_speaker="Skeptic", turn_count=2, max_rounds=3)
-    assert running_from_state(values, ("discussion",)) == ("Skeptic", "Skeptic is drafting the next panel turn...")
-    assert running_from_state(values, ("verifier",))[0] == "Verifier"
+    assert running_from_state(values, ("panel",)) == ("Skeptic", "Skeptic is drafting the next panel turn...")
+    assert running_from_state(values, ("verify",))[0] == "Verifier"
+    assert running_from_state(values, ("fix",))[0] == "Fixer"
     assert running_from_state(values, ("collect_answers",)) is None
     assert status_from_state(values, MODE_INTERRUPTED, ("Skeptic", "x")) == "Turn 2/3 complete. Next: Skeptic."
     assert "Answer the MVP" in status_from_state(values, MODE_ANSWERS)
     assert status_from_state(values, MODE_INTERRUPTED).startswith("This run was interrupted")
+
+
+def test_the_workspace_step_has_its_own_progress_message() -> None:
+    running = running_from_state(_values(), ("prepare_workspace",))
+    assert running is not None and running[0] == "Workspace"
 
 
 def test_stage_for_view() -> None:
@@ -155,3 +175,150 @@ def test_stage_for_view() -> None:
     assert stage_for_view(_values(), MODE_PLAN_GATE) == "plan_gate"
     assert stage_for_view(_values(stage="verification"), MODE_INTERRUPTED) == "verification"
     assert stage_for_view(_values(), MODE_DONE) == "done"
+
+
+def test_opening_statements_are_announced_as_a_parallel_step() -> None:
+    fresh = _values(turn_count=0, panel_mode="moderated")
+    speaker, message = running_from_state(fresh, ("panel",))
+    assert speaker == "Panel" and "opening statements" in message
+    assert status_from_state(fresh, MODE_INTERRUPTED, (speaker, message)) == message
+    round_robin = _values(turn_count=0, panel_mode="round_robin", next_speaker="PM")
+    assert running_from_state(round_robin, ("panel",)) == ("PM", "PM is drafting the next panel turn...")
+
+
+def test_the_moderators_convergence_note_is_shown_only_when_the_panel_converged() -> None:
+    converged = _values(convergence={"converged": True, "reason": "All three agree on the scope."})
+    entries = transcript_from_state(converged, None)
+    assert _kinds(entries) == ["idea", "discussion", "discussion", "moderator"]
+    assert (entries[-1].speaker, entries[-1].content) == ("Moderator", "All three agree on the scope.")
+    ongoing = _values(convergence={"converged": False, "reason": "Still disagree on storage."})
+    assert "moderator" not in _kinds(transcript_from_state(ongoing, None))
+    assert "moderator" not in _kinds(transcript_from_state(_values(), None))
+
+
+# ---------------------------------------------------------------- iteration
+
+
+def test_the_iterate_gate_is_its_own_mode_with_a_delivery_card() -> None:
+    from idea_to_mvp.ui.view import MODE_ITERATE_GATE
+
+    values = _values(stage="done", plan_decision={"generate": True, "notes": ""}, delivery_report="## Delivery report")
+    gate = {"kind": "iterate_gate", "question": "Want changes?", "iteration": 1}
+    assert mode_from_state(values, gate) == MODE_ITERATE_GATE
+    entries = transcript_from_state(values, gate)
+    assert _kinds(entries)[-2:] == ["delivery_report", "iterate_gate"] and entries[-1].content == "Want changes?"
+    assert "changes" in status_from_state(values, MODE_ITERATE_GATE).lower()
+    assert stage_for_view(values, MODE_ITERATE_GATE) == "done"
+
+
+def test_change_requests_appear_as_your_messages_before_the_new_implementation() -> None:
+    values = _values(
+        stage="done",
+        plan_decision={"generate": True, "notes": ""},
+        implement_decision={"implement": True, "notes": ""},
+        change_requests=["Add CSV export.", "Make it dark."],
+        iteration=3,
+        implementation_log="## I3-01 — done",
+        delivery_report="## Delivery report",
+    )
+    entries = transcript_from_state(values, None)
+    requests = [e for e in entries if e.kind == "change_request"]
+    assert [e.speaker for e in requests] == ["You", "You"]
+    assert [e.content for e in requests] == ["Change request (v0.2): Add CSV export.", "Change request (v0.3): Make it dark."]
+    assert _kinds(entries).index("change_request") < _kinds(entries).index("implementation")
+
+
+def test_the_change_planner_step_has_its_own_progress_message() -> None:
+    running = running_from_state(_values(), ("change_planner",))
+    assert running is not None and running[0] == "Change planner"
+
+
+# ------------------------------------------------------------ stage timing
+
+
+def _snapshots(*rows):
+    """History snapshots, newest first (as `aget_state_history` yields them): (seconds, stage, next nodes)."""
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    return [
+        SimpleNamespace(
+            created_at=datetime.fromtimestamp(1_000_000 + at, tz=UTC).isoformat(),
+            values={"stage": stage} if stage else {},
+            next=tuple(nxt),
+        )
+        for at, stage, nxt in reversed(rows)
+    ]
+
+
+def test_stage_marks_are_chronological_and_know_when_the_graph_waited_at_a_gate() -> None:
+    from idea_to_mvp.ui.view import stage_marks
+
+    marks = stage_marks(_snapshots((0, "discussion", ("panel",)), (30, "summary", ("collect_answers",)), (90, "answers", ("architect",))))
+    assert [m.stage for m in marks] == ["discussion", "summary", "answers"]
+    assert [m.at_gate for m in marks] == [False, True, False]
+    assert marks[1].at - marks[0].at == 30
+
+
+def test_each_step_is_credited_with_the_time_its_checkpoint_took_to_arrive() -> None:
+    from idea_to_mvp.ui.view import stage_elapsed, stage_marks
+
+    marks = stage_marks(_snapshots((0, "discussion", ("panel",)), (40, "discussion", ("summarizer",)), (55, "summary", ("collect_answers",))))
+    assert stage_elapsed(marks) == {"discussion": 40.0, "summary": 15.0}
+
+
+def test_time_spent_waiting_for_the_user_at_a_gate_is_not_counted() -> None:
+    from idea_to_mvp.ui.view import stage_elapsed, stage_marks
+
+    marks = stage_marks(
+        _snapshots(
+            (0, "summary", ("collect_answers",)),
+            (600, "answers", ("architect",)),  # ten minutes at the gate
+            (630, "architecture", ("arch_choice",)),
+            (1000, "arch_choice", ("strategy",)),  # and again
+            (1020, "strategy", ("plan_gate",)),
+        )
+    )
+    assert stage_elapsed(marks) == {"arch_choice": 30.0, "strategy": 20.0}  # answers: 0, waiting is not work
+
+
+def test_state_stages_are_credited_to_their_pipeline_step() -> None:
+    from idea_to_mvp.ui.view import stage_elapsed, stage_marks
+
+    marks = stage_marks(_snapshots((0, "strategy", ()), (5, "plan_gate", ()), (35, "report", ()), (36, "done", ())))
+    elapsed = stage_elapsed(marks)
+    assert elapsed["plan_bundle"] == 5.0 and elapsed["verification"] == 30.0 and elapsed["done"] == 1.0
+
+
+def test_the_running_step_is_credited_with_the_time_since_the_last_checkpoint() -> None:
+    from idea_to_mvp.ui.view import stage_elapsed, stage_marks
+
+    marks = stage_marks(_snapshots((0, "summary", ("architect",)), (20, "architecture", ("strategy",))))
+    now = 1_000_000 + 27
+    assert stage_elapsed(marks, now=now, active="strategy") == {"arch_choice": 20.0, "strategy": 7.0}
+    assert stage_elapsed(marks) == {"arch_choice": 20.0}  # not running: nothing is added
+
+
+def test_no_time_is_added_while_the_graph_waits_at_a_gate() -> None:
+    from idea_to_mvp.ui.view import stage_elapsed, stage_marks
+
+    marks = stage_marks(_snapshots((0, "summary", ("summarizer",)), (20, "summary", ("collect_answers",))))
+    assert stage_elapsed(marks, now=1_000_000 + 500, active="answers") == {"summary": 20.0}
+
+
+def test_snapshots_without_a_stage_or_a_timestamp_are_ignored() -> None:
+    from types import SimpleNamespace
+
+    from idea_to_mvp.ui.view import stage_elapsed, stage_marks
+
+    broken = [SimpleNamespace(created_at=None, values={"stage": "summary"}, next=()), *_snapshots((0, None, ()), (5, "summary", ()))]
+    marks = stage_marks(broken)
+    assert [m.stage for m in marks] == ["summary"] and stage_elapsed(marks) == {}
+
+
+def test_a_failed_verification_marks_its_step_failed() -> None:
+    from idea_to_mvp.ui.view import stage_statuses
+
+    assert stage_statuses(_values(verification={"passed": False, "attempts": 2, "report": "3 failed", "lanes": []})) == {"verification": "failed"}
+    assert stage_statuses(_values(verification={"passed": True, "attempts": 0, "report": "ok", "lanes": []})) == {}
+    assert stage_statuses(_values()) == {}  # not verified yet

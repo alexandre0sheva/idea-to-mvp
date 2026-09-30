@@ -10,79 +10,6 @@ try:
 except ImportError:  # pragma: no cover - optional runtime fallback
     render_markdown = None
 
-DEFAULT_IDEA = "I want to build a mobile learning app for photographers."
-PANEL_CSS = """
-.gradio-container { max-width: 100% !important; width: 100% !important; margin: 0 !important; padding: 0 12px !important; }
-.speaker-card { border:1px solid #334155; border-radius:14px; padding:0.75rem 0.9rem; background:#111827; margin:0.25rem 0; }
-.speaker-card summary { cursor:pointer; }
-.speaker-card.thinking { background:#0f172a; border-color:#1d4ed8; }
-.speaker-card.summary { border-color:#0e7490; background:#0c1f2b; }
-.speaker-card.speaker-pm { border-color:#1f6f8b; background:#0b1a23; }
-.speaker-card.speaker-tech-lead { border-color:#5b4b8a; background:#171228; }
-.speaker-card.speaker-skeptic { border-color:#7a3e65; background:#231423; }
-.speaker-card.speaker-summary { border-color:#2f7a50; background:#102218; }
-.speaker-card.speaker-questions { border-color:#8a6a2b; background:#241d0d; }
-.speaker-card.speaker-architect { border-color:#3a6ea5; background:#0d1a29; }
-.speaker-card.speaker-planner { border-color:#0f766e; background:#102424; }
-.speaker-head { color:#93c5fd; font-weight:700; margin-bottom:0.45rem; }
-.speaker-card.speaker-pm .speaker-head { color:#7dd3fc; }
-.speaker-card.speaker-tech-lead .speaker-head { color:#c4b5fd; }
-.speaker-card.speaker-skeptic .speaker-head { color:#f9a8d4; }
-.speaker-card.speaker-summary .speaker-head { color:#86efac; }
-.speaker-card.speaker-questions .speaker-head { color:#fcd34d; }
-.speaker-card.speaker-architect .speaker-head { color:#93c5fd; }
-.speaker-card.speaker-planner .speaker-head { color:#5eead4; }
-.speaker-body { color:#d1d5db; line-height:1.35; white-space:normal; }
-.speaker-body p { margin: 0.1rem 0 0.3rem 0; }
-.speaker-body p:last-child { margin-bottom: 0; }
-.speaker-body ul, .speaker-body ol { margin: 0.2rem 0 0.3rem 1.2rem; padding-left: 0.2rem; }
-.speaker-body li { margin: 0.04rem 0; }
-.speaker-body h1, .speaker-body h2, .speaker-body h3, .speaker-body h4 { margin: 0.15rem 0 0.25rem 0; line-height: 1.25; }
-.speaker-body code { background: rgba(255,255,255,0.08); padding: 0.08rem 0.3rem; border-radius: 5px; }
-.stage-tracker { display:flex; flex-wrap:wrap; gap:0.35rem; margin:0.4rem 0 0.6rem 0; }
-.stage-pill { border-radius:999px; padding:0.18rem 0.7rem; font-size:0.78rem; font-weight:600;
-  border:1px solid #334155; color:#64748b; background:#0b1220; }
-.stage-pill.done { border-color:#14532d; color:#86efac; background:#08160d; }
-.stage-pill.active { border-color:#1d4ed8; color:#bfdbfe; background:#0b1a36; }
-"""
-PIPELINE_STAGES: list[tuple[str, str]] = [
-    ("discussion", "Panel"),
-    ("summary", "Summary"),
-    ("answers", "Answers"),
-    ("arch_choice", "Architecture"),
-    ("strategy", "Strategy"),
-    ("plan_bundle", "Blueprint"),
-    ("implementation", "Implementation"),
-    ("verification", "Verification"),
-    ("done", "Done"),
-]
-_STAGE_ALIASES: dict[str, str] = {
-    "architecture": "arch_choice",
-    "plan_gate": "plan_bundle",
-    "implement_gate": "implementation",
-    "report": "verification",
-}
-
-
-def stage_tracker(stage: str) -> str:
-    """Render the pipeline progress bar as a row of stage pills."""
-    key = _STAGE_ALIASES.get((stage or "").strip(), (stage or "").strip())
-    keys = [k for k, _ in PIPELINE_STAGES]
-    index = keys.index(key) if key in keys else 0
-    pills: list[str] = []
-    for position, (_, label) in enumerate(PIPELINE_STAGES):
-        if key == "done":
-            css = "done" if position < len(PIPELINE_STAGES) - 1 else "active"
-        elif position < index:
-            css = "done"
-        elif position == index:
-            css = "active"
-        else:
-            css = "todo"
-        pills.append(f"<span class='stage-pill {css}'>{html.escape(label)}</span>")
-    return "<div class='stage-tracker'>" + "".join(pills) + "</div>"
-
-
 SPEAKER_STYLE_CLASS: dict[str, str] = {
     "PM": "speaker-pm",
     "Tech Lead": "speaker-tech-lead",
@@ -125,6 +52,16 @@ def turn_block(speaker: str, content: str) -> str:
         f"<details class='speaker-card {style_class}' open>"
         f"<summary class='speaker-head'>{speaker}</summary>"
         f"<div class='speaker-body'>{body}</div>"
+        "</details>"
+    )
+
+
+def warning_block(title: str, content: str) -> str:
+    """A red, always-open card for security warnings (shown with the implement gate)."""
+    return (
+        "<details class='speaker-card warning-card' open>"
+        f"<summary class='speaker-head'>⚠️ {html.escape(title)}</summary>"
+        f"<div class='speaker-body'>{html.escape((content or '').strip())}</div>"
         "</details>"
     )
 

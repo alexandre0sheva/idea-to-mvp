@@ -8,7 +8,9 @@ from idea_to_mvp import graph as graph_module
 from idea_to_mvp import implementer, llm
 from idea_to_mvp.config import clear_settings_cache
 from idea_to_mvp.demo.fixtures import respond_structured
-from idea_to_mvp.nodes.discussion import discussion_node, route_after_discussion
+from idea_to_mvp.implementation import verify as verify_lanes
+from idea_to_mvp.implementation.verify import FixOutcome, LaneOutcome, LaneReport
+from idea_to_mvp.nodes.discussion import discussion_node
 from idea_to_mvp.nodes.gates import route_after_plan_gate
 from idea_to_mvp.state import make_initial_state
 
@@ -60,18 +62,6 @@ def fake_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path):
 
 def _interrupts(events: list[dict]) -> list:
     return [e["__interrupt__"][0] for e in events if "__interrupt__" in e]
-
-
-def test_route_after_discussion_loops_until_max() -> None:
-    state = _base_state(max_rounds=3)
-    state["turn_count"] = 2
-    assert route_after_discussion(state) == "discussion"
-
-
-def test_route_after_discussion_moves_to_summarizer() -> None:
-    state = _base_state(max_rounds=3)
-    state["turn_count"] = 3
-    assert route_after_discussion(state) == "summarizer"
 
 
 def test_route_after_plan_gate() -> None:
@@ -140,41 +130,60 @@ def test_full_pipeline_accept_generates_bundle(fake_pipeline, tmp_path) -> None:
     assert interrupts[0].value["question"].strip()
 
 
-def test_implement_gate_accept_builds_verifies_and_reports(fake_pipeline, monkeypatch, tmp_path) -> None:
+async def test_implement_gate_accept_builds_verifies_and_reports(fake_pipeline, monkeypatch, tmp_path) -> None:
     workspace = tmp_path / "projects" / "ws"
     workspace.mkdir(parents=True)
     (workspace / "README.md").write_text("readme")
 
-    fixes: list[str] = []
-    verifications = [
-        {"passed": False, "report": "2 failed\nVERDICT: FAIL"},
-        {"passed": True, "report": "all green\nVERDICT: PASS"},
-    ]
+    fixes: list[list[str]] = []
+    rounds: list[int] = []
+
+    async def run_lane(ws, lane, settings, *, budget_usd, emit, **_):
+        if lane == "tests":
+            rounds.append(1)
+        failing = lane == "tests" and len(rounds) == 1  # the first round fails, the fix works
+        report = LaneReport(
+            lane=lane, passed=not failing, commands_run=[], failures=["2 failed"] if failing else [], summary=lane
+        )
+        return LaneOutcome(report)
+
+    async def run_fix(ws, failures, settings, *, budget_usd, emit, **_):
+        fixes.append(failures)
+        return FixOutcome(True, "fixed")
+
     monkeypatch.setattr(implementer, "prepare_workspace", lambda bundle, root: workspace)
     monkeypatch.setattr(implementer, "run_implementation", lambda ws, strategy, settings: "Implemented everything.")
-    monkeypatch.setattr(implementer, "run_verification", lambda ws, settings: verifications.pop(0))
-    monkeypatch.setattr(implementer, "run_fix", lambda ws, report, settings: fixes.append(report) or "fixed")
+    monkeypatch.setattr(verify_lanes, "run_lane", run_lane)
+    monkeypatch.setattr(verify_lanes, "run_fix", run_fix)
 
     g = graph_module.build_graph(MemorySaver())
     config = {"configurable": {"thread_id": "lifecycle-implement"}}
-    list(g.stream(_base_state(max_rounds=3), config=config, stream_mode="updates"))
-    list(g.stream(Command(resume="Answers."), config=config, stream_mode="updates"))
-    list(g.stream(Command(resume={"option": "A", "notes": ""}), config=config, stream_mode="updates"))
-    list(g.stream(Command(resume={"generate": True, "notes": ""}), config=config, stream_mode="updates"))
-    events = list(g.stream(Command(resume={"implement": True, "notes": "go"}), config=config, stream_mode="updates"))
+    # The implementer node is async (it can be cancelled and publishes live events), so drive the graph with astream.
+    async def drive(payload) -> list[dict]:
+        return [event async for event in g.astream(payload, config=config, stream_mode="updates")]
 
-    assert not _interrupts(events)
-    snapshot = g.get_state(config)
-    assert snapshot.next == ()
-    assert snapshot.values["implement_decision"] == {"implement": True, "notes": "go"}
+    await drive(_base_state(max_rounds=3))
+    await drive(Command(resume="Answers."))
+    await drive(Command(resume={"option": "A", "notes": ""}))
+    await drive(Command(resume={"generate": True, "notes": ""}))
+    events = await drive(Command(resume={"implement": True, "notes": "go"}))
+
+    # The delivered version waits at the iterate gate: the user may request changes for the next one.
+    assert [i.value["kind"] for i in _interrupts(events)] == ["iterate_gate"]
+    snapshot = await g.aget_state(config)
+    assert snapshot.next == ("iterate_gate",)
+    assert snapshot.values["implement_decision"] == {"implement": True, "notes": "go", "parallel": 0}
     assert snapshot.values["workspace_dir"] == str(workspace)
     assert snapshot.values["implementation_log"] == "Implemented everything."
     assert snapshot.values["verification"]["passed"] is True
     assert snapshot.values["verification"]["attempts"] == 1
-    assert len(fixes) == 1
+    assert fixes == [["[tests] 2 failed"]]
     assert "Delivery report" in snapshot.values["delivery_report"]
     assert str(workspace) in snapshot.values["delivery_report"]
     assert snapshot.values["stage"] == "done"
+
+    await drive(Command(resume={"iterate": False, "feedback": ""}))
+    assert (await g.aget_state(config)).next == ()
 
 
 def test_implement_gate_decline_ends_run(fake_pipeline) -> None:
@@ -189,7 +198,7 @@ def test_implement_gate_decline_ends_run(fake_pipeline) -> None:
     assert not _interrupts(events)
     snapshot = g.get_state(config)
     assert snapshot.next == ()
-    assert snapshot.values["implement_decision"] == {"implement": False, "notes": ""}
+    assert snapshot.values["implement_decision"] == {"implement": False, "notes": "", "parallel": 0}
     assert snapshot.values["workspace_dir"] == ""
     assert snapshot.values["stage"] == "done"
 

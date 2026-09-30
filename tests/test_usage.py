@@ -7,7 +7,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 
 from idea_to_mvp import llm
 from idea_to_mvp.state import IdeaDiscussionState
-from idea_to_mvp.usage import UsageRecord, format_usage, summarize_usage, with_usage
+from idea_to_mvp.usage import UsageRecord, summarize_usage, with_usage
 
 
 class UsageModel(BaseChatModel):
@@ -129,13 +129,6 @@ def test_summarize_usage_totals_and_groups_by_role() -> None:
 def test_summarize_usage_of_nothing_is_zero_and_has_no_cost() -> None:
     summary = summarize_usage([])
     assert summary["calls"] == 0 and summary["total_tokens"] == 0 and summary["cost_usd"] is None
-
-
-def test_format_usage_is_compact_and_empty_when_unused() -> None:
-    assert format_usage([]) == ""
-    text = format_usage([_record("pm", "a", 12000, 3400)])
-    assert "12,000 in" in text and "3,400 out" in text and "$" not in text
-    assert "$1.25" in format_usage([_record("implementer", "c", 0, 0, 1.25)])
 
 
 def test_usage_is_captured_through_chains_like_structured_output(fake_runtime) -> None:

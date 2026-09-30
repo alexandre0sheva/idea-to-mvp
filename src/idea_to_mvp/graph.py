@@ -15,8 +15,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from idea_to_mvp.config import Settings, get_settings
 from idea_to_mvp.nodes.architecture import architect_node
-from idea_to_mvp.nodes.blueprint import plan_bundle_node
-from idea_to_mvp.nodes.discussion import discussion_node, route_after_discussion
+from idea_to_mvp.nodes.blueprint_graph import build_blueprint_subgraph
 from idea_to_mvp.nodes.gates import (
     arch_choice_node,
     collect_answers_node,
@@ -25,11 +24,30 @@ from idea_to_mvp.nodes.gates import (
     route_after_implement_gate,
     route_after_plan_gate,
 )
-from idea_to_mvp.nodes.implement import implementer_node
+from idea_to_mvp.nodes.implement import (
+    implementer_node,
+    prepare_workspace_node,
+    route_after_workspace,
+)
+from idea_to_mvp.nodes.implement_graph import build_implement_subgraph
+from idea_to_mvp.nodes.iterate import (
+    change_planner_node,
+    iterate_gate_node,
+    route_after_delivery,
+    route_after_iterate_gate,
+)
+from idea_to_mvp.nodes.panel import build_panel_subgraph
 from idea_to_mvp.nodes.report import delivery_report_node
 from idea_to_mvp.nodes.strategy import strategy_node
 from idea_to_mvp.nodes.summary import summarizer_node
-from idea_to_mvp.nodes.verify import verifier_node
+from idea_to_mvp.nodes.verify import (
+    fix_node,
+    route_after_verdict,
+    route_after_verify,
+    verdict_node,
+    verify_lane_node,
+    verify_node,
+)
 from idea_to_mvp.resilience import LLM_RETRY
 from idea_to_mvp.state import IdeaDiscussionState
 
@@ -38,25 +56,29 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
     """Compile the pipeline graph. Gates use `interrupt()`, so real runs need a checkpointer;
     `None` is only useful for inspecting topology (diagram script)."""
     builder = StateGraph(IdeaDiscussionState)
-    builder.add_node("discussion", discussion_node, retry_policy=LLM_RETRY)
+    # The panel is a subgraph; its LLM nodes carry the retry policy (retrying the whole node would redo every turn).
+    builder.add_node("panel", build_panel_subgraph())
     builder.add_node("summarizer", summarizer_node, retry_policy=LLM_RETRY)
     builder.add_node("collect_answers", collect_answers_node)
     builder.add_node("architect", architect_node, retry_policy=LLM_RETRY)
     builder.add_node("arch_choice", arch_choice_node)
     builder.add_node("strategy", strategy_node, retry_policy=LLM_RETRY)
     builder.add_node("plan_gate", plan_gate_node)
-    builder.add_node("plan_bundle", plan_bundle_node, retry_policy=LLM_RETRY)
+    builder.add_node("plan_bundle", build_blueprint_subgraph())  # subgraph: its document nodes retry
     builder.add_node("implement_gate", implement_gate_node)
+    builder.add_node("prepare_workspace", prepare_workspace_node)
     builder.add_node("implementer", implementer_node)
-    builder.add_node("verifier", verifier_node)
+    builder.add_node("implement_plan", build_implement_subgraph())  # parallel worktrees; its nodes carry their own policy
+    builder.add_node("verify", verify_node)
+    builder.add_node("verify_lane", verify_lane_node)  # three lanes, fanned out with Send
+    builder.add_node("verdict", verdict_node)
+    builder.add_node("fix", fix_node)
     builder.add_node("delivery_report", delivery_report_node)
+    builder.add_node("iterate_gate", iterate_gate_node)
+    builder.add_node("change_planner", change_planner_node, retry_policy=LLM_RETRY)
 
-    builder.add_edge(START, "discussion")
-    builder.add_conditional_edges(
-        "discussion",
-        route_after_discussion,
-        {"discussion": "discussion", "summarizer": "summarizer"},
-    )
+    builder.add_edge(START, "panel")
+    builder.add_edge("panel", "summarizer")
     builder.add_edge("summarizer", "collect_answers")
     builder.add_edge("collect_answers", "architect")
     builder.add_edge("architect", "arch_choice")
@@ -71,23 +93,55 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
     builder.add_conditional_edges(
         "implement_gate",
         route_after_implement_gate,
-        {"implementer": "implementer", "__end__": END},
+        {"prepare_workspace": "prepare_workspace", "__end__": END},
     )
-    builder.add_edge("implementer", "verifier")
-    builder.add_edge("verifier", "delivery_report")
-    builder.add_edge("delivery_report", END)
+    builder.add_conditional_edges(
+        "prepare_workspace",
+        route_after_workspace,
+        {"implementer": "implementer", "implement_plan": "implement_plan"},
+    )
+    builder.add_edge("implementer", "verify")
+    builder.add_edge("implement_plan", "verify")
+    builder.add_conditional_edges("verify", route_after_verify, ["verify_lane", "delivery_report"])
+    builder.add_edge("verify_lane", "verdict")
+    builder.add_conditional_edges(
+        "verdict",
+        route_after_verdict,
+        {"pass": "delivery_report", "exhausted": "delivery_report", "retry": "fix"},
+    )
+    builder.add_edge("fix", "verify")
+    builder.add_conditional_edges(
+        "delivery_report",
+        route_after_delivery,
+        {"iterate_gate": "iterate_gate", "__end__": END},
+    )
+    builder.add_conditional_edges(
+        "iterate_gate",
+        route_after_iterate_gate,
+        {"change_planner": "change_planner", "__end__": END},
+    )
+    # An iteration builds only its new tasks with the same engine (finished tasks are skipped).
+    builder.add_conditional_edges(
+        "change_planner",
+        route_after_workspace,
+        {"implementer": "implementer", "implement_plan": "implement_plan"},
+    )
 
     return builder.compile(checkpointer=checkpointer)
 
 
-def run_config(thread_id: str) -> RunnableConfig:
-    """Config for running a session's thread: names and tags the run so it is easy to find in traces."""
-    return {
+def run_config(thread_id: str, *, max_concurrency: int | None = None) -> RunnableConfig:
+    """Config for running a session's thread: names and tags the run so it is easy to find in traces,
+    and caps how many model calls parallel branches (the panel's openings) may have in flight."""
+    config: RunnableConfig = {
         "configurable": {"thread_id": thread_id},
         "run_name": "idea-to-mvp",
         "tags": ["idea-to-mvp", f"thread:{thread_id}"],
         "metadata": {"thread_id": thread_id},
     }
+    if max_concurrency is not None:
+        config["max_concurrency"] = max_concurrency
+    return config
 
 
 def pending_interrupt(snapshot: Any) -> dict[str, Any] | None:
@@ -97,6 +151,27 @@ def pending_interrupt(snapshot: Any) -> dict[str, Any] | None:
             value = getattr(interrupt, "value", None)
             return value if isinstance(value, dict) else {}
     return None
+
+
+def merged_values(snapshot: Any) -> dict[str, Any]:
+    """The thread's state values with the progress of a running subgraph folded in.
+
+    A subgraph node only commits to the parent checkpoint when it finishes, so while the panel runs
+    the parent still shows the state from before it. Read the snapshot with `subgraphs=True` and this
+    overlays the panel's own latest checkpoint: the UI sees every turn as it lands. The subgraph
+    returns only the `usage` records it added, so those are appended rather than replaced.
+    """
+    values = dict(snapshot.values or {})
+    for task in getattr(snapshot, "tasks", None) or ():
+        if getattr(task, "result", None) is not None:
+            continue  # finished: its writes are already part of the parent's values
+        inner = getattr(getattr(task, "state", None), "values", None)
+        if not isinstance(inner, dict):
+            continue
+        added_usage = inner.get("usage") or []
+        values.update(inner)
+        values["usage"] = [*(snapshot.values or {}).get("usage", []), *added_usage]
+    return values
 
 
 @asynccontextmanager

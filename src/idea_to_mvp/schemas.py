@@ -17,6 +17,17 @@ MAX_WORKSTREAMS = 5
 QUESTION_COUNT = 5
 
 
+# ---------------------------------------------------------------- moderator
+
+
+class ModeratorDecision(BaseModel):
+    """The panel moderator's call after a turn: stop the debate, or who should speak next."""
+
+    converged: bool
+    next_speaker: Literal["PM", "Tech Lead", "Skeptic"] | None
+    reason: str  # shown in the UI as the convergence note
+
+
 # ---------------------------------------------------------------- questions
 
 

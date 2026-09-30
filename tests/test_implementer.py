@@ -1,6 +1,5 @@
 from idea_to_mvp.implementer import (
     _build_agent_definitions,
-    _parse_verdict,
     _subagent_prompt,
     prepare_workspace,
 )
@@ -32,16 +31,6 @@ def test_prepare_workspace_copies_bundle(tmp_path) -> None:
     second = prepare_workspace(bundle, projects_root)
     assert second != workspace
     assert (second / "plan.md").exists()
-
-
-def test_parse_verdict() -> None:
-    assert _parse_verdict("All good.\nVERDICT: PASS") is True
-    assert _parse_verdict("3 tests failed\nVERDICT: FAIL") is False
-    assert _parse_verdict("verdict: pass") is True
-    assert _parse_verdict("Ran tests, results unclear.") is None
-    assert _parse_verdict("") is None
-    # Last verdict wins if the agent revises itself.
-    assert _parse_verdict("VERDICT: FAIL ... fixed ... VERDICT: PASS") is True
 
 
 def test_build_agent_definitions_maps_workstreams(tmp_path) -> None:

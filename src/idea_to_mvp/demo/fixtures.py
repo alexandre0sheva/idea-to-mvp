@@ -15,10 +15,21 @@ from langchain_core.messages import BaseMessage
 from pydantic import BaseModel
 
 from idea_to_mvp import blueprints
+from idea_to_mvp.blueprint_review import CritiqueReport
+from idea_to_mvp.plan import (
+    DEFAULT_WORKSTREAM,
+    ChangePlan,
+    Contract,
+    Plan,
+    PlanTask,
+    ProjectCommands,
+)
+from idea_to_mvp.roles import SPEAKER_ORDER
 from idea_to_mvp.schemas import (
     ArchitectureOption,
     ArchitectureProposal,
     ExecutionStrategy,
+    ModeratorDecision,
     MvpQuestion,
     QuestionSet,
     Workstream,
@@ -30,7 +41,15 @@ _IDEA_RE = re.compile(
 )
 _WORKSTREAM_RE = re.compile(r'"name":\s*"([a-z0-9-]+)"')
 _ROUND_RE = re.compile(r"round (\d+) of (\d+)")
+_UPSTREAM_PRD_RE = re.compile(r"## Upstream document: PRD\.md\n\n(.*?)(?=\n\n## Upstream document:|\Z)", flags=re.DOTALL)
+_REQUIREMENT_ID_RE = re.compile(r"\bR\d+\b")
+_DEFAULT_REQUIREMENT_IDS = ["R1", "R2", "R3"]
+_TURN_COUNT_RE = re.compile(r"(PM|Tech Lead|Skeptic): (\d+)")
 _DEFAULT_WORKSTREAMS = ["core-app", "quality"]
+
+CONVERGENCE_REASON = (
+    "The panel converged: one core journey, a small monolith, and validation with real users before expanding."
+)
 
 STRATEGY_REASONING = (
     "Two loosely coupled workstreams: the product code and a quality lane owning tests and fixtures. "
@@ -68,12 +87,27 @@ def _round_note(messages: list[BaseMessage]) -> str:
     return "I will push one open question forward this round."
 
 
+def _is_opening(messages: list[BaseMessage]) -> bool:
+    """Opening statements are written before the panelists can see each other."""
+    return "OPENING statement" in _human_text(messages)
+
+
 def pm(messages: list[BaseMessage]) -> str:
     idea = idea_from(messages)
+    if _is_opening(messages):
+        points = (
+            "The first release should serve one user journey end to end.",
+            "Adoption is the main risk: the MVP must show value in the first session.",
+        )
+    else:
+        points = (
+            "Tech Lead is right that the first release should serve one user journey end to end.",
+            "The Skeptic's adoption worry is fair: the MVP must show value in the first session.",
+        )
     return (
         f"**Scope for “{idea}”**\n"
-        "- Tech Lead is right that the first release should serve one user journey end to end.\n"
-        "- The Skeptic's adoption worry is fair: the MVP must show value in the first session.\n"
+        f"- {points[0]}\n"
+        f"- {points[1]}\n"
         f"- {_round_note(messages)}\n\n"
         "**Functionality recommendation**\n"
         "Ship capture, review, and a simple progress view. Defer sharing and integrations.\n\n"
@@ -84,10 +118,20 @@ def pm(messages: list[BaseMessage]) -> str:
 
 def tech_lead(messages: list[BaseMessage]) -> str:
     idea = idea_from(messages)
+    if _is_opening(messages):
+        points = (
+            "A focused scope is buildable as a small web app with one relational store.",
+            "Data loss is the risk to design out early, and autosave plus export is cheap.",
+        )
+    else:
+        points = (
+            "PM's scope is buildable as a small web app with one relational store.",
+            "The Skeptic's data-loss concern is cheap to address with autosave and export.",
+        )
     return (
         f"**Feasibility of “{idea}”**\n"
-        "- PM's scope is buildable as a small web app with one relational store.\n"
-        "- The Skeptic's data-loss concern is cheap to address with autosave and export.\n"
+        f"- {points[0]}\n"
+        f"- {points[1]}\n"
         f"- {_round_note(messages)}\n\n"
         "**Tech / build notes**\n"
         "A monolith with a thin API layer and server-rendered UI; avoid queues until load demands them.\n\n"
@@ -98,10 +142,20 @@ def tech_lead(messages: list[BaseMessage]) -> str:
 
 def skeptic(messages: list[BaseMessage]) -> str:
     idea = idea_from(messages)
+    if _is_opening(messages):
+        points = (
+            "Users will have to change habits for this, and that is unproven.",
+            "Privacy expectations could change the storage design, so decide them before building.",
+        )
+    else:
+        points = (
+            "PM assumes users will change habits for this; that is unproven.",
+            "Tech Lead's monolith is fine, but privacy expectations could change the storage design.",
+        )
     return (
         f"**Risks in “{idea}”**\n"
-        "- PM assumes users will change habits for this; that is unproven.\n"
-        "- Tech Lead's monolith is fine, but privacy expectations could change the storage design.\n"
+        f"- {points[0]}\n"
+        f"- {points[1]}\n"
         f"- {_round_note(messages)}\n\n"
         "**Pushback on functionality/implementation**\n"
         "Cut everything not needed for the core journey, and test demand with a landing page first.\n\n"
@@ -176,28 +230,17 @@ def _agents_doc(title: str) -> Callable[[list[BaseMessage]], str]:
     return build
 
 
-def _plan_doc(messages: list[BaseMessage]) -> str:
-    streams = workstreams_from(messages)
-    tasks = []
-    titles = ["Project setup", "Core journey", "Progress view"]
-    for index, title in enumerate(titles, start=1):
-        stream = streams[(index - 1) % len(streams)]
-        tasks.append(
-            f"### {index:02d}. {title}\n"
-            f"- Goal: deliver {title.lower()}.\n- Workstream: {stream}.\n"
-            f"- Depends on: {'none' if index == 1 else f'{index - 1:02d}'}.\n"
-            f"- Contracts in: {'none' if index == 1 else 'C1'}.\n- Contracts out: C1.\n"
-            "- Implementation scope: code and tests for this slice.\n"
-            f"- Acceptance criteria: R{min(index, 3)} is demonstrably satisfied.\n"
-            "- Required unit/integration tests: one per acceptance criterion.\n"
-            "- Coverage target: at least 80% for changed scope.\n- Handoff artifacts: updated docs and notes.\n"
-        )
-    return "## Contract Registry\n\n- C1: Core entry contract\n\n## Tasks\n\n" + "\n".join(tasks)
+def requirement_ids_from(messages: list[BaseMessage]) -> list[str]:
+    """Requirement IDs of the upstream PRD the plan is written from (the real ones, not assumed)."""
+    match = _UPSTREAM_PRD_RE.search(_human_text(messages))
+    found = list(dict.fromkeys(_REQUIREMENT_ID_RE.findall(match.group(1)))) if match else []
+    return found or list(_DEFAULT_REQUIREMENT_IDS)
 
 
 def _subagent_doc(messages: list[BaseMessage]) -> str:
-    match = re.search(r"workstream `([a-z0-9-]+)`", _human_text(messages))
-    name = match.group(1) if match else "workstream"
+    # The instruction comes last in the prompt, after any upstream documents that might quote other names.
+    names = re.findall(r"workstream `([a-z0-9-]+)`", _human_text(messages))
+    name = names[-1] if names else "workstream"
     return (
         f"You are the `{name}` implementation agent. Read `AGENTS.md`, `PRD.md`, `ARCHITECTURE.md`, and "
         f"`plan.md`, then implement every task assigned to the `{name}` workstream with tests. "
@@ -213,7 +256,6 @@ _ARCHITECT_BY_SYSTEM: dict[str, Callable[[list[BaseMessage]], str]] = {
     blueprints.CONTRACTS_AGENTS_SYSTEM: _agents_doc("Contract Governance (demo)"),
     blueprints.APPLICATION_AGENTS_SYSTEM: _agents_doc("Application Delivery Guide (demo)"),
     blueprints.QUALITY_AGENTS_SYSTEM: _agents_doc("Quality Standard (demo)"),
-    blueprints.PLAN_SYSTEM: _plan_doc,
     blueprints.SUBAGENT_SYSTEM: _subagent_doc,
 }
 
@@ -288,6 +330,93 @@ def architecture_proposal(messages: list[BaseMessage]) -> ArchitectureProposal:
     )
 
 
+def moderator_decision(messages: list[BaseMessage]) -> ModeratorDecision:
+    """Steer to whoever has spoken least; converge once everyone has had two turns."""
+    line = re.search(r"Turns so far: (.+)", _human_text(messages))
+    turns = {name: int(count) for name, count in _TURN_COUNT_RE.findall(line.group(1))} if line else {}
+    if all(turns.get(name, 0) >= 2 for name in SPEAKER_ORDER):
+        return ModeratorDecision(converged=True, next_speaker=None, reason=CONVERGENCE_REASON)
+    quietest = min(SPEAKER_ORDER, key=lambda name: turns.get(name, 0))
+    return ModeratorDecision(
+        converged=False,
+        next_speaker=quietest,  # type: ignore[arg-type]  # SPEAKER_ORDER holds exactly the Literal values
+        reason=f"{quietest} has spoken least and should settle the open question next.",
+    )
+
+
+_PLAN_TITLES = ["Project setup", "Core journey", "Progress view"]
+
+
+def plan(messages: list[BaseMessage]) -> Plan:
+    """A valid plan over the real workstreams and PRD requirement ids: setup first, then parallel slices."""
+    names = list(dict.fromkeys(_WORKSTREAM_RE.findall(_human_text(messages)))) or [DEFAULT_WORKSTREAM]
+    requirements = requirement_ids_from(messages)
+    count = max(len(_PLAN_TITLES), len(names))
+    tasks = []
+    for index in range(count):
+        title = _PLAN_TITLES[index] if index < len(_PLAN_TITLES) else f"Extra slice {index + 1}"
+        mine = requirements[index::count] or [requirements[0]]
+        tasks.append(
+            PlanTask(
+                id=f"T{index + 1:02d}",
+                title=title,
+                goal=f"Deliver {title.lower()}.",
+                workstream=names[index % len(names)],
+                depends_on=[] if index == 0 else ["T01"],
+                requirement_ids=mine,
+                contracts_in=[] if index == 0 else ["C1"],
+                contracts_out=["C1"] if index == 0 else [],
+                scope="Code and tests for this slice.",
+                acceptance=[f"{', '.join(mine)} demonstrably satisfied."],
+                tests=["One test per acceptance criterion."],
+                coverage_target=80,
+                handoff="Updated docs and notes.",
+            )
+        )
+    return Plan(
+        contracts=[Contract(id="C1", name="Core entry contract", description="How the slices share entries.")],
+        tasks=tasks,
+        commands=ProjectCommands(
+            install=None, test="python -m unittest discover", lint=None, run="python -m demo_app"
+        ),
+    )
+
+
+_CHANGE_PREFIX_RE = re.compile(r"Use (I\d+)-01")
+_CHANGE_REQUEST_RE = re.compile(r"## Change request[^\n]*\n(.+?)(?:\n\n|\Z)", flags=re.DOTALL)
+
+
+def change_plan(messages: list[BaseMessage]) -> ChangePlan:
+    """One small task that carries the user's change request, in the first workstream."""
+    text = _human_text(messages)
+    prefix = _CHANGE_PREFIX_RE.search(text)
+    request = _CHANGE_REQUEST_RE.search(text)
+    goal = " ".join(request.group(1).split()) if request else "the requested change"
+    return ChangePlan(
+        tasks=[
+            PlanTask(
+                id=f"{prefix.group(1) if prefix else 'I2'}-01",
+                title=f"Change: {goal[:50]}",
+                goal=f"Make this change to the product: {goal}",
+                workstream=workstreams_from(messages)[0],
+                depends_on=[],
+                requirement_ids=[],
+                contracts_in=[],
+                contracts_out=[],
+                scope="The change, in the existing code base, without breaking what was delivered.",
+                acceptance=[f"The requested change works: {goal}"],
+                tests=["A test for the requested behaviour; the existing suite stays green."],
+                coverage_target=80,
+                handoff="Updated notes.",
+            )
+        ]
+    )
+
+
+def critique(messages: list[BaseMessage]) -> CritiqueReport:
+    return CritiqueReport(approved=True, issues=[])
+
+
 def execution_strategy(messages: list[BaseMessage]) -> ExecutionStrategy:
     return ExecutionStrategy(
         mode="agent_team",
@@ -316,6 +445,10 @@ RESPONSES: dict[str, Callable[[list[BaseMessage]], str]] = {
 }
 
 STRUCTURED: dict[type[BaseModel], Callable[[list[BaseMessage]], Any]] = {
+    ModeratorDecision: moderator_decision,
+    Plan: plan,
+    ChangePlan: change_plan,
+    CritiqueReport: critique,
     QuestionSet: question_set,
     ArchitectureProposal: architecture_proposal,
     ExecutionStrategy: execution_strategy,

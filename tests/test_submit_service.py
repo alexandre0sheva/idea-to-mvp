@@ -5,14 +5,15 @@ from pathlib import Path
 import pytest
 from service_helpers import (
     POS_BUTTON,
-    POS_DECISION,
     POS_ROUNDS,
     POS_SESSIONS,
     POS_STATUS,
     POS_THREAD,
     POS_TRACKER,
     chat_text,
+    gate_field,
     mode_of,
+    panel_visible,
     submit,
     update_value,
 )
@@ -50,12 +51,14 @@ async def test_idea_runs_to_the_answers_gate_and_streams_progress(demo_service) 
     outputs = await submit(service, "Build a climbing app", "", "t1")
     assert await mode_of(service, "t1") == MODE_ANSWERS
     first, last = outputs[0], outputs[-1]
-    assert "drafting the next panel turn" in chat_text(first)  # optimistic overlay before the graph moved
+    assert "opening statements in parallel" in chat_text(first)  # optimistic overlay before the graph moved
     assert "Build a climbing app" in chat_text(last)
-    assert update_value(last[POS_BUTTON], "value") == "Submit answers"
+    assert panel_visible(last, "answers") is True and panel_visible(last, "arch_choice") is False  # its own form
+    assert update_value(last[POS_BUTTON], "visible") is False  # the main run button is not the gate's button
+    assert update_value(gate_field(last, "answers", "answer_1"), "value")  # prefilled with the suggestion
     assert update_value(last[POS_ROUNDS], "visible") is False
     assert "Answer the MVP" in update_value(last[POS_STATUS], "value")
-    assert "stage-pill active'>Answers" in update_value(last[POS_TRACKER], "value")
+    assert "stage-step active' aria-current='step'><span class='stage-label'>Answers" in update_value(last[POS_TRACKER], "value")
 
 
 async def test_empty_idea_and_empty_answers_are_rejected_without_running_the_graph(demo_service) -> None:
@@ -84,7 +87,7 @@ async def test_gate_decisions_reach_the_graph_as_resume_payloads(demo_service) -
     values = (await graph.aget_state({"configurable": {"thread_id": thread}})).values
     assert values["plan_decision"] == {"generate": True, "notes": "keep it lean"}
     assert "Generate the execution pack — keep it lean" in chat_text(outputs[-1])
-    assert update_value(outputs[-1][POS_DECISION], "visible") is True
+    assert panel_visible(outputs[-1], "implement_gate") is True and panel_visible(outputs[-1], "plan_gate") is False
 
 
 async def test_declining_the_plan_ends_the_run(demo_service) -> None:
@@ -164,7 +167,7 @@ async def test_sessions_can_be_listed_resumed_and_deleted(demo_service) -> None:
     resumed = await service.load_session("s1", "s2")
     assert resumed[POS_THREAD] == "s1"
     assert "climbing" in chat_text(resumed) and "cooking" not in chat_text(resumed)
-    assert update_value(resumed[POS_BUTTON], "value") == "Submit answers"  # back at its gate
+    assert panel_visible(resumed, "answers") is True  # back at its gate, with its own form
 
     assert "Pick a saved session" in update_value((await service.load_session(None, "s1"))[POS_STATUS], "value")
 
@@ -190,3 +193,13 @@ async def test_save_conversation_exports_the_state_derived_transcript(demo_servi
 
     empty_status, _ = await service.save_conversation("", "never-used")
     assert "Nothing to save" in update_value(empty_status, "value")
+
+
+async def test_panel_turns_reach_the_chat_while_the_panel_is_still_running(demo_service) -> None:
+    service, _ = demo_service
+    outputs = await submit(service, "Build a climbing app", "", "t-panel", rounds=3)
+    texts = [chat_text(output) for output in outputs]
+    # The panel is a subgraph: its turns must show up before the summarizer has run.
+    assert any("Pushback on functionality" in t and "Executive summary" not in t for t in texts)
+    assert "Moderator" in texts[-1] and "converged" in texts[-1]  # the early stop is explained
+    assert await mode_of(service, "t-panel") == MODE_ANSWERS

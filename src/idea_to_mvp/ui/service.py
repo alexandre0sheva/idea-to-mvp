@@ -1,99 +1,77 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import gradio as gr
 from langgraph.types import Command
 
-from idea_to_mvp.config import Settings
+from idea_to_mvp.config import PanelMode, Settings
 from idea_to_mvp.exporter import save_session_markdown
-from idea_to_mvp.graph import GraphProvider, pending_interrupt, run_config
-from idea_to_mvp.roles import SPEAKER_ORDER
+from idea_to_mvp.graph import GraphProvider, merged_values, pending_interrupt, run_config
+from idea_to_mvp.implementation.events import EVENT_KINDS, ImplEvent
+from idea_to_mvp.implementation.progress import TaskResult, load_progress, spent_in_iteration
+from idea_to_mvp.implementation.workspace import diff_stat
+from idea_to_mvp.nodes.implement import builds_task_by_task, effective_parallel
+from idea_to_mvp.plan import load_plan
 from idea_to_mvp.sessions import SessionRegistry
 from idea_to_mvp.state import make_initial_state
+from idea_to_mvp.ui.artifacts import (
+    FileView,
+    artifact_key,
+    blueprint_zip,
+    read_workspace_file,
+)
+from idea_to_mvp.ui.components import stage_header
+from idea_to_mvp.ui.console import (
+    render_console,
+    render_cost_meter,
+    render_task_board,
+    running_tasks,
+)
+from idea_to_mvp.ui.dashboard import render_dashboard
+from idea_to_mvp.ui.gates import GATES, gate_outputs
 from idea_to_mvp.ui.render import (
     architect_block,
     questions_block,
-    stage_tracker,
     summary_block,
     thinking_block,
     turn_block,
+    warning_block,
 )
 from idea_to_mvp.ui.view import (
-    ARCH_CHOICE_A,
-    ARCH_CHOICE_B,
-    IMPL_CHOICE_SKIP,
-    IMPL_CHOICE_START,
-    MODE_ANSWERS,
-    MODE_ARCH_CHOICE,
     MODE_DONE,
     MODE_IDEA,
-    MODE_IMPL_GATE,
     MODE_INTERRUPTED,
-    MODE_PLAN_GATE,
-    PLAN_CHOICE_GENERATE,
-    PLAN_CHOICE_SKIP,
     USER_KINDS,
+    StageMark,
     ViewEntry,
+    implementation_progress,
     mode_from_state,
+    panel_running,
     running_from_state,
+    stage_elapsed,
     stage_for_view,
+    stage_marks,
+    stage_statuses,
     status_from_state,
     transcript_from_state,
 )
-from idea_to_mvp.usage import format_usage
+from idea_to_mvp.usage import summarize_usage
 
 LOGGER = logging.getLogger(__name__)
 
-__all__ = [
-    "ARCH_CHOICE_A",
-    "ARCH_CHOICE_B",
-    "IMPL_CHOICE_SKIP",
-    "IMPL_CHOICE_START",
-    "MODE_ANSWERS",
-    "MODE_ARCH_CHOICE",
-    "MODE_DONE",
-    "MODE_IDEA",
-    "MODE_IMPL_GATE",
-    "MODE_INTERRUPTED",
-    "MODE_PLAN_GATE",
-    "PLAN_CHOICE_GENERATE",
-    "PLAN_CHOICE_SKIP",
-    "AppContext",
-    "SubmitService",
-]
-
-# Decision-radio configuration per gate mode: (choices, default value).
-DECISION_CHOICES: dict[str, tuple[list[str], str]] = {
-    MODE_ARCH_CHOICE: ([ARCH_CHOICE_A, ARCH_CHOICE_B], ARCH_CHOICE_A),
-    MODE_PLAN_GATE: ([PLAN_CHOICE_GENERATE, PLAN_CHOICE_SKIP], PLAN_CHOICE_GENERATE),
-    MODE_IMPL_GATE: ([IMPL_CHOICE_START, IMPL_CHOICE_SKIP], IMPL_CHOICE_START),
-}
-
-_INPUT_LABELS: dict[str, tuple[str, str]] = {
-    MODE_IDEA: ("Describe your idea", "Describe your product idea..."),
-    MODE_ANSWERS: ("Your answers to MVP decision questions", "1. ...\n2. ..."),
-    MODE_ARCH_CHOICE: ("Notes on the architecture choice (optional)", "Constraints or preferences..."),
-    MODE_PLAN_GATE: ("Planning notes (optional)", "Anything the planner should account for..."),
-    MODE_IMPL_GATE: ("Notes for the implementation agents (optional)", "Priorities, stack preferences..."),
-    MODE_INTERRUPTED: ("Run interrupted", "Press Continue to resume this run."),
-    MODE_DONE: ("Describe your next idea", "Describe your product idea..."),
-}
-_BUTTON_LABELS: dict[str, str] = {
-    MODE_IDEA: "Run discussion",
-    MODE_ANSWERS: "Submit answers",
-    MODE_ARCH_CHOICE: "Send choice",
-    MODE_PLAN_GATE: "Send decision",
-    MODE_IMPL_GATE: "Send decision",
-    MODE_INTERRUPTED: "Continue",
-    MODE_DONE: "Run discussion",
-}
+__all__ = ["AppContext", "SubmitService"]
 
 _TITLE_LENGTH = 70
+_LOG_LIMIT = 2000  # events kept per thread for the console
+_PROGRESS_INTERVAL_SECONDS = 0.5  # tool events can arrive in bursts; task boundaries always render
 
 
 @dataclass(frozen=True)
@@ -118,13 +96,10 @@ def _error_hint(stage: str, exc: Exception) -> str:
     return f"{stage} failed with `{type(exc).__name__}`: {exc}"
 
 
-def _with_usage_line(status: str, values: dict[str, Any]) -> str:
-    usage = format_usage(values.get("usage") or [])
-    return f"{status}\n\n`{usage}`".strip() if usage else status
-
-
-def _chat_message(entry: ViewEntry) -> dict[str, str]:
+def _chat_message(entry: ViewEntry, elapsed: dict[str, float] | None = None) -> dict[str, str]:
     """Map one derived view entry to a Gradio chat message."""
+    if entry.kind == "delivery_report" and isinstance(entry.data, dict):
+        return {"role": "assistant", "content": render_dashboard(entry.data, elapsed=elapsed)}
     if entry.kind in USER_KINDS:
         return {"role": "user", "content": entry.content}
     if entry.kind == "thinking":
@@ -136,9 +111,21 @@ def _chat_message(entry: ViewEntry) -> dict[str, str]:
     if entry.kind == "questions":
         block = questions_block(entry.content.splitlines(), entry.data or None)
         return {"role": "assistant", "content": block or turn_block("Questions", entry.content)}
+    if entry.kind == "warning":
+        return {"role": "assistant", "content": warning_block(entry.speaker, entry.content)}
     if entry.kind == "system":
         return {"role": "assistant", "content": f"### {entry.speaker}\n\n{entry.content}"}
     return {"role": "assistant", "content": turn_block(entry.speaker, entry.content)}
+
+
+def _main_widgets(mode: str) -> tuple[str, str, str]:
+    """(label, placeholder, button label) of the idea box and run button, which only serve a new idea and Continue;
+    every gate has its own form (`ui/gates.py`)."""
+    if mode == MODE_INTERRUPTED:
+        return "Run interrupted", "Press Continue to resume this run.", "Continue"
+    if mode == MODE_DONE:
+        return "Describe your next idea", "Describe your product idea...", "Run discussion"
+    return "Describe your idea", "Describe your product idea...", "Run discussion"
 
 
 class SubmitService:
@@ -151,13 +138,39 @@ class SubmitService:
 
     def __init__(self, context: AppContext):
         self._context = context
+        # Checkpoint times per thread (marks, not the derived seconds): reading the history is the costly part,
+        # so it is redone only after the graph committed a step, not on every progress render.
+        self._marks: dict[str, list[StageMark]] = {}
+        # The live implementation view. Events are transient by nature (they are not in the checkpoint): they
+        # live here for the life of the process, per thread; everything else on the board is read from disk.
+        self._events: dict[str, list[ImplEvent]] = {}
+        self._active: set[str] = set()  # threads with a run streaming right now
+        self._diffs: dict[tuple[str, str], str] = {}  # (workspace, commit) -> git diff --stat (commits never change)
+        self._tab: dict[str, str] = {}  # the tab last selected for each thread
+        self._artifact_seen: dict[str, tuple[str, str, int, str]] = {}  # what the artifacts panel currently shows
+
+    def _reset_view(self, thread_id: str) -> None:
+        """A page that (re)loads a thread starts on the conversation tab with an empty artifacts panel."""
+        self._tab[thread_id] = "conversation"
+        self._artifact_seen.pop(thread_id, None)
+
+    async def _elapsed(self, thread_id: str, values: dict[str, Any], active: str, *, waiting: bool) -> dict[str, float]:
+        """Seconds of work per step, derived from the thread's checkpoint times (see `view.stage_elapsed`)."""
+        if not values.get("user_idea"):
+            return {}
+        if thread_id not in self._marks:
+            graph = await self._context.graphs.get()
+            history = [s async for s in graph.aget_state_history({"configurable": {"thread_id": thread_id}})]
+            self._marks[thread_id] = stage_marks(history)
+        return stage_elapsed(self._marks[thread_id], now=None if waiting else time.time(), active=active)
 
     # -------------------------------------------------------------- rendering
 
     async def _read(self, thread_id: str) -> tuple[dict[str, Any], dict[str, Any] | None, tuple[str, ...]]:
         graph = await self._context.graphs.get()
-        snapshot = await graph.aget_state({"configurable": {"thread_id": thread_id}})
-        return dict(snapshot.values or {}), pending_interrupt(snapshot), tuple(snapshot.next or ())
+        # subgraphs=True: while the panel runs, its turns live in the subgraph's checkpoint, not the parent's.
+        snapshot = await graph.aget_state({"configurable": {"thread_id": thread_id}}, subgraphs=True)
+        return merged_values(snapshot), pending_interrupt(snapshot), tuple(snapshot.next or ())
 
     async def _sessions_update(self, current: str | None) -> Any:
         sessions = self._context.sessions.list()
@@ -191,6 +204,8 @@ class SubmitService:
         entries = transcript_from_state(
             values, interrupt_payload, running=overlay, pending_user=pending_user, error=error
         )
+        stage = stage_for_view(values, mode)
+        elapsed = await self._elapsed(thread_id, values, stage, waiting=interrupt_payload is not None)
         title = str(values.get("user_idea") or idea_title or "").strip()
         if title:
             self._context.sessions.upsert(
@@ -200,14 +215,19 @@ class SubmitService:
                 interrupted_at=(interrupt_payload or {}).get("kind"),
             )
         return await self._pack(
-            status=_with_usage_line(
-                status if status is not None else status_from_state(values, mode, overlay), values
-            ),
+            status=status if status is not None else status_from_state(values, mode, overlay),
             mode=mode,
             thread_id=thread_id,
-            chat=[_chat_message(e) for e in entries],
-            stage=stage_for_view(values, mode),
+            chat=[_chat_message(e, elapsed) for e in entries],
+            stage=stage,
             clear_input=clear_input,
+            values=values,
+            elapsed=elapsed,
+            implementation=await self._implementation_view(thread_id, values, stage),
+            # the form of the pending gate, except while a decision is being sent or a step is running
+            gate=(str(interrupt_payload["kind"]), interrupt_payload)
+            if interrupt_payload and pending_user is None and running is None
+            else None,
         )
 
     async def _pack(
@@ -219,29 +239,135 @@ class SubmitService:
         chat: list[dict[str, str]],
         stage: str,
         clear_input: bool = False,
+        values: dict[str, Any] | None = None,
+        elapsed: dict[str, float] | None = None,
+        gate: tuple[str, dict[str, Any]] | None = None,
+        implementation: tuple[Any, ...] | None = None,
     ) -> tuple[Any, ...]:
-        label, placeholder = _INPUT_LABELS.get(mode, _INPUT_LABELS[MODE_IDEA])
+        """One tuple of updates for the app's outputs: the shared widgets, the implementation view (tab, board,
+        console, meter, artifacts), then the gate forms (`gate` is the pending gate to show, None hides them all)."""
+        new_idea = mode in (MODE_IDEA, MODE_DONE)
+        label, placeholder, button = _main_widgets(mode)
         input_update = (
-            gr.update(value="", label=label, placeholder=placeholder)
+            gr.update(value="", label=label, placeholder=placeholder, visible=new_idea)
             if clear_input
-            else gr.update(label=label, placeholder=placeholder)
+            else gr.update(label=label, placeholder=placeholder, visible=new_idea)
         )
-        if mode in DECISION_CHOICES:
-            choices, default = DECISION_CHOICES[mode]
-            decision_update = gr.update(visible=True, choices=choices, value=default)
-        else:
-            decision_update = gr.update(visible=False)
         return (
             gr.update(value=status),
             chat,
             input_update,
-            gr.update(visible=mode in (MODE_IDEA, MODE_DONE)),
-            decision_update,
-            gr.update(value=_BUTTON_LABELS.get(mode, _BUTTON_LABELS[MODE_IDEA])),
+            gr.update(visible=new_idea),
+            gr.update(value=button, visible=new_idea or mode == MODE_INTERRUPTED),
             thread_id,
-            gr.update(value=stage_tracker(stage)),
+            gr.update(
+                value=stage_header(
+                    stage,
+                    stage_statuses(values or {}),
+                    elapsed or {},
+                    summarize_usage((values or {}).get("usage") or []),
+                )
+            ),
             await self._sessions_update(thread_id),
+            gr.update(visible=new_idea),  # the example ideas only make sense for a new idea
+            *(implementation if implementation is not None else self._blank_implementation()),
+            *gate_outputs(gate),
         )
+
+    # ------------------------------------------------- implementation view
+
+    def _blank_implementation(self) -> tuple[Any, ...]:
+        """The implementation view of a session that has not started building (a new or cleared session)."""
+        return (
+            gr.update(selected="conversation"),
+            gr.update(value=render_task_board({}, {}, set())),
+            gr.update(value=render_console([])),
+            gr.update(value=render_cost_meter(0.0, self._context.settings.implementer_max_total_usd)),
+            gr.update(value=""),
+            gr.update(value=None, visible=False),
+            gr.update(value=None, visible=False),
+            "",  # the explorer's workspace: none
+        )
+
+    async def _implementation_view(self, thread_id: str, values: dict[str, Any], stage: str) -> tuple[Any, ...]:
+        settings = self._context.settings
+        events = self._events.get(thread_id, [])
+        workspace_dir = str(values.get("workspace_dir") or "")
+        workspace = Path(workspace_dir) if workspace_dir and Path(workspace_dir).is_dir() else None
+        plan: dict[str, Any] = {}
+        results: dict[str, TaskResult] = {}
+        diffs: dict[str, str] = {}
+        if workspace is not None:
+            loaded = load_plan(_read_text(workspace / "plan.json"))
+            plan = loaded.model_dump() if loaded else {}
+            results = {**(values.get("task_results") or {}), **load_progress(workspace)}  # the file is fresher mid-run
+            diffs = await self._diff_stats(workspace, results)
+        running = running_tasks(events) if thread_id in self._active else set()
+        parallel = (
+            workspace is not None
+            and (workspace / ".git").is_dir()
+            and builds_task_by_task(cast(Any, values))
+            and effective_parallel(cast(Any, values), settings) > 1
+        )
+        iteration = int(values.get("iteration") or 1)
+        usage_spent = (summarize_usage(values.get("usage") or [])["cost_usd"] or 0.0) - float(
+            values.get("spent_before_iteration") or 0.0
+        )
+        spent = max(spent_in_iteration(results, iteration), usage_spent)  # progress is live, usage catches lanes/fixes
+        return (
+            self._tab_update(thread_id, str(values.get("stage") or "")),  # the state's own stage: the view's flickers
+            gr.update(value=render_task_board(plan, results, running, diffs=diffs, parallel=bool(parallel))),
+            gr.update(value=render_console(events)),
+            gr.update(value=render_cost_meter(spent, settings.implementer_max_total_usd)),
+            *await self._artifact_updates(thread_id, values, workspace),
+        )
+
+    async def _diff_stats(self, workspace: Path, results: dict[str, TaskResult]) -> dict[str, str]:
+        found: dict[str, str] = {}
+        for result in results.values():
+            commit = result["commit"]
+            if result["status"] != "done" or not commit:
+                continue
+            key = (str(workspace), commit)
+            if key not in self._diffs:
+                self._diffs[key] = await asyncio.to_thread(diff_stat, workspace, commit)
+            found[commit] = self._diffs[key]
+        return found
+
+    def _tab_update(self, thread_id: str, stage: str) -> Any:
+        """Show the implementation tab while a run is building and verifying, the conversation otherwise; the
+        selection is only sent when it changes, so the user can look at the other tab meanwhile. (`stage` is the
+        state's own: the view's derived stage briefly reads "done" between the steps of a subgraph.)"""
+        wanted = "implementation" if thread_id in self._active and stage in ("implementation", "verification", "report") else "conversation"
+        if self._tab.get(thread_id, "conversation") == wanted:
+            return gr.update()
+        self._tab[thread_id] = wanted
+        return gr.update(selected=wanted)
+
+    async def _artifact_updates(self, thread_id: str, values: dict[str, Any], workspace: Path | None) -> tuple[Any, ...]:
+        """The artifacts panel (path, the two downloads, the file explorer), refreshed only when what it shows changes."""
+        bundle_dir = str(values.get("project_bundle_dir") or "")
+        archive = str(values.get("delivery_zip") or "")
+        key = artifact_key(str(workspace or ""), bundle_dir if Path(bundle_dir).is_dir() else "", archive)
+        if self._artifact_seen.get(thread_id) == key:
+            return (gr.update(), gr.update(), gr.update(), gr.update())
+        self._artifact_seen[thread_id] = key
+        blueprint = ""
+        if key[1]:
+            blueprint = str(await asyncio.to_thread(blueprint_zip, bundle_dir, self._context.settings.deliveries_dir))
+        return (
+            gr.update(value=str(workspace or "")),
+            gr.update(value=archive or None, visible=bool(archive) and Path(archive).is_file()),
+            gr.update(value=blueprint or None, visible=bool(blueprint)),
+            str(workspace or ""),  # the state the file explorer is (re)built from: its root cannot change in place
+        )
+
+    async def view_file(self, thread_id: str, selection: Any) -> Any:
+        """The file picked in the explorer, read-only, and only from this thread's workspace."""
+        values, _interrupt, _next = await self._read((thread_id or "").strip())
+        workspace = str(values.get("workspace_dir") or "")
+        view = read_workspace_file(workspace, selection) if workspace else FileView()
+        return gr.update(value=view.text, language=view.language, label=view.note or "Selected file")
 
     # ------------------------------------------------------------ sessions UI
 
@@ -257,11 +383,14 @@ class SubmitService:
 
     async def initial_view(self, thread_id: str) -> tuple[Any, ...]:
         """Page-load render: restores the browser's current thread and refreshes the session list."""
-        return await self._render(thread_id or str(uuid.uuid4()))
+        thread_id = thread_id or str(uuid.uuid4())
+        self._reset_view(thread_id)
+        return await self._render(thread_id)
 
     async def load_session(self, selected_thread_id: str | None, current_thread_id: str) -> tuple[Any, ...]:
         if not selected_thread_id:
             return await self._render(current_thread_id, status="Pick a saved session first.")
+        self._reset_view(selected_thread_id)
         return await self._render(selected_thread_id, clear_input=True)
 
     async def delete_session(self, selected_thread_id: str | None, current_thread_id: str) -> tuple[Any, ...]:
@@ -281,11 +410,13 @@ class SubmitService:
         self,
         user_text: str,
         rounds: int,
-        decision: str,
         thread_id: str,
+        panel_mode: str | None = None,
+        autopilot: bool = False,
+        gate_inputs: dict[str, Any] | None = None,
     ) -> AsyncGenerator[tuple[Any, ...], None]:
         text = (user_text or "").strip()
-        decision = (decision or "").strip()
+        autopilot = bool(autopilot)
         thread_id = (thread_id or "").strip() or str(uuid.uuid4())
         values, interrupt_payload, next_nodes = await self._read(thread_id)
         mode = mode_from_state(values, interrupt_payload, next_nodes=next_nodes)
@@ -301,40 +432,33 @@ class SubmitService:
                 return
             if mode == MODE_DONE:
                 thread_id = str(uuid.uuid4())
-            payload = make_initial_state(text, int(rounds))
+            payload = make_initial_state(
+                text,
+                int(rounds),
+                panel_mode=cast(PanelMode, panel_mode or self._context.settings.panel_mode),
+                autopilot=autopilot,
+            )
             pending_user = ViewEntry("idea", "You", text)
-            first = SPEAKER_ORDER[0]
-            running = (first, f"{first} is drafting the next panel turn...")
+            running = panel_running(payload)
             idea_title = text
             values = {}
-        elif mode == MODE_ANSWERS:
-            if not text:
-                yield await self._render(thread_id, status="Please answer the questions before submitting.")
+        elif (kind := str((interrupt_payload or {}).get("kind") or "")) in GATES:
+            spec = GATES[kind]
+            inputs = dict(gate_inputs or {})
+            if problem := spec.validate(inputs, interrupt_payload or {}):
+                yield await self._render(thread_id, status=problem)
                 return
-            payload = Command(resume=text)
-            pending_user = ViewEntry("user_answers", "You", text)
-            running = running_from_state(values, ("architect",))
-        elif mode == MODE_ARCH_CHOICE:
-            option = "B" if decision == ARCH_CHOICE_B else "A"
-            payload = Command(resume={"option": option, "notes": text})
-            shown = f"Architecture choice: Option {option}" + (f" — {text}" if text else "")
-            pending_user = ViewEntry("arch_decision", "You", shown)
-            running = running_from_state(values, ("strategy",))
-        elif mode == MODE_PLAN_GATE:
-            generate = decision == PLAN_CHOICE_GENERATE
-            payload = Command(resume={"generate": generate, "notes": text})
-            shown = (PLAN_CHOICE_GENERATE if generate else PLAN_CHOICE_SKIP) + (f" — {text}" if text else "")
-            pending_user = ViewEntry("planner_decision", "You", shown)
-            running = running_from_state(values, ("plan_bundle",)) if generate else None
-        elif mode == MODE_IMPL_GATE:
-            implement = decision == IMPL_CHOICE_START
-            payload = Command(resume={"implement": implement, "notes": text})
-            shown = (IMPL_CHOICE_START if implement else IMPL_CHOICE_SKIP) + (f" — {text}" if text else "")
-            pending_user = ViewEntry("implement_decision", "You", shown)
-            running = running_from_state(values, ("implementer",)) if implement else None
+            resume = spec.build_resume(inputs)
+            payload = Command(resume=resume, update={"autopilot": autopilot})
+            pending_user = spec.echo(inputs)
+            step = spec.next_step(resume)
+            running = running_from_state(values, (step,)) if step else None
         else:  # MODE_INTERRUPTED: continue from the last checkpoint
             payload = None
             running = running_from_state(values, next_nodes)
+            if bool(values.get("autopilot")) != autopilot:  # the toggle changed while the run was stopped
+                graph = await self._context.graphs.get()
+                await graph.aupdate_state({"configurable": {"thread_id": thread_id}}, {"autopilot": autopilot})
 
         if pending_user is not None and running is not None and mode in (MODE_IDEA, MODE_DONE):
             # New thread: nothing recorded yet, so draw the overlay alone.
@@ -356,10 +480,35 @@ class SubmitService:
             )
 
         graph = await self._context.graphs.get()
-        config = run_config(thread_id)
+        config = run_config(thread_id, max_concurrency=self._context.settings.llm_max_concurrency)
+        console: list[ImplEvent] = []  # this run's events (the status line's progress); `_events` keeps the log
+        history = self._events.setdefault(thread_id, [])
+        last_progress = 0.0
+        self._active.add(thread_id)
         try:
-            async for _event in graph.astream(payload, config=config, stream_mode="updates"):
-                yield await self._render(thread_id, idea_title=idea_title)
+            # subgraphs=True: updates from inside the panel subgraph arrive too, so the chat fills turn by turn;
+            # "custom" carries the live implementation events.
+            async for _namespace, stream_mode, data in graph.astream(
+                payload, config=config, stream_mode=["updates", "custom"], subgraphs=True
+            ):
+                if stream_mode != "custom":
+                    self._marks.pop(thread_id, None)  # a step was committed: its checkpoint time is new
+                    yield await self._render(thread_id, idea_title=idea_title)
+                    continue
+                if not isinstance(data, dict) or data.get("kind") not in EVENT_KINDS:
+                    continue
+                console.append(data)  # type: ignore[arg-type]
+                history.append(data)  # type: ignore[arg-type]
+                del history[:-_LOG_LIMIT]
+                now = time.monotonic()
+                if data["kind"] in ("task_start", "task_end") or now - last_progress >= _PROGRESS_INTERVAL_SECONDS:
+                    last_progress = now
+                    status, detail = implementation_progress(
+                        console, total_budget=self._context.settings.implementer_max_total_usd
+                    )
+                    yield await self._render(
+                        thread_id, status=status or None, running=("Implementer", detail or status), idea_title=idea_title
+                    )
         except Exception as exc:
             LOGGER.exception("Pipeline run failed")
             hint = _error_hint("Pipeline", exc)
@@ -370,7 +519,31 @@ class SubmitService:
                 idea_title=idea_title,
             )
             return
-        yield await self._render(thread_id, idea_title=idea_title)
+        else:
+            yield await self._render(thread_id, idea_title=idea_title)
+        finally:
+            self._active.discard(thread_id)
+
+    async def gate_payload(self, thread_id: str) -> dict[str, Any]:
+        """The payload of the gate the thread is paused at ({} if it is not at one): what a gate's own events
+        (fill the suggestions, save a blueprint file) work from."""
+        _values, interrupt_payload, _next = await self._read((thread_id or "").strip())
+        return dict(interrupt_payload or {})
+
+    async def stop_run(self, thread_id: str) -> tuple[Any, ...]:
+        """The Stop button. Gradio cancels the running `handle_submit` (its `cancels=` wiring), which cancels
+        the graph run between checkpoints; this re-renders from that checkpoint. A stopped run is `interrupted`
+        (the step that was running is redone by Continue); at a gate nothing changes."""
+        thread_id = (thread_id or "").strip()
+        self._marks.pop(thread_id, None)
+        self._active.discard(thread_id)  # its run is being cancelled: nothing on the board is running any more
+        values, interrupt_payload, next_nodes = await self._read(thread_id)
+        if mode_from_state(values, interrupt_payload, next_nodes=next_nodes) != MODE_INTERRUPTED:
+            return await self._render(thread_id)
+        return await self._render(
+            thread_id,
+            status="Stopped. Progress is saved; press Continue to resume from the last checkpoint.",
+        )
 
     # ----------------------------------------------------------------- export
 
@@ -399,3 +572,10 @@ class SubmitService:
             gr.update(value=f"Saved conversation to `{export_path}`."),
             gr.update(value=str(export_path), visible=True),
         )
+
+
+def _read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""

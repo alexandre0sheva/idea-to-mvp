@@ -10,8 +10,13 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from idea_to_mvp.implementation.events import ImplEvent, make_event
+from idea_to_mvp.implementation.verify import LaneReport, priority_requirements
+from idea_to_mvp.plan import load_plan
 
 VERIFY_TIMEOUT_SECONDS = 60
 
@@ -90,29 +95,81 @@ if __name__ == "__main__":
     return "\n".join(lines)
 
 
-def demo_verify(workspace: Path) -> dict[str, Any]:
-    """Run the demo project's unittest suite and report in the real verifier's format."""
+def demo_task(workspace: Path, task: Any, emit: Callable[[ImplEvent], None]) -> str:
+    """Simulate one plan task: the first task builds the demo project, every task leaves a note file.
+
+    Emits the same kinds of events a real session would, so the live progress UI can be tried offline.
+    """
     workspace = Path(workspace)
-    command = [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."]
-    try:
-        run = subprocess.run(
-            command,
-            cwd=workspace,
-            capture_output=True,
-            text=True,
-            timeout=VERIFY_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        return {"passed": False, "report": "Demo test run timed out.\n\nVERDICT: FAIL"}
-    output = (run.stderr or run.stdout).strip()
-    ran = re.search(r"Ran (\d+) tests?", output)
-    passed = run.returncode == 0
-    report = (
-        f"Ran {ran.group(1) if ran else '0'} tests with `python -m unittest`.\n\n"
-        f"```\n{output[-1500:]}\n```\n\n"
-        f"VERDICT: {'PASS' if passed else 'FAIL'}"
+    if not (workspace / "demo_app").is_dir():
+        demo_implement(workspace, {})
+        for created in ("demo_app/core.py", "tests/test_core.py", "README.md"):
+            emit(make_event("tool", task_id=task.id, label="Write", detail=created))
+    emit(make_event("text", task_id=task.id, label="agent", detail=f"Implementing “{task.title}” (simulated)."))
+    notes = workspace / "notes"
+    notes.mkdir(exist_ok=True)
+    (notes / f"{task.id}.md").write_text(
+        f"# {task.id}: {task.title}\n\n{task.goal}\n\n"
+        + "\n".join(f"- {item}" for item in task.acceptance)
+        + "\n",
+        encoding="utf-8",
     )
-    return {"passed": passed, "report": report}
+    emit(make_event("tool", task_id=task.id, label="Write", detail=f"notes/{task.id}.md"))
+    return f"Demo mode: simulated {task.id} — {task.title}."
+
+
+def _run(command: list[str], workspace: Path) -> tuple[int, str]:
+    """(exit code, output) of a command in the workspace; a timeout is exit code 124."""
+    try:
+        run = subprocess.run(command, cwd=workspace, capture_output=True, text=True, timeout=VERIFY_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        return 124, f"timed out after {VERIFY_TIMEOUT_SECONDS}s"
+    return run.returncode, (run.stderr or run.stdout).strip()
+
+
+def demo_verify_lane(workspace: Path, lane: str) -> LaneReport:
+    """One verification lane for the demo project, from real checks (the same contract as the agent lanes)."""
+    workspace = Path(workspace)
+    if lane == "tests":
+        command = [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."]
+        code, output = _run(command, workspace)
+        ran = re.search(r"Ran (\d+) tests?", output)
+        return LaneReport(
+            lane="tests",
+            passed=code == 0,
+            commands_run=[{"command": "python -m unittest discover -s tests -t .", "exit_code": code}],
+            failures=[] if code == 0 else [f"The unittest run failed:\n{output[-1500:]}"],
+            summary=f"Ran {ran.group(1) if ran else '0'} tests with `python -m unittest`.",
+        )
+    if lane == "quality":
+        checks = [
+            ("python -m compileall -q demo_app tests", [sys.executable, "-m", "compileall", "-q", "demo_app", "tests"]),
+            ("python -m demo_app", [sys.executable, "-m", "demo_app"]),  # the smoke probe: it starts and answers
+        ]
+        runs, failures = [], []
+        for label, command in checks:
+            code, output = _run(command, workspace)
+            runs.append({"command": label, "exit_code": code})
+            if code != 0:
+                failures.append(f"`{label}` failed:\n{output[-800:]}")
+        return LaneReport(
+            lane="quality",
+            passed=not failures,
+            commands_run=runs,
+            failures=failures,
+            summary="Byte-compiled the demo project and probed `python -m demo_app`.",
+        )
+    required = priority_requirements((workspace / "PRD.md").read_text(encoding="utf-8") if (workspace / "PRD.md").exists() else "")
+    plan = load_plan((workspace / "plan.json").read_text(encoding="utf-8") if (workspace / "plan.json").exists() else None)
+    covered = {rid for task in plan.tasks for rid in task.requirement_ids} if plan else set()
+    uncovered = [f"{rid} ({priority or 'unprioritised'}): no plan task (and so no test) covers it" for rid, priority in required.items() if rid not in covered]
+    return LaneReport(
+        lane="requirements",
+        passed=not uncovered,
+        commands_run=[],
+        failures=uncovered,
+        summary=f"{len(required) - len(uncovered)} of {len(required)} required requirements are assigned to a task with tests.",
+    )
 
 
 def demo_fix(report: str) -> str:

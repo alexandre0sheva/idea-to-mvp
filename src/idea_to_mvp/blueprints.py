@@ -1,19 +1,28 @@
 """Blueprint v2 generation: the agent-ready project pack written before implementation.
 
-This module owns the document prompts and file layout of a project bundle. It does
-not call any LLM itself: callers inject ``generate_doc(system_prompt, user_prompt)``
-so the module stays import-cycle-free and trivially testable.
+This module owns the document prompts, the dependency waves, and the file layout of a project
+bundle. It does not call any LLM itself: `nodes/blueprint_graph.py` generates the documents wave by
+wave (each document sees the upstream documents it `needs`) and `write_bundle()` writes the result.
+The plan is structured: `plan.json` (a validated `plan.Plan`) is the source of truth and `plan.md` is
+rendered from it.
 """
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from idea_to_mvp.plan import fallback_plan, load_plan, render_plan_markdown
+from idea_to_mvp.roles import PLAN_WRITER_SYSTEM
+
+# Upstream documents are injected into later prompts up to this many characters each.
+MAX_UPSTREAM_CHARS = 12_000
+TRUNCATED_MARKER = "[truncated]"
 
 README_SYSTEM = (
     "You are writing the root README.md scaffold for a brand-new MVP project that coding agents will implement.\n"
@@ -28,7 +37,8 @@ PRD_SYSTEM = (
     "Cover: problem statement, target users and primary personas, user stories for every MVP workflow "
     "(as 'As a ... I want ... so that ...'), functional requirements with priorities (P0/P1), explicit "
     "non-goals/out-of-scope list, success metrics, and open product questions.\n"
-    "Number every requirement (R1, R2, ...) so plan tasks and tests can reference them.\n"
+    "Number every requirement (R1, R2, ...) and put each on its own line in the form `R1 (P0): ...` so plan tasks "
+    "and tests can reference it.\n"
     "Be precise and testable: every P0 requirement must be verifiable by a test."
 )
 
@@ -84,29 +94,11 @@ QUALITY_AGENTS_SYSTEM = (
     "Also require a single top-level test command that verifies the whole project, documented in README.md."
 )
 
-PLAN_SYSTEM = (
-    "You are creating an execution-ready `plan.md` for a greenfield MVP project.\n"
-    "The plan will be consumed by autonomous coding agents, one task at a time.\n"
-    "Produce a complete start-to-finish MVP task plan with sequencing, dependencies, data contracts, and tests.\n"
-    "Requirements:\n"
-    "- include all major tasks needed to reach an MVP release, not just engineering implementation\n"
-    "- each task is owned by one workstream (use the workstream names from the execution strategy)\n"
-    "- do not collapse unrelated work into giant tasks\n"
-    "- if one task can affect another, reference the shared data contract IDs explicitly\n"
-    "- reference PRD requirement IDs (R1, R2, ...) in each task's acceptance criteria\n"
-    "- keep `plan.md` task-only: no project overview, no repeated AGENTS guidance\n"
-    "- start with a compact contract registry near the top with stable IDs like `C1`, `C2`, ...\n"
-    "- after the contract registry, output only a numbered task list in execution order\n"
-    "- each task must include exactly these fields: Goal, Workstream, Depends on, Contracts in, Contracts out, "
-    "Implementation scope, Acceptance criteria, Required unit/integration tests, Coverage target, "
-    "Handoff artifacts\n"
-    "- keep the writing dense, structured, and implementation-oriented"
-)
-
 SUBAGENT_SYSTEM = (
     "You are writing the body of a Claude Code subagent definition for one implementation workstream.\n"
     "Write a focused system prompt (no YAML frontmatter - it is added separately) that tells this agent:\n"
-    "its workstream mission and deliverables, which plan.md tasks belong to it, which docs to read first "
+    "its workstream mission and deliverables, which tasks of the upstream plan.md provided below belong to it "
+    "(name them by number), which docs to read first "
     "(AGENTS.md, PRD.md, ARCHITECTURE.md, plan.md, contracts/AGENTS.md, quality/AGENTS.md), the contracts it "
     "must respect, the testing bar (tests per task, 80% coverage of changed scope), and how to hand off "
     "(update plan.md checkboxes/notes, keep the test suite green).\n"
@@ -121,6 +113,18 @@ class BundleFileSpec:
     instruction: str
     fallback: str
     frontmatter: str = ""
+    # Generation order: documents in one wave are independent of each other and are written concurrently;
+    # a wave starts once the previous one is done. 1: PRD, ARCHITECTURE. 2: everything that builds on them
+    # (README, the four AGENTS guides, plan). 3: the per-workstream subagent definitions (they need the plan).
+    wave: int = 1
+    needs: tuple[str, ...] = ()  # upstream documents (by relative path) injected into this prompt
+    structured: bool = False  # produced as typed data by the plan writer, not as free text
+
+
+WAVES = (1, 2, 3)
+PLAN_PATH = "plan.md"
+PLAN_JSON_PATH = "plan.json"
+REVIEW_PATH = "REVIEW.md"
 
 
 def _slug(text: str, limit: int = 64) -> str:
@@ -141,6 +145,8 @@ def bundle_file_plan(strategy: dict[str, Any] | None) -> list[BundleFileSpec]:
             README_SYSTEM,
             "Write the project README.md scaffold now.",
             "# MVP Project\n\nSee `PRD.md`, `ARCHITECTURE.md`, and `plan.md` to get started.\n",
+            wave=2,
+            needs=("PRD.md", "ARCHITECTURE.md"),
         ),
         BundleFileSpec(
             "PRD.md",
@@ -165,6 +171,8 @@ def bundle_file_plan(strategy: dict[str, Any] | None) -> list[BundleFileSpec]:
                 "- Keep changes scoped to one task at a time.\n"
                 "- Add unit/integration tests and target 80% coverage for changed scope.\n"
             ),
+            wave=2,
+            needs=("PRD.md", "ARCHITECTURE.md"),
         ),
         BundleFileSpec(
             "contracts/AGENTS.md",
@@ -176,6 +184,8 @@ def bundle_file_plan(strategy: dict[str, Any] | None) -> list[BundleFileSpec]:
                 "- Breaking changes require a migration note and downstream review.\n"
                 "- Contract tests are mandatory for shared boundaries.\n"
             ),
+            wave=2,
+            needs=("ARCHITECTURE.md",),
         ),
         BundleFileSpec(
             "application/AGENTS.md",
@@ -187,6 +197,8 @@ def bundle_file_plan(strategy: dict[str, Any] | None) -> list[BundleFileSpec]:
                 "- Consume only the listed contracts and update acceptance checks.\n"
                 "- Add observability, tests, and handoff notes before closing the task.\n"
             ),
+            wave=2,
+            needs=("ARCHITECTURE.md",),
         ),
         BundleFileSpec(
             "quality/AGENTS.md",
@@ -198,31 +210,21 @@ def bundle_file_plan(strategy: dict[str, Any] | None) -> list[BundleFileSpec]:
                 "- Add unit/integration tests and target at least 80% coverage for changed scope.\n"
                 "- Keep one top-level test command green at all times.\n"
             ),
+            wave=2,
+            needs=("PRD.md",),
         ),
         BundleFileSpec(
-            "plan.md",
-            PLAN_SYSTEM,
+            PLAN_PATH,
+            PLAN_WRITER_SYSTEM,
             (
-                "Write `plan.md` now. Use markdown only. Start with `## Contract Registry`, then `## Tasks`, "
-                "then a numbered task list from MVP setup through launch readiness, assigning every task to one "
-                "of the execution-strategy workstreams."
+                "Write the execution plan now as structured data: the contract registry, then every task from "
+                "MVP setup through launch readiness, each assigned to one of the execution-strategy workstreams, "
+                "then the project commands."
             ),
-            (
-                "# MVP Plan\n\n"
-                "## Contract Registry\n\n- C1: Core API contract\n\n"
-                "## Tasks\n\n"
-                "### 01. Project setup\n"
-                "- Goal: establish the MVP baseline.\n"
-                "- Workstream: core-product.\n"
-                "- Depends on: none.\n"
-                "- Contracts in: none.\n"
-                "- Contracts out: C1.\n"
-                "- Implementation scope: repository scaffold, tooling, CI, local run path.\n"
-                "- Acceptance criteria: install, lint, test, and app boot commands work.\n"
-                "- Required unit/integration tests: smoke coverage for config and startup paths.\n"
-                "- Coverage target: at least 80% for changed scope.\n"
-                "- Handoff artifacts: updated setup files and task notes.\n"
-            ),
+            render_plan_markdown(fallback_plan(strategy, "")),
+            wave=2,
+            needs=("PRD.md", "ARCHITECTURE.md"),
+            structured=True,
         ),
     ]
     workstreams = (strategy or {}).get("workstreams") or []
@@ -247,34 +249,84 @@ def bundle_file_plan(strategy: dict[str, Any] | None) -> list[BundleFileSpec]:
                     "tests, keeping the project test suite green."
                 ),
                 frontmatter=_frontmatter(name, focus),
+                wave=3,
+                needs=("plan.md",),
             )
         )
     return specs
 
 
-def create_project_bundle(
+def truncate_document(text: str, limit: int) -> str:
+    """Cut `text` to about `limit` characters at a line break, marking that something is missing."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    line_break = cut.rfind("\n")
+    if line_break > limit * 0.8:
+        cut = cut[:line_break]
+    return f"{cut.rstrip()}\n\n{TRUNCATED_MARKER}"
+
+
+def prompt_for(
+    spec: BundleFileSpec,
+    context_block: str,
+    generated: dict[str, str],
+    *,
+    issues: str = "",
+    previous: str = "",
+) -> str:
+    """The user prompt for one document: the shared context, the upstream documents it needs (when
+    they exist and are not empty), for a revision the reviewer's issues and the previous version, then
+    the instruction last."""
+    parts = [context_block]
+    for path in spec.needs:
+        text = (generated.get(path) or "").strip()
+        if text:
+            parts.append(f"## Upstream document: {path}\n\n{truncate_document(text, MAX_UPSTREAM_CHARS)}")
+    if issues.strip():
+        parts.append(f"## Review issues to fix in this revision\n\n{issues.strip()}")
+    if previous.strip():
+        parts.append(
+            f"## Your previous version of {spec.relative_path}\n\n{truncate_document(previous.strip(), MAX_UPSTREAM_CHARS)}"
+        )
+    parts.append(spec.instruction)
+    return "\n\n".join(parts)
+
+
+def write_bundle(
     *,
     root: Path,
     user_idea: str,
-    context_block: str,
+    docs: dict[str, str],
     strategy: dict[str, Any] | None,
-    generate_doc: Callable[[str, str], str],
+    review_issues: Sequence[str] = (),
 ) -> tuple[Path, list[str], str]:
+    """Write the generated documents (an empty or missing one gets its fallback), `plan.json` with the
+    `plan.md` rendered from it, `REVIEW.md` when the critic left notes, and STRATEGY.json into a fresh
+    timestamped folder under `root`."""
     timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S-%f")
     bundle_dir = Path(root) / f"{timestamp}-{_slug(user_idea)}"
     created: list[str] = []
 
-    for spec in bundle_file_plan(strategy):
-        target = bundle_dir / spec.relative_path
+    def write(relative_path: str, content: str) -> None:
+        target = bundle_dir / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        user_prompt = f"{context_block}\n\n{spec.instruction}"
-        content = (generate_doc(spec.system_prompt, user_prompt) or "").strip() or spec.fallback.strip()
-        target.write_text(spec.frontmatter + content + "\n", encoding="utf-8")
-        created.append(spec.relative_path)
+        target.write_text(content.rstrip("\n") + "\n", encoding="utf-8")
+        created.append(relative_path)
 
-    strategy_path = bundle_dir / "STRATEGY.json"
-    strategy_path.write_text(json.dumps(strategy or {}, indent=2) + "\n", encoding="utf-8")
-    created.append("STRATEGY.json")
+    for spec in bundle_file_plan(strategy):
+        if spec.relative_path == PLAN_PATH:
+            # plan.json is the source of truth; a missing or broken one becomes a valid fallback plan.
+            plan = load_plan(docs.get(PLAN_JSON_PATH)) or fallback_plan(strategy, docs.get("PRD.md") or "")
+            write(PLAN_PATH, render_plan_markdown(plan))
+            write(PLAN_JSON_PATH, plan.model_dump_json(indent=2))
+            continue
+        content = (docs.get(spec.relative_path) or "").strip() or spec.fallback.strip()
+        write(spec.relative_path, spec.frontmatter + content)
+
+    if (docs.get(REVIEW_PATH) or "").strip():
+        write(REVIEW_PATH, docs[REVIEW_PATH].strip())
+    write("STRATEGY.json", json.dumps(strategy or {}, indent=2))
 
     summary_lines = [
         f"Generated an agent-ready project pack in `{bundle_dir}`.",
@@ -282,9 +334,15 @@ def create_project_bundle(
         "Created files:",
         *[f"- `{path}`" for path in created],
         "",
-        "Start with `PRD.md` and `plan.md`; `.claude/agents/` holds the implementation subagent definitions "
-        "and `STRATEGY.json` records the chosen execution mode.",
+        "Start with `PRD.md` and `plan.md` (`plan.json` is the machine-readable plan); `.claude/agents/` holds "
+        "the implementation subagent definitions and `STRATEGY.json` records the chosen execution mode.",
     ]
+    if review_issues:
+        summary_lines += [
+            "",
+            f"**{len(review_issues)} open review note(s)** are listed in `{REVIEW_PATH}`:",
+            *[f"- {issue}" for issue in list(review_issues)[:5]],
+        ]
     return bundle_dir, created, "\n".join(summary_lines)
 
 

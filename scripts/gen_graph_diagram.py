@@ -16,7 +16,7 @@ START, END = "<!-- graph:start -->", "<!-- graph:end -->"
 
 
 def render_diagram() -> str:
-    mermaid = build_graph().get_graph().draw_mermaid().strip()
+    mermaid = build_graph().get_graph(xray=1).draw_mermaid().strip()  # xray: show the panel subgraph's nodes
     return f"```mermaid\n{mermaid}\n```"
 
 

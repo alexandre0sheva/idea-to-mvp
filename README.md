@@ -6,7 +6,8 @@
 
 ```
 Idea
- → Panel discussion       PM (OpenAI) · Tech Lead (Anthropic) · Skeptic (Google), round-aware debate
+ → Panel discussion       PM (OpenAI) · Tech Lead (Anthropic) · Skeptic (Google): opening statements in
+                          parallel, a moderator ends the debate early when it converges
  → Summarizer             executive brief + exactly 5 MVP decision questions
  🔒 Answers gate           you answer the questions
  → Architect              two architecture options anchored to your answers
@@ -17,8 +18,10 @@ Idea
                           .claude/agents/* subagent definitions, STRATEGY.json
  🔒 Implementation gate    explicit confirmation — this spends real API tokens
  → Implementer            Claude Agent SDK agents build the project in OUTPUT_DIR/projects/
- → Verifier               runs the generated project's own test suite, bounded fix loop
- → Delivery report        file tree, verification verdict, how to run your product
+ → Verifier               three parallel lanes (tests, quality, requirement coverage), bounded fix loop
+ → Delivery report        file tree, verification verdict, how to run your product,
+                          project zip, git tag v0.1
+ 🔁 Iterate               request changes, get v0.2 (new tasks, same engine)
 ```
 
 The whole session is one continuously checkpointed LangGraph thread (stored in SQLite, so sessions survive restarts); every 🔒 gate is a real `interrupt()` pause resumed with `Command(resume=...)`.
@@ -28,7 +31,7 @@ The whole session is one continuously checkpointed LangGraph thread (stored in S
 The strategy agent inspects the architecture and workstreams and chooses how the implementation runs:
 
 - **Subagents** — one lead Claude Agent SDK session delegating to specialized subagents (one per workstream, defined in the blueprint's `.claude/agents/*.md`). Best for small/coupled MVPs.
-- **Agent Team** — one focused agent session per workstream, run sequentially over the shared workspace. Best for larger MVPs with independent workstreams.
+- **Agent Team** — one fresh agent session per plan task. Tasks whose dependencies allow it run in parallel, each in its own git worktree (`IMPLEMENTER_MAX_PARALLEL`, `1` for one at a time), and are merged back in task order; a merge conflict gets a bounded resolver session. Best for larger MVPs with independent workstreams.
 
 The decision and reasoning are recorded in the blueprint's `STRATEGY.json`.
 
@@ -40,6 +43,8 @@ The decision and reasoning are recorded in the blueprint's `STRATEGY.json`.
 uv sync
 DEMO_MODE=true uv run idea-to-mvp
 ```
+
+The Settings accordion has an **Autopilot** switch (answers the questions with their suggestions, takes the recommended architecture, and generates the pack; it always stops at the implementation gate because that spends money) and the **Stop** button halts a run without losing its progress — *Continue* picks it up at the last checkpoint. The UI follows your system's light or dark theme. While the agents build, the *Implementation* tab shows a live task board, log, and cost meter; when they finish, a delivery dashboard shows the verdict of each verification lane, how every requirement fared, and how to run the project, with the project and blueprint downloadable as zips.
 
 Demo mode walks the whole pipeline — panel, gates, blueprint pack, a stand-in implementation, verification, delivery report — with canned outputs. No keys, no spend.
 
@@ -94,7 +99,7 @@ All settings load from `.env`; [`.env.example`](.env.example) documents every va
 
 ### Cost & security notes
 
-- The implementation stage runs autonomous agents with **file and shell access inside the workspace** (`projects/<project>/` under `OUTPUT_DIR`). The default `bypassPermissions` mode is what makes unattended building possible — only run it on machines/projects where that is acceptable, and review `IMPLEMENTER_MAX_BUDGET_USD` before starting.
+- The implementation stage runs autonomous agents that write files and run commands on your machine, confined by an OS sandbox, a tool-call guard, and a scrubbed environment (`projects/<project>/` under `OUTPUT_DIR`, a git repository). This reduces the risk; it does not remove it — read [SECURITY.md](SECURITY.md) for what is and is not protected, and review `IMPLEMENTER_MAX_TOTAL_USD` (the whole-run cost cap) before starting.
 - Nothing implementation-related runs without your explicit confirmation at the implementation gate.
 - Never commit `.env` files or API keys.
 

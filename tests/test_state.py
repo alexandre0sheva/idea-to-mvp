@@ -15,3 +15,18 @@ def test_initial_state_seeds_panel_from_idea_and_rounds() -> None:
     assert state["max_rounds"] == 6  # 2 rounds x 3 speakers
     assert state["next_speaker"] == "PM"
     assert state["turn_count"] == 0
+
+
+def test_panel_fields_default_to_a_moderated_panel_with_no_openings_yet() -> None:
+    state = make_initial_state("An idea", 2)
+    assert state["panel_mode"] == "moderated"
+    assert state["opening_turns"] == {}
+    assert state["convergence"] == {"converged": False, "reason": ""}
+    assert make_initial_state("An idea", 2, panel_mode="round_robin")["panel_mode"] == "round_robin"
+
+
+def test_blueprint_fields_start_empty() -> None:
+    state = make_initial_state("An idea", 2)
+    assert state["blueprint_docs"] == {}
+    assert state["task_results"] == {} and state["finished_tasks"] == {}
+    assert state["blueprint_review"] == {"approved": False, "revisions": 0, "issues": []}
