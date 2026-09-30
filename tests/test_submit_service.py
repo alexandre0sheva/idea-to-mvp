@@ -1,5 +1,6 @@
 """SubmitService behaviour on a real graph (demo models, SQLite checkpointer)."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -185,9 +186,10 @@ async def test_save_conversation_exports_the_state_derived_transcript(demo_servi
     service, _ = demo_service
     await submit(service, "Export me please", "", "s3")
     status, file_update = await service.save_conversation("", "s3")
-    path = Path(update_value(file_update, "value"))
-    assert path.parent == demo_env / "exports"
-    text = path.read_text(encoding="utf-8")
+    markdown, json_path = (Path(p) for p in update_value(file_update, "value"))
+    assert markdown.parent == json_path.parent == demo_env / "exports"
+    assert json.loads(json_path.read_text(encoding="utf-8"))["idea"] == "Export me please"
+    text = markdown.read_text(encoding="utf-8")
     assert "Export me please" in text and "## Panel Discussion" in text and "## Summary" in text
     assert "Saved conversation" in update_value(status, "value")
 
@@ -203,3 +205,59 @@ async def test_panel_turns_reach_the_chat_while_the_panel_is_still_running(demo_
     assert any("Pushback on functionality" in t and "Executive summary" not in t for t in texts)
     assert "Moderator" in texts[-1] and "converged" in texts[-1]  # the early stop is explained
     assert await mode_of(service, "t-panel") == MODE_ANSWERS
+
+
+async def test_panel_text_streams_into_the_chat_token_by_token(demo_service, monkeypatch: pytest.MonkeyPatch) -> None:
+    from idea_to_mvp.ui import service as service_module
+
+    monkeypatch.setattr(service_module, "_TOKEN_INTERVAL_SECONDS", 0.0)  # render every token batch
+    service, _ = demo_service
+    outputs = await submit(service, "Build a climbing app", "", "t-stream", rounds=3)
+    texts = [chat_text(output) for output in outputs]
+    final = texts[-1]
+    # some render shows a turn that is still being written; once the graph committed the turns none is left
+    live_renders = [t for t in texts if "live-turn" in t]
+    assert live_renders and all("Build a climbing app" in t for t in live_renders)  # a turn in progress, in context
+    assert "live-turn" not in final
+    assert final.count("class='opening-row'") == 1  # the three openings sit in one row
+    assert "moderator-banner" in final and "converged" in final
+
+
+async def test_preferences_given_with_the_idea_become_part_of_the_run(demo_service) -> None:
+    service, _ = demo_service
+    prefs = {"platform": "web", "stack_hints": "TypeScript + Postgres", "deploy_target": "Fly.io"}
+    outputs = await submit(service, "Build a climbing app", "", "t-prefs", preferences=prefs)
+    values, _interrupt, _next = await service._read("t-prefs")
+    assert values["preferences"] == {"platform": "web", "stack_hints": "TypeScript + Postgres",
+                                     "deploy_target": "Fly.io", "must_use": "", "must_avoid": ""}
+    assert "Fly.io" in chat_text(outputs[-1])  # the chat shows what was stated
+
+
+async def test_a_run_without_preferences_has_the_defaults(demo_service) -> None:
+    service, _ = demo_service
+    await submit(service, "Build a climbing app", "", "t-noprefs")
+    values, _interrupt, _next = await service._read("t-noprefs")
+    assert values["preferences"]["platform"] == "any" and not values["preferences"]["must_use"]
+
+
+@pytest.fixture()
+def research_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENABLE_RESEARCH", "true")  # request before `demo_service`: its settings read this
+
+
+async def test_the_research_brief_shows_as_a_linked_card_before_the_panel(research_on, demo_service) -> None:
+    service, _ = demo_service
+    outputs = await submit(service, "Build a climbing app", "", "t-research")
+    first_with_card = next(i for i, output in enumerate(outputs) if "Research brief" in chat_text(output))
+    final = chat_text(outputs[-1])
+    assert 'rel="noopener noreferrer"' in final and "https://demo-logbook.example.com" in final
+    assert final.index("Research brief") < final.index("speaker-card speaker-pm")  # read before the panel speaks
+    assert first_with_card < len(outputs) - 1  # it appeared as soon as the research step finished
+    values, _interrupt, _next = await service._read("t-research")
+    assert values["research"]["competitors"]
+
+
+async def test_the_first_overlay_says_research_is_running_when_it_is_enabled(research_on, demo_service) -> None:
+    service, _ = demo_service
+    outputs = await submit(service, "Build a climbing app", "", "t-research-overlay")
+    assert "Searching the web" in chat_text(outputs[0])

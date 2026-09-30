@@ -5,6 +5,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from idea_to_mvp import llm
+from idea_to_mvp.nodes.common import preferences_block
 from idea_to_mvp.schemas import ExecutionStrategy, Workstream
 from idea_to_mvp.state import IdeaDiscussionState
 from idea_to_mvp.usage import with_usage
@@ -44,6 +45,7 @@ def strategy_node(state: IdeaDiscussionState) -> dict[str, Any]:
             HumanMessage(
                 content=(
                     f"Idea:\n{state.get('user_idea', '').strip()}\n\n"
+                    f"{preferences_block(state.get('preferences'))}"
                     f"Discussion summary:\n{state.get('summary', '').strip() or 'No summary.'}\n\n"
                     f"User answers:\n{state.get('user_answers', '').strip() or 'No answers.'}\n\n"
                     f"Architecture options:\n{state.get('architecture', '').strip() or 'No architecture.'}\n\n"

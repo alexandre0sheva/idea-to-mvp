@@ -21,6 +21,7 @@ uv run mypy
 uv run pytest                                         # all tests
 uv run pytest tests/test_graph_lifecycle.py -v         # single file
 uv run pytest tests/test_graph_lifecycle.py::test_name # single test
+uv run pytest --cov=idea_to_mvp                        # what CI runs: fails below 80% coverage
 ```
 
 ## Architecture
@@ -34,4 +35,5 @@ Gradio + LangGraph app: idea → panel discussion → summary → gates → arch
 - Tests call `clear_settings_cache()` in teardown and set `OUTPUT_DIR` to `tmp_path`; graph lifecycle tests fake LLM/SDK calls (`llm.get_runtime`, `llm.invoke_text`, `llm.invoke_structured`, `implementer.*`) as described in the architecture doc.
 - New LLM calls / agent sessions need a fixture in `src/idea_to_mvp/demo/` (offline demo mode; `tests/test_e2e_demo.py` runs the whole pipeline with it). Try UI changes with `DEMO_MODE=true uv run idea-to-mvp`.
 - After changing graph topology run `uv run python scripts/gen_graph_diagram.py`; a test enforces it.
+- Docs are checked by `tests/test_docs_sync.py`: a path, test name (written `tests/<file>.py::<test>`), or setting named in backticks in a doc must exist, and the architecture doc's LangGraph patterns table must keep naming a real file and test per pattern.
 - Ruff line length is 100; `uv run ruff check .`, `uv run mypy`, and `uv run pytest` must stay green.

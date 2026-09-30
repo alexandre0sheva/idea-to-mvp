@@ -1,6 +1,6 @@
 from datetime import UTC
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 
 from idea_to_mvp.state import make_initial_state
 from idea_to_mvp.ui.view import (
@@ -11,8 +11,12 @@ from idea_to_mvp.ui.view import (
     MODE_IMPL_GATE,
     MODE_INTERRUPTED,
     MODE_PLAN_GATE,
+    USER_KINDS,
+    LiveTurns,
+    TurnInfo,
     ViewEntry,
     mode_from_state,
+    panel_token,
     running_from_state,
     stage_for_view,
     status_from_state,
@@ -322,3 +326,122 @@ def test_a_failed_verification_marks_its_step_failed() -> None:
     assert stage_statuses(_values(verification={"passed": False, "attempts": 2, "report": "3 failed", "lanes": []})) == {"verification": "failed"}
     assert stage_statuses(_values(verification={"passed": True, "attempts": 0, "report": "ok", "lanes": []})) == {}
     assert stage_statuses(_values()) == {}  # not verified yet
+
+
+# ------------------------------------------------------- panel streaming UX
+
+
+def _panel(turns: int, **overrides):
+    """A panel that has had `turns` turns: PM, Tech Lead, Skeptic, PM, ..."""
+    names = ["pm", "tech_lead", "skeptic"]
+    history = [HumanMessage(content="A climbing app")] + [
+        AIMessage(content=f"Turn {i}.", name=names[i % 3]) for i in range(turns)
+    ]
+    return _values(discussion_history=history, turn_count=turns, **overrides)
+
+
+def _turns(values) -> list[ViewEntry]:
+    return [e for e in transcript_from_state(values, None) if e.kind == "discussion"]
+
+
+def test_the_first_three_moderated_turns_are_the_opening_statements() -> None:
+    turns = _turns(_panel(5, panel_mode="moderated"))
+    assert [t.data.phase for t in turns] == ["opening"] * 3 + ["turn"] * 2
+    assert all(t.data.phase == "turn" for t in _turns(_panel(5, panel_mode="round_robin")))
+
+
+def test_turns_older_than_the_last_round_are_collapsed() -> None:
+    assert [t.data.collapsed for t in _turns(_panel(3))] == [False, False, False]
+    assert [t.data.collapsed for t in _turns(_panel(5))] == [True, True, False, False, False]
+
+
+def test_a_turn_that_is_streaming_is_marked_live() -> None:
+    chunk = AIMessageChunk(content="Tokens ", id="run-a")
+    live = LiveTurns()
+    live.add(*panel_token((chunk, {"langgraph_node": "speaker_turn", "role": "skeptic"})))  # type: ignore[misc]
+    (entry,) = transcript_from_state(_panel(3), None, live=live.entries()) [-1:]
+    assert (entry.kind, entry.speaker, entry.content) == ("discussion", "Skeptic", "Tokens ")
+    assert entry.data == TurnInfo(phase="turn", live=True)
+
+
+def test_live_turns_replace_the_thinking_indicator() -> None:
+    live = LiveTurns()
+    live.add("run-a", "PM", "opening", "Hello")
+    kinds = _kinds(transcript_from_state(_values(), None, running=("Panel", "Writing..."), live=live.entries()))
+    assert "thinking" not in kinds and kinds[-1] == "discussion"
+    assert "thinking" in _kinds(transcript_from_state(_values(), None, running=("Panel", "Writing...")))
+
+
+def test_panel_tokens_come_from_the_panel_nodes_only() -> None:
+    chunk = AIMessageChunk(content="Hi", id="run-1")
+    assert panel_token((chunk, {"langgraph_node": "opening_turn", "role": "pm"})) == ("run-1", "PM", "opening", "Hi")
+    assert panel_token((chunk, {"langgraph_node": "speaker_turn", "role": "tech_lead"})) == (
+        "run-1", "Tech Lead", "turn", "Hi",
+    )
+    assert panel_token((chunk, {"langgraph_node": "summarizer", "role": "summarizer"})) is None
+    assert panel_token((chunk, {"langgraph_node": "moderator", "role": "moderator"})) is None
+    assert panel_token((chunk, {"langgraph_node": "speaker_turn"})) is None  # an untagged model call
+    assert panel_token((AIMessageChunk(content="", id="run-1"), {"langgraph_node": "speaker_turn", "role": "pm"})) is None
+    assert panel_token("not a message") is None
+
+
+def test_panel_tokens_read_block_content() -> None:
+    chunk = AIMessageChunk(content=[{"type": "text", "text": "Block text"}], id="run-2")
+    assert panel_token((chunk, {"langgraph_node": "speaker_turn", "role": "pm"}))[3] == "Block text"  # type: ignore[index]
+
+
+def test_tokens_of_one_call_accumulate_in_one_bubble_per_speaker() -> None:
+    live = LiveTurns()
+    live.add("run-a", "PM", "opening", "The ")
+    live.add("run-b", "Skeptic", "opening", "Why ")
+    live.add("run-a", "PM", "opening", "idea")
+    assert [(e.speaker, e.content) for e in live.entries()] == [("PM", "The idea"), ("Skeptic", "Why ")]
+
+
+def test_a_retried_call_starts_its_bubble_over() -> None:
+    live = LiveTurns()
+    live.add("run-a", "PM", "opening", "Half an answ")
+    live.add("run-b", "PM", "opening", "Fresh start")  # the node was retried: a new model call
+    assert [e.content for e in live.entries()] == ["Fresh start"]
+
+
+def test_clearing_live_turns_empties_them() -> None:
+    live = LiveTurns()
+    live.add("run-a", "PM", "turn", "x")
+    assert live
+    live.clear()
+    assert not live and live.entries() == []
+
+
+def test_a_finished_opening_stays_visible_but_stops_being_live() -> None:
+    live = LiveTurns()
+    live.add("run-a", "PM", "opening", "Half")
+    live.add("run-b", "Skeptic", "opening", "Still writ")
+    live.finish("PM", "The whole opening.")  # its node returned: the final text replaces the tokens
+    by_speaker = {e.speaker: e for e in live.entries()}
+    assert by_speaker["PM"].content == "The whole opening." and by_speaker["PM"].data == TurnInfo("opening")
+    assert by_speaker["Skeptic"].data == TurnInfo("opening", live=True)
+
+
+def test_a_model_that_does_not_stream_still_shows_its_opening_when_finished() -> None:
+    live = LiveTurns()
+    live.finish("Tech Lead", "All at once.", phase="opening")
+    assert [(e.speaker, e.content) for e in live.entries()] == [("Tech Lead", "All at once.")]
+
+
+# ------------------------------------------------------------ preferences
+
+
+def test_stated_preferences_are_shown_as_your_message_right_after_the_idea() -> None:
+    prefs = {"platform": "web", "stack_hints": "TypeScript + Postgres", "deploy_target": "Fly.io",
+             "must_use": "", "must_avoid": "MongoDB"}
+    entries = transcript_from_state(_values(preferences=prefs), None)
+    assert _kinds(entries)[:2] == ["idea", "preferences"] and "preferences" in USER_KINDS
+    text = entries[1].content
+    assert "web" in text and "TypeScript + Postgres" in text and "Fly.io" in text and "MongoDB" in text
+    assert "Must use" not in text  # what was not stated is not listed
+
+
+def test_no_preferences_no_message() -> None:
+    assert "preferences" not in _kinds(transcript_from_state(_values(), None))
+    assert "preferences" not in _kinds(transcript_from_state(_values(preferences={"platform": "any"}), None))

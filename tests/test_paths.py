@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from idea_to_mvp.config import Settings, clear_settings_cache, get_settings
-from idea_to_mvp.exporter import save_session_markdown
+from idea_to_mvp.exporter import save_session_export
 from idea_to_mvp.ui.view import ViewEntry
 
 
@@ -27,7 +27,7 @@ def test_output_dir_expands_user_home() -> None:
 
 
 def test_export_is_written_under_exports_dir(tmp_path: Path) -> None:
-    path = save_session_markdown(
+    path, _json = save_session_export(
         exports_dir=tmp_path / "exports",
         entries=[ViewEntry("idea", "You", "An idea")],
         thread_id="t1",

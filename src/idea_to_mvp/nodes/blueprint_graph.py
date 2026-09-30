@@ -53,6 +53,7 @@ class BlueprintInput(TypedDict):
     (see `nodes/panel.py`)."""
 
     user_idea: str
+    preferences: dict[str, Any]
     discussion_history: Annotated[list[BaseMessage], add_messages]
     summary: str
     generated_questions: list[str]

@@ -5,6 +5,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from idea_to_mvp import llm
+from idea_to_mvp.nodes.common import preferences_block
 from idea_to_mvp.schemas import (
     ArchitectureOption,
     ArchitectureProposal,
@@ -60,6 +61,7 @@ def architect_node(state: IdeaDiscussionState) -> dict[str, Any]:
             HumanMessage(
                 content=(
                     f"Initial user idea:\n{state['user_idea'].strip()}\n\n"
+                    f"{preferences_block(state.get('preferences'))}"
                     f"Discussion summary:\n{state.get('summary', '').strip()}\n\n"
                     f"Questions asked to user:\n{questions}\n\n"
                     f"User responses:\n{state.get('user_answers', '').strip()}\n\n"

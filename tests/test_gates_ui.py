@@ -291,7 +291,7 @@ def test_open_review_notes_are_shown(monkeypatch: pytest.MonkeyPatch, bundle: Pa
 def test_the_parallelism_selector_offers_sequential_and_up_to_the_plans_width(monkeypatch: pytest.MonkeyPatch, bundle: Path) -> None:
     payload = implement_payload(monkeypatch, bundle, {"IMPLEMENTER_MAX_PARALLEL": "2"})
     selector = GATES["implement_gate"].render(payload).updates["parallel"]
-    assert [c for c in selector["choices"]] == ["Sequential", "Parallel 2"]  # the plan's width is 2
+    assert list(selector["choices"]) == ["Sequential", "Parallel 2"]  # the plan's width is 2
     assert selector["value"] == "Parallel 2" and selector["interactive"] is True
     wide = GATES["implement_gate"].render({**payload, "dag_width": 4, "max_parallel": 3}).updates["parallel"]
     assert wide["choices"] == ["Sequential", "Parallel 2", "Parallel 3", "Parallel 4"] and wide["value"] == "Parallel 3"

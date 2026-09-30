@@ -19,7 +19,7 @@ def test_every_role_references_real_settings_fields() -> None:
 
 
 def test_expected_roles_present() -> None:
-    assert set(ROLES) == {"pm", "tech_lead", "skeptic", "moderator", "summarizer", "architect", "strategy", "plan_writer", "change_planner", "blueprint_critic"}
+    assert set(ROLES) == {"pm", "tech_lead", "skeptic", "moderator", "summarizer", "architect", "strategy", "plan_writer", "change_planner", "blueprint_critic", "researcher"}
 
 
 def test_speaker_order_derives_from_registry() -> None:

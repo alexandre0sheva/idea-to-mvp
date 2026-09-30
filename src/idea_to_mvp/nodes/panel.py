@@ -25,7 +25,12 @@ from langgraph.types import Send
 
 from idea_to_mvp import llm
 from idea_to_mvp.config import PanelMode
-from idea_to_mvp.nodes.common import display_speaker_name, history_markdown
+from idea_to_mvp.nodes.common import (
+    display_speaker_name,
+    history_markdown,
+    preferences_block,
+    research_block,
+)
 from idea_to_mvp.nodes.discussion import (
     EMPTY_TURN_TEXT,
     discussion_node,
@@ -49,6 +54,8 @@ class PanelInput(TypedDict):
     `usage` reducer does not count the records it already holds a second time."""
 
     user_idea: str
+    preferences: dict[str, Any]
+    research: dict[str, Any]
     discussion_history: Annotated[list[BaseMessage], add_messages]
     max_rounds: int
     turn_count: int
@@ -62,6 +69,8 @@ class OpeningInput(TypedDict):
 
     speaker: str
     user_idea: str
+    preferences: dict[str, Any]
+    research: dict[str, Any]
     max_rounds: int
 
 
@@ -74,6 +83,8 @@ def opening_turn_node(state: OpeningInput) -> dict[str, Any]:
     runtime = llm.get_runtime(SPEAKER_NAME_TOKEN[speaker])
     prompt = (
         f"Anchor idea:\n{state['user_idea']}\n\n"
+        f"{preferences_block(state.get('preferences'))}"
+        f"{research_block(state.get('research'))}"
         f"You are **{speaker}**. Write your OPENING statement for the panel.\n"
         "Rules for this turn:\n"
         f"{round_rules(state['max_rounds'], 0)}"
@@ -188,7 +199,13 @@ def route_panel_start(state: IdeaDiscussionState) -> list[Send] | Literal["speak
     return [
         Send(
             "opening_turn",
-            OpeningInput(speaker=speaker, user_idea=state["user_idea"], max_rounds=state["max_rounds"]),
+            OpeningInput(
+                speaker=speaker,
+                user_idea=state["user_idea"],
+                preferences=state.get("preferences") or {},
+                research=state.get("research") or {},
+                max_rounds=state["max_rounds"],
+            ),
         )
         for speaker in SPEAKER_ORDER
     ]

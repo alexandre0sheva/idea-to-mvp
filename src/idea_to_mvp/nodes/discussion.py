@@ -5,7 +5,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from idea_to_mvp import llm
-from idea_to_mvp.nodes.common import history_markdown
+from idea_to_mvp.nodes.common import history_markdown, preferences_block, research_block
 from idea_to_mvp.roles import SPEAKER_NAME_TOKEN, SPEAKER_ORDER
 from idea_to_mvp.state import IdeaDiscussionState
 from idea_to_mvp.usage import with_usage
@@ -48,6 +48,8 @@ def discussion_node(state: IdeaDiscussionState) -> dict[str, Any]:
     round_rules_text = round_rules(state["max_rounds"], state["turn_count"])
     turn_prompt = (
         f"Anchor idea:\n{state['user_idea']}\n\n"
+        f"{preferences_block(state.get('preferences'))}"
+        f"{research_block(state.get('research'))}"
         "Panel transcript so far (chronological):\n"
         f"{thread_md}\n\n"
         f"You are **{speaker}**. Write the next panel turn.\n"

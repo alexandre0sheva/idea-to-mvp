@@ -16,11 +16,14 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - name: Lockfile is up to date
+        run: uv lock --check
       - name: Install dependencies
         run: uv sync --locked --python ${{ matrix.python-version }}
       - name: Lint
         run: uv run ruff check .
       - name: Type check
         run: uv run mypy
+      # Also runs the golden blueprint packs and the graph-diagram sync test; coverage below 80% fails the job.
       - name: Test
-        run: uv run pytest
+        run: uv run pytest --cov=idea_to_mvp --cov-report=term-missing:skip-covered --cov-fail-under=80

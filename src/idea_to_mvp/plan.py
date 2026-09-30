@@ -206,7 +206,7 @@ def fallback_change_tasks(plan: Plan, iteration: int, feedback: str) -> list[Pla
 
 def execution_waves(plan: Plan) -> list[list[str]]:
     """Topological layers of task ids: every task in a layer can run once the previous layers are done."""
-    sorter = TopologicalSorter({task.id: [d for d in task.depends_on] for task in plan.tasks})
+    sorter = TopologicalSorter({task.id: list(task.depends_on) for task in plan.tasks})
     try:
         sorter.prepare()
     except CycleError as error:

@@ -13,11 +13,12 @@ import gradio as gr
 from langgraph.types import Command
 
 from idea_to_mvp.config import PanelMode, Settings
-from idea_to_mvp.exporter import save_session_markdown
+from idea_to_mvp.exporter import save_session_export
 from idea_to_mvp.graph import GraphProvider, merged_values, pending_interrupt, run_config
 from idea_to_mvp.implementation.events import EVENT_KINDS, ImplEvent
 from idea_to_mvp.implementation.progress import TaskResult, load_progress, spent_in_iteration
 from idea_to_mvp.implementation.workspace import diff_stat
+from idea_to_mvp.nodes.common import stated_preferences
 from idea_to_mvp.nodes.implement import builds_task_by_task, effective_parallel
 from idea_to_mvp.plan import load_plan
 from idea_to_mvp.sessions import SessionRegistry
@@ -39,7 +40,10 @@ from idea_to_mvp.ui.dashboard import render_dashboard
 from idea_to_mvp.ui.gates import GATES, gate_outputs
 from idea_to_mvp.ui.render import (
     architect_block,
+    moderator_banner,
+    openings_row,
     questions_block,
+    research_card,
     summary_block,
     thinking_block,
     turn_block,
@@ -50,11 +54,13 @@ from idea_to_mvp.ui.view import (
     MODE_IDEA,
     MODE_INTERRUPTED,
     USER_KINDS,
+    LiveTurns,
     StageMark,
+    TurnInfo,
     ViewEntry,
     implementation_progress,
     mode_from_state,
-    panel_running,
+    panel_token,
     running_from_state,
     stage_elapsed,
     stage_for_view,
@@ -72,6 +78,7 @@ __all__ = ["AppContext", "SubmitService"]
 _TITLE_LENGTH = 70
 _LOG_LIMIT = 2000  # events kept per thread for the console
 _PROGRESS_INTERVAL_SECONDS = 0.5  # tool events can arrive in bursts; task boundaries always render
+_TOKEN_INTERVAL_SECONDS = 0.15  # panel tokens arrive far faster than the chat is worth re-rendering
 
 
 @dataclass(frozen=True)
@@ -102,6 +109,13 @@ def _chat_message(entry: ViewEntry, elapsed: dict[str, float] | None = None) -> 
         return {"role": "assistant", "content": render_dashboard(entry.data, elapsed=elapsed)}
     if entry.kind in USER_KINDS:
         return {"role": "user", "content": entry.content}
+    if entry.kind == "research" and isinstance(entry.data, dict):
+        return {"role": "assistant", "content": research_card(entry.data) or turn_block(entry.speaker, entry.content)}
+    if entry.kind == "moderator":
+        return {"role": "assistant", "content": moderator_banner(entry.content)}
+    if entry.kind == "discussion" and isinstance(entry.data, TurnInfo):
+        block = turn_block(entry.speaker, entry.content, collapsed=entry.data.collapsed, live=entry.data.live)
+        return {"role": "assistant", "content": block}
     if entry.kind == "thinking":
         return {"role": "assistant", "content": thinking_block(entry.speaker, entry.content)}
     if entry.kind == "summary":
@@ -116,6 +130,33 @@ def _chat_message(entry: ViewEntry, elapsed: dict[str, float] | None = None) -> 
     if entry.kind == "system":
         return {"role": "assistant", "content": f"### {entry.speaker}\n\n{entry.content}"}
     return {"role": "assistant", "content": turn_block(entry.speaker, entry.content)}
+
+
+def _chat_messages(entries: list[ViewEntry], elapsed: dict[str, float] | None = None) -> list[dict[str, str]]:
+    """The chat for a transcript: like `_chat_message` per entry, except that the opening statements, which were
+    written at the same time, share one message laid out as a row."""
+    messages: list[dict[str, str]] = []
+    openings: list[ViewEntry] = []
+
+    def flush() -> None:
+        if openings:
+            infos = [cast(TurnInfo, e.data) for e in openings]
+            row = openings_row(
+                [(e.speaker, e.content) for e in openings],
+                collapsed=all(info.collapsed for info in infos),
+                live=[info.live for info in infos],
+            )
+            messages.append({"role": "assistant", "content": row})
+            openings.clear()
+
+    for entry in entries:
+        if entry.kind == "discussion" and isinstance(entry.data, TurnInfo) and entry.data.phase == "opening":
+            openings.append(entry)
+            continue
+        flush()
+        messages.append(_chat_message(entry, elapsed))
+    flush()
+    return messages
 
 
 def _main_widgets(mode: str) -> tuple[str, str, str]:
@@ -145,6 +186,7 @@ class SubmitService:
         # live here for the life of the process, per thread; everything else on the board is read from disk.
         self._events: dict[str, list[ImplEvent]] = {}
         self._active: set[str] = set()  # threads with a run streaming right now
+        self._live: dict[str, LiveTurns] = {}  # the panel turns being written, per streaming thread
         self._diffs: dict[tuple[str, str], str] = {}  # (workspace, commit) -> git diff --stat (commits never change)
         self._tab: dict[str, str] = {}  # the tab last selected for each thread
         self._artifact_seen: dict[str, tuple[str, str, int, str]] = {}  # what the artifacts panel currently shows
@@ -193,6 +235,7 @@ class SubmitService:
         clear_input: bool = False,
         running: tuple[str, str] | None = None,
         pending_user: ViewEntry | None = None,
+        live: list[ViewEntry] | None = None,
         error: str | None = None,
         idea_title: str | None = None,
     ) -> tuple[Any, ...]:
@@ -202,7 +245,7 @@ class SubmitService:
             running_from_state(values, next_nodes) if interrupt_payload is None and mode == MODE_INTERRUPTED else None
         )
         entries = transcript_from_state(
-            values, interrupt_payload, running=overlay, pending_user=pending_user, error=error
+            values, interrupt_payload, running=overlay, pending_user=pending_user, live=live or (), error=error
         )
         stage = stage_for_view(values, mode)
         elapsed = await self._elapsed(thread_id, values, stage, waiting=interrupt_payload is not None)
@@ -218,7 +261,7 @@ class SubmitService:
             status=status if status is not None else status_from_state(values, mode, overlay),
             mode=mode,
             thread_id=thread_id,
-            chat=[_chat_message(e, elapsed) for e in entries],
+            chat=_chat_messages(entries, elapsed),
             stage=stage,
             clear_input=clear_input,
             values=values,
@@ -414,6 +457,7 @@ class SubmitService:
         panel_mode: str | None = None,
         autopilot: bool = False,
         gate_inputs: dict[str, Any] | None = None,
+        preferences: dict[str, Any] | None = None,
     ) -> AsyncGenerator[tuple[Any, ...], None]:
         text = (user_text or "").strip()
         autopilot = bool(autopilot)
@@ -437,9 +481,10 @@ class SubmitService:
                 int(rounds),
                 panel_mode=cast(PanelMode, panel_mode or self._context.settings.panel_mode),
                 autopilot=autopilot,
+                preferences=stated_preferences(preferences),
             )
             pending_user = ViewEntry("idea", "You", text)
-            running = panel_running(payload)
+            running = running_from_state(payload, ("research" if self._context.settings.enable_research else "panel",))
             idea_title = text
             values = {}
         elif (kind := str((interrupt_payload or {}).get("kind") or "")) in GATES:
@@ -482,18 +527,31 @@ class SubmitService:
         graph = await self._context.graphs.get()
         config = run_config(thread_id, max_concurrency=self._context.settings.llm_max_concurrency)
         console: list[ImplEvent] = []  # this run's events (the status line's progress); `_events` keeps the log
+        live = self._live[thread_id] = LiveTurns()
+        last_token_render = 0.0
         history = self._events.setdefault(thread_id, [])
         last_progress = 0.0
         self._active.add(thread_id)
         try:
             # subgraphs=True: updates from inside the panel subgraph arrive too, so the chat fills turn by turn;
-            # "custom" carries the live implementation events.
+            # "custom" carries the live implementation events; "messages" the panel's tokens.
             async for _namespace, stream_mode, data in graph.astream(
-                payload, config=config, stream_mode=["updates", "custom"], subgraphs=True
+                payload, config=config, stream_mode=["updates", "custom", "messages"], subgraphs=True
             ):
+                if stream_mode == "messages":
+                    if token := panel_token(data):
+                        live.add(*token)
+                        now = time.monotonic()
+                        if now - last_token_render >= _TOKEN_INTERVAL_SECONDS:
+                            last_token_render = now
+                            yield await self._render(
+                                thread_id, status=_writing(live), live=live.entries(), idea_title=idea_title
+                            )
+                    continue
                 if stream_mode != "custom":
                     self._marks.pop(thread_id, None)  # a step was committed: its checkpoint time is new
-                    yield await self._render(thread_id, idea_title=idea_title)
+                    self._settle_live(live, data)
+                    yield await self._render(thread_id, live=live.entries(), idea_title=idea_title)
                     continue
                 if not isinstance(data, dict) or data.get("kind") not in EVENT_KINDS:
                     continue
@@ -523,6 +581,20 @@ class SubmitService:
             yield await self._render(thread_id, idea_title=idea_title)
         finally:
             self._active.discard(thread_id)
+            self._live.pop(thread_id, None)
+
+    @staticmethod
+    def _settle_live(live: LiveTurns, update: Any) -> None:
+        """Fold a committed step into the live panel turns: a finished opening replaces its tokens (the openings
+        only reach the transcript together, at the merge); a committed turn, merge, or step is in the
+        transcript now, so nothing is live any more."""
+        if not isinstance(update, dict):
+            return
+        if isinstance(openings := (update.get("opening_turn") or {}).get("opening_turns"), dict):
+            for speaker, text in openings.items():
+                live.finish(str(speaker), str(text))
+        if update.keys() - {"opening_turn"}:
+            live.clear()
 
     async def gate_payload(self, thread_id: str) -> dict[str, Any]:
         """The payload of the gate the thread is paused at ({} if it is not at one): what a gate's own events
@@ -555,7 +627,7 @@ class SubmitService:
             return gr.update(value="Nothing to save yet."), gr.update(value=None, visible=False)
         mode = mode_from_state(values, interrupt_payload, next_nodes=next_nodes)
         try:
-            export_path = save_session_markdown(
+            export_paths = save_session_export(
                 exports_dir=self._context.settings.exports_dir,
                 entries=entries,
                 thread_id=thread_id,
@@ -569,9 +641,14 @@ class SubmitService:
                 gr.update(value=None, visible=False),
             )
         return (
-            gr.update(value=f"Saved conversation to `{export_path}`."),
-            gr.update(value=str(export_path), visible=True),
+            gr.update(value=f"Saved conversation to `{export_paths[0]}` (and `.json`)."),
+            gr.update(value=[str(path) for path in export_paths], visible=True),
         )
+
+
+def _writing(live: LiveTurns) -> str:
+    names = [entry.speaker for entry in live.entries() if cast(TurnInfo, entry.data).live]
+    return f"{', '.join(names)} {'is' if len(names) == 1 else 'are'} writing..." if names else "Panel discussion..."
 
 
 def _read_text(path: Path) -> str:

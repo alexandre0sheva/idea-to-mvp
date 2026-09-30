@@ -19,6 +19,7 @@ from idea_to_mvp.ui.service import AppContext, SubmitService
 from idea_to_mvp.ui.theme import CSS, build_theme
 
 PANEL_MODES = ["moderated", "round_robin"]
+PLATFORMS = ["web", "mobile", "cli", "api", "any"]
 
 
 def make_ui(
@@ -65,6 +66,16 @@ def make_ui(
                         "generate the pack. Implementation always asks first: it spends real money.",
                     )
                     gr.Markdown(model_profile_markdown(resolved_settings))
+                with gr.Accordion("Project preferences", open=False):
+                    gr.Markdown(
+                        "What you already know, so the panel does not debate it. Must use / must avoid are "
+                        "hard constraints for every option and document. Applies to the next idea you run."
+                    )
+                    platform_dd = gr.Dropdown(choices=PLATFORMS, value="any", label="Platform")
+                    stack_tb = gr.Textbox(label="Stack hints", placeholder="TypeScript + Postgres")
+                    deploy_tb = gr.Textbox(label="Deploy target", placeholder="Fly.io")
+                    must_use_tb = gr.Textbox(label="Must use (hard constraint)", placeholder="Stripe for payments")
+                    must_avoid_tb = gr.Textbox(label="Must avoid (hard constraint)", placeholder="MongoDB")
         if resolved_settings.demo_mode:
             gr.Markdown(
                 "> **Demo mode** — model outputs are canned and the implementation stage builds a tiny "
@@ -117,9 +128,9 @@ def make_ui(
         field_components = [gate_widgets[kind][name] for kind, name in gate_layout()]
         with gr.Row():
             stop_btn = gr.Button("Stop", variant="stop")
-            save_btn = gr.Button("Save to Markdown")
+            save_btn = gr.Button("Save session")
             clear_btn = gr.Button("Clear")
-        export_file = gr.File(label="Saved Markdown file", visible=False)
+        export_file = gr.File(label="Saved session (Markdown and JSON)", file_count="multiple", visible=False)
         with gr.Accordion("Saved sessions", open=False):
             sessions_dd = gr.Dropdown(label="Sessions (resume after a restart)", choices=[], value=None)
             with gr.Row():
@@ -150,7 +161,17 @@ def make_ui(
             *field_components,
         ]
         shared_inputs = [input_tb, rounds_sl, thread_id_state, panel_mode_dd, autopilot_cb]
-        run_events = [run_btn.click(service.handle_submit, inputs=shared_inputs, outputs=view_outputs)]
+        preference_inputs = [platform_dd, stack_tb, deploy_tb, must_use_tb, must_avoid_tb]
+
+        async def submit_idea(*values: Any) -> AsyncGenerator[tuple[Any, ...], None]:
+            text, rounds, thread, panel_mode, autopilot, *preference_values = values
+            preferences = dict(
+                zip(("platform", "stack_hints", "deploy_target", "must_use", "must_avoid"), preference_values, strict=True)
+            )
+            async for update in service.handle_submit(text, rounds, thread, panel_mode, autopilot, preferences=preferences):
+                yield update
+
+        run_events = [run_btn.click(submit_idea, inputs=[*shared_inputs, *preference_inputs], outputs=view_outputs)]
 
         def submit_for(kind: str, action: str) -> Callable[..., AsyncGenerator[tuple[Any, ...], None]]:
             async def submit(*values: Any) -> AsyncGenerator[tuple[Any, ...], None]:

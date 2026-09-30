@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage
 
 from idea_to_mvp import llm
 from idea_to_mvp.config import Settings
-from idea_to_mvp.roles import ROLES
+from idea_to_mvp.roles import ROLES, resolve_role_model
 
 Status = Literal["ok", "warn", "fail"]
 
@@ -83,9 +83,10 @@ def collect_checks(
 
     checks: list[Check] = []
     pinged: dict[tuple[str, str], tuple[Status, str]] = {}
-    for role, spec in ROLES.items():
-        provider: str = getattr(settings, spec.provider_setting)
-        model: str = getattr(settings, spec.model_setting)
+    for role in ROLES:
+        if role == "researcher" and not settings.enable_research:
+            continue  # an unused role's key and model are not this run's problem
+        provider, model = resolve_role_model(settings, role)
         name = f"{role} ({provider}:{model})"
         field, env_name = _KEYS[provider]
         if not getattr(settings, field):

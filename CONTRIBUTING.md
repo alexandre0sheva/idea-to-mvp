@@ -31,10 +31,17 @@ Use demo mode to exercise UI and graph changes end to end. When you add an LLM c
 ```bash
 uv run ruff check .
 uv run mypy
-uv run pytest
+uv run pytest                                  # offline: fakes and demo mode, no keys
+uv run pytest --cov=idea_to_mvp                # what CI runs; fails below 80% coverage
 ```
 
+CI also fails on a stale `uv.lock` (`uv lock --check`), on a graph diagram that is out of sync (`uv run python scripts/gen_graph_diagram.py` fixes it), and on a golden blueprint pack that stops validating (`tests/test_golden_blueprints.py`). `uvx pre-commit install` (one time) runs ruff and mypy before every commit.
+
+Tests that call real provider APIs carry `@pytest.mark.live`, are skipped by default, and need keys: `uv run pytest -m live`. The opt-in blueprint quality eval, which spends tokens and is never run by CI, is `uv run python scripts/eval_blueprint.py --live --idea climbing-log` (add `DEMO_MODE=true` to try it offline).
+
 Dependencies live only in `pyproject.toml`; after changing them run `uv lock` and commit `uv.lock` (CI uses `uv sync --locked`).
+
+Docs are tested too: `tests/test_docs_sync.py` fails when a doc names a file, test, or setting that does not exist, so a renamed module or removed setting shows up as a failing test rather than a stale paragraph.
 
 If you change planner output, exported Markdown, or prompt-driven behavior, verify the relevant flow manually in the UI as well.
 

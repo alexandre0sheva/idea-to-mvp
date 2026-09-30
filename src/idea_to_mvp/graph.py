@@ -38,6 +38,7 @@ from idea_to_mvp.nodes.iterate import (
 )
 from idea_to_mvp.nodes.panel import build_panel_subgraph
 from idea_to_mvp.nodes.report import delivery_report_node
+from idea_to_mvp.nodes.research import research_node, route_research
 from idea_to_mvp.nodes.strategy import strategy_node
 from idea_to_mvp.nodes.summary import summarizer_node
 from idea_to_mvp.nodes.verify import (
@@ -57,6 +58,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
     `None` is only useful for inspecting topology (diagram script)."""
     builder = StateGraph(IdeaDiscussionState)
     # The panel is a subgraph; its LLM nodes carry the retry policy (retrying the whole node would redo every turn).
+    builder.add_node("research", research_node, retry_policy=LLM_RETRY)  # optional: skipped unless ENABLE_RESEARCH
     builder.add_node("panel", build_panel_subgraph())
     builder.add_node("summarizer", summarizer_node, retry_policy=LLM_RETRY)
     builder.add_node("collect_answers", collect_answers_node)
@@ -77,7 +79,8 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
     builder.add_node("iterate_gate", iterate_gate_node)
     builder.add_node("change_planner", change_planner_node, retry_policy=LLM_RETRY)
 
-    builder.add_edge(START, "panel")
+    builder.add_conditional_edges(START, route_research, {"research": "research", "panel": "panel"})
+    builder.add_edge("research", "panel")
     builder.add_edge("panel", "summarizer")
     builder.add_edge("summarizer", "collect_answers")
     builder.add_edge("collect_answers", "architect")

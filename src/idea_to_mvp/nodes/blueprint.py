@@ -27,6 +27,7 @@ from idea_to_mvp.blueprints import (
     write_bundle,
 )
 from idea_to_mvp.config import get_settings
+from idea_to_mvp.nodes.common import preferences_block
 from idea_to_mvp.plan import (
     Plan,
     fallback_plan,
@@ -71,6 +72,7 @@ def blueprint_context(state: IdeaDiscussionState) -> str:
         chosen_option_details=chosen_details,
         strategy=state.get("execution_strategy") or None,
         planning_request=state.get("plan_decision", {}).get("notes", ""),
+        preferences=preferences_block(state.get("preferences")),
     )
 
 

@@ -5,7 +5,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from idea_to_mvp import llm
-from idea_to_mvp.nodes.common import history_markdown
+from idea_to_mvp.nodes.common import history_markdown, preferences_block
 from idea_to_mvp.roles import QUESTIONS_SYSTEM, SUMMARY_SYSTEM
 from idea_to_mvp.schemas import MvpQuestion, QuestionSet, render_questions
 from idea_to_mvp.state import IdeaDiscussionState
@@ -50,6 +50,7 @@ def fallback_question_set() -> QuestionSet:
 def summarizer_node(state: IdeaDiscussionState) -> dict[str, Any]:
     summarizer = llm.get_runtime("summarizer")
     thread_md = history_markdown(state["discussion_history"])
+    preferences = preferences_block(state.get("preferences"))
     summary_text = llm.invoke_text(
         summarizer,
         [
@@ -57,6 +58,7 @@ def summarizer_node(state: IdeaDiscussionState) -> dict[str, Any]:
             HumanMessage(
                 content=(
                     f"Original idea:\n{state['user_idea']}\n\n"
+                    f"{preferences}"
                     f"Full discussion thread:\n\n{thread_md}\n\n"
                     "Produce the brief in the requested format. Do not include question lists."
                 )
@@ -70,6 +72,7 @@ def summarizer_node(state: IdeaDiscussionState) -> dict[str, Any]:
             HumanMessage(
                 content=(
                     f"Idea:\n{state['user_idea']}\n\n"
+                    f"{preferences}"
                     f"Discussion highlights:\n{thread_md}\n\n"
                     f"Current synthesized summary:\n{summary_text}\n\n"
                     "Generate the 5 MVP-preparation questions now."

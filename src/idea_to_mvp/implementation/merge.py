@@ -13,6 +13,7 @@ the agent cannot reach), and the main repository's config is reset before every 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import shutil
 from dataclasses import dataclass
@@ -78,10 +79,8 @@ def remove_all_worktrees(workspace: Path) -> None:
         for child in sorted(root.iterdir()):
             _remove_worktree(workspace, child.name)
     shutil.rmtree(root, ignore_errors=True)
-    try:
+    with contextlib.suppress(OSError):
         root.parent.rmdir()
-    except OSError:
-        pass
 
 
 async def remove_worktree(workspace: Path, task_id: str) -> None:

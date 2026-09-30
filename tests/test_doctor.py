@@ -3,10 +3,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from idea_to_mvp.doctor import collect_checks, format_report, run_doctor
 
 from idea_to_mvp import cli
 from idea_to_mvp.config import Settings
+from idea_to_mvp.doctor import collect_checks, format_report, run_doctor
 from idea_to_mvp.observability import apply_tracing_env
 from idea_to_mvp.roles import ROLES
 
@@ -41,9 +41,10 @@ def test_all_roles_ok_when_pings_succeed() -> None:
 
     checks = collect_checks(_settings(), runtime_for=_runtime_for, ping=ping)
     by_role = _by_name(checks)
-    assert all(by_role[role].status == "ok" for role in ROLES)
+    roles = [role for role in ROLES if role != "researcher"]  # only checked when research is enabled
+    assert all(by_role[role].status == "ok" for role in roles)
     # summarizer, architect, and strategy share one provider/model: pinged once, reported for each role
-    assert len(pings) == len(set(pings)) < len(ROLES)
+    assert len(pings) == len(set(pings)) < len(roles)
 
 
 def test_failing_ping_reports_fail_with_the_reason_and_does_not_raise() -> None:
@@ -168,3 +169,12 @@ def test_apply_tracing_env_never_overrides_the_real_environment(tmp_path: Path, 
 
 def test_apply_tracing_env_tolerates_a_missing_file(tmp_path: Path) -> None:
     assert apply_tracing_env(tmp_path / "nope.env") == []
+
+
+def test_the_researcher_is_checked_only_when_research_is_enabled() -> None:
+    def ping(runtime) -> str:
+        return "OK"
+
+    off = _by_name(collect_checks(_settings(), runtime_for=_runtime_for, ping=ping))
+    on = _by_name(collect_checks(_settings(enable_research=True), runtime_for=_runtime_for, ping=ping))
+    assert "researcher" not in off and on["researcher"].status == "ok"

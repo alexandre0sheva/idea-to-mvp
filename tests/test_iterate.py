@@ -282,7 +282,7 @@ def test_a_missing_plan_is_reported_clearly(tmp_path: Path, monkeypatch: pytest.
     FakeModel(monkeypatch, good_change())
     empty = tmp_path / "ws"
     empty.mkdir()
-    with pytest.raises(RuntimeError, match="plan.json"):
+    with pytest.raises(RuntimeError, match=r"plan\.json"):
         change_planner_node(planner_state(empty))
 
 

@@ -1,6 +1,6 @@
 [project]
 name = "idea-to-mvp"
-version = "0.3.0.dev0"
+version = "0.3.0"
 description = "Multi-agent idea-to-MVP orchestrator with Gradio and LangGraph."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -46,8 +46,12 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
-ignore = ["E501"]
+select = ["E", "F", "I", "B", "UP", "C4", "SIM", "RUF"]
+ignore = [
+  "E501",
+  "RUF001", "RUF002", "RUF003",  # the docs and prompts use typographic dashes and quotes on purpose
+  "RUF005", "RUF007", "RUF059",  # stylistic: list concatenation, zip(a, a[1:]), unused unpacked names
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -55,6 +59,15 @@ python_files = ["test_*.py"]
 asyncio_mode = "auto"
 markers = ["live: calls real provider APIs (deselected by default; run with `pytest -m live`)"]
 addopts = "-m 'not live'"
+
+[tool.coverage.run]
+source = ["idea_to_mvp"]
+branch = false
+
+[tool.coverage.report]
+# Enforced when coverage is asked for (`pytest --cov`, as CI does); plain and partial test runs are not gated.
+fail_under = 80
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]
 
 [tool.mypy]
 files = ["src"]
@@ -65,3 +78,11 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 ignore_missing_imports = true
 exclude = ["tests/", "\\.venv/"]
+
+# The model-facing core is checked strictly: it is where a silent Any or a missing annotation hides a bug.
+[[tool.mypy.overrides]]
+module = ["idea_to_mvp.llm.*", "idea_to_mvp.schemas", "idea_to_mvp.plan"]
+disallow_untyped_defs = true
+disallow_any_generics = true
+warn_return_any = true
+no_implicit_optional = true

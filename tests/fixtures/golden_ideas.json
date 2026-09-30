@@ -1,0 +1,17 @@
+[
+  {
+    "id": "climbing-log",
+    "idea": "A logbook for indoor climbers: log each climb with grade and notes, see progress over time, and export the history.",
+    "preferences": {}
+  },
+  {
+    "id": "invoice-tool",
+    "idea": "A lightweight invoicing tool for freelancers: create invoices from templates, send them by email, and track which are paid.",
+    "preferences": {"platform": "web", "stack_hints": "TypeScript + Postgres", "deploy_target": "Fly.io"}
+  },
+  {
+    "id": "recipe-planner",
+    "idea": "A weekly meal planner that turns the recipes you like into a shopping list grouped by supermarket aisle.",
+    "preferences": {"platform": "mobile", "must_avoid": "Any paid API"}
+  }
+]

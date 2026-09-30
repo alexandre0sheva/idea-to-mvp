@@ -9,9 +9,44 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Provider = Literal["openai", "anthropic", "google"]
 PanelMode = Literal["moderated", "round_robin"]
+ModelProfile = Literal["fast", "balanced", "quality"]
 SandboxMode = Literal["auto", "on", "off"]
 DEFAULT_ALLOWED_DOMAINS = ("pypi.org", "files.pythonhosted.org", "registry.npmjs.org", "github.com")
 PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "dontAsk", "auto"]
+
+
+# Provider and model of every role that has its own settings, per profile. `balanced` is the field defaults of
+# `Settings` (a test keeps them equal). The panel's critics stay on the providers they are chosen for; only the
+# model tier changes.
+PROFILES: dict[ModelProfile, dict[str, tuple[Provider, str]]] = {
+    "fast": {
+        "pm": ("openai", "gpt-5.4-mini"),
+        "tech_lead": ("anthropic", "claude-haiku-4-5-20251001"),
+        "skeptic": ("google", "gemini-3.8-flash"),
+        "summarizer": ("anthropic", "claude-haiku-4-5-20251001"),
+        "architect": ("anthropic", "claude-haiku-4-5-20251001"),
+        "moderator": ("anthropic", "claude-haiku-4-5-20251001"),
+        "research": ("anthropic", "claude-haiku-4-5-20251001"),
+    },
+    "balanced": {
+        "pm": ("openai", "gpt-5.6-terra"),
+        "tech_lead": ("anthropic", "claude-sonnet-5-5"),
+        "skeptic": ("google", "gemini-3.8-flash"),
+        "summarizer": ("anthropic", "claude-sonnet-5-5"),
+        "architect": ("anthropic", "claude-sonnet-5-5"),
+        "moderator": ("anthropic", "claude-haiku-4-5-20251001"),
+        "research": ("anthropic", "claude-sonnet-5-5"),
+    },
+    "quality": {
+        "pm": ("openai", "gpt-5.6-terra"),
+        "tech_lead": ("anthropic", "claude-opus-5-5"),
+        "skeptic": ("google", "gemini-3.8-flash"),
+        "summarizer": ("anthropic", "claude-opus-5-5"),
+        "architect": ("anthropic", "claude-opus-5-5"),
+        "moderator": ("anthropic", "claude-haiku-4-5-20251001"),
+        "research": ("anthropic", "claude-sonnet-5-5"),  # searching and condensing, not deep reasoning
+    },
+}
 
 
 class Settings(BaseSettings):
@@ -41,6 +76,10 @@ class Settings(BaseSettings):
     # Offline demo: canned model outputs and a stand-in implementation stage; no API keys needed.
     demo_mode: bool = False
 
+    # A cost/quality preset for the models of every role below. A role whose `*_PROVIDER` or `*_MODEL` is set
+    # explicitly ignores it (see `roles.resolve_role_model`).
+    model_profile: ModelProfile = "balanced"
+
     pm_provider: Provider = "openai"
     tech_lead_provider: Provider = "anthropic"
     skeptic_provider: Provider = "google"
@@ -54,6 +93,10 @@ class Settings(BaseSettings):
     summarizer_model: str = "claude-sonnet-5-5"
     architect_model: str = "claude-sonnet-5-5"
     moderator_model: str = "claude-haiku-4-5-20251001"  # a cheap call after every panel turn
+    # The optional research step (off by default) needs a provider with a native web-search tool: the
+    # provider's own tool is used (Anthropic web search, OpenAI web search, Gemini Google Search grounding).
+    research_provider: Provider = "anthropic"
+    research_model: str = "claude-sonnet-5-5"
 
     # Applied only to models that accept sampling parameters (see agents._sampling_kwargs).
     temperature: float | None = 0.7
@@ -73,6 +116,9 @@ class Settings(BaseSettings):
     # moderated: parallel openings, then a moderator picks speakers and may end the debate early.
     # round_robin: the classic fixed PM -> Tech Lead -> Skeptic rotation for the full turn budget.
     panel_mode: PanelMode = "moderated"
+    # A short, cited market/competitor brief gathered with the provider's web search before the panel starts.
+    enable_research: bool = False
+    research_max_searches: int = Field(default=5, ge=1)
 
     # Implementation stage (Claude Agent SDK). Requires ANTHROPIC_API_KEY (or a
     # logged-in Claude Code install) and spends real tokens; every run is gated

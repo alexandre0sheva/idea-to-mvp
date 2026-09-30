@@ -8,3 +8,5 @@ __pycache__/
 exports/
 project_blueprints/
 generated_projects/
+.coverage
+htmlcov/

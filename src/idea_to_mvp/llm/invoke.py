@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from idea_to_mvp.llm.runtime import LlmRuntime
+from idea_to_mvp.schemas import http_url
 from idea_to_mvp.text_utils import normalize_content
 
 LOGGER = logging.getLogger(__name__)
@@ -106,3 +108,47 @@ def invoke_text(
     usage = getattr(response, "usage_metadata", None)
     LOGGER.debug("[%s] model=%s chars=%d usage=%s", runtime.provider, runtime.model, len(text), usage)
     return text
+
+
+@dataclass(frozen=True)
+class GroundedReply:
+    """A web-grounded answer: its text and the URLs the provider says it cited."""
+
+    text: str
+    sources: list[str]
+
+
+def collect_citation_urls(message: AIMessage) -> list[str]:
+    """The http(s) URLs a web-grounded reply cites, in order and without duplicates.
+
+    Each provider reports them its own way: Anthropic puts `citations` on text blocks, OpenAI `annotations`,
+    Gemini `grounding_chunks` in the response metadata. Read from the raw shapes so nothing depends on
+    LangChain's provider translation.
+    """
+    found: dict[str, None] = {}
+
+    def take(url: object) -> None:
+        if clean := http_url(url):
+            found.setdefault(clean)
+
+    if isinstance(message.content, list):
+        for block in message.content:
+            if not isinstance(block, dict):
+                continue
+            for key in ("citations", "annotations"):
+                for item in block.get(key) or []:
+                    if isinstance(item, dict):
+                        take(item.get("url"))
+    grounding = (getattr(message, "response_metadata", None) or {}).get("grounding_metadata") or {}
+    for chunk in grounding.get("grounding_chunks") or []:
+        if isinstance(chunk, dict):
+            take((chunk.get("web") or {}).get("uri"))
+    return list(found)
+
+
+def invoke_grounded(runtime: LlmRuntime, messages: list[BaseMessage]) -> GroundedReply:
+    """One call on a runtime that has a web search tool bound (`llm.search_runtime`): the reply's text and the
+    sources it cited. No retry-for-empty like `invoke_text`: a search answer that is empty is just "found
+    nothing", which the caller handles."""
+    response = runtime.llm.invoke(messages, **invoke_kwargs(runtime, runtime.max_tokens))
+    return GroundedReply(extract_text(response), collect_citation_urls(response))

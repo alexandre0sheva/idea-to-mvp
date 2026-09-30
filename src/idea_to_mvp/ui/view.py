@@ -12,11 +12,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, BaseMessage
 
 from idea_to_mvp.implementation.events import ImplEvent
-from idea_to_mvp.nodes.common import display_speaker_name
-from idea_to_mvp.text_utils import normalize_message_content
+from idea_to_mvp.nodes.common import display_speaker_name, preference_lines, stated_preferences
+from idea_to_mvp.roles import SPEAKER_ORDER, TOKEN_TO_SPEAKER
+from idea_to_mvp.text_utils import normalize_content, normalize_message_content
 from idea_to_mvp.ui.components import canonical_stage
 
 MODE_IDEA = "idea"
@@ -53,11 +54,12 @@ _STAGES = [
 
 # Kinds whose entries are messages the user sent (rendered as user bubbles).
 USER_KINDS = frozenset(
-    {"idea", "user_answers", "arch_decision", "planner_decision", "implement_decision", "change_request"}
+    {"idea", "preferences", "user_answers", "arch_decision", "planner_decision", "implement_decision", "change_request"}
 )
 
 # Graph node about to run -> (speaker, message) for the in-progress indicator.
 _RUNNING: dict[str, tuple[str, str]] = {
+    "research": ("Researcher", "Searching the web for competitors and market context..."),
     "summarizer": ("Summarizer", "Synthesizing the discussion into a summary and MVP questions..."),
     "architect": ("Architect", "Turning your answers into two architecture options..."),
     "strategy": ("Strategy", "Choosing the agent execution strategy..."),
@@ -80,6 +82,75 @@ class ViewEntry:
     speaker: str
     content: str
     data: Any = None  # typed payload for richer rendering (e.g. question items)
+
+
+@dataclass(frozen=True)
+class TurnInfo:
+    """How a panel turn is shown (the `data` of a discussion entry): the opening statements form one row, turns
+    older than the last round are collapsed, and a turn that is still being written is live."""
+
+    phase: str  # "opening" | "turn"
+    collapsed: bool = False
+    live: bool = False
+
+
+# Panel subgraph nodes that write a turn, and the phase of the turn they write.
+_PANEL_PHASES = {"opening_turn": "opening", "speaker_turn": "turn"}
+
+
+def panel_token(item: object) -> tuple[str, str, str, str] | None:
+    """`(call id, speaker, phase, text)` of a `messages`-mode stream item, if it is a piece of a panel turn.
+
+    The stream carries every model call's tokens; only the two panel turn nodes are shown live. The speaker
+    comes from the `role` the runtime tags its model with (`llm.runtime`), so the three parallel openings can
+    be told apart.
+    """
+    if not (isinstance(item, tuple) and len(item) == 2):
+        return None
+    chunk, metadata = item
+    if not isinstance(chunk, BaseMessage) or not isinstance(metadata, Mapping):
+        return None
+    phase = _PANEL_PHASES.get(str(metadata.get("langgraph_node")))
+    speaker = TOKEN_TO_SPEAKER.get(str(metadata.get("role")))
+    text = normalize_content(chunk.content)
+    if phase is None or speaker is None or not text:
+        return None
+    return str(chunk.id), speaker, phase, text
+
+
+class LiveTurns:
+    """The panel turns being written right now: the tokens of each speaker's model call, accumulated.
+
+    Transient by nature (the checkpoint only holds a turn once it is finished); the service clears it when the
+    graph commits the turns. A retried call (new call id for the same speaker) starts its bubble over. A
+    finished turn stays until then, because parallel openings only reach the transcript together.
+    """
+
+    def __init__(self) -> None:
+        self._turns: dict[str, tuple[str, str, str, bool]] = {}  # speaker -> (call id, phase, text so far, done)
+
+    def add(self, call_id: str, speaker: str, phase: str, text: str) -> None:
+        previous_id, _phase, so_far, _done = self._turns.get(speaker, (call_id, phase, "", False))
+        self._turns[speaker] = (call_id, phase, (so_far if previous_id == call_id else "") + text, False)
+
+    def finish(self, speaker: str, text: str, *, phase: str = "opening") -> None:
+        """The speaker's node returned: its final text replaces the tokens (and is all there is for a model that
+        does not stream)."""
+        call_id, known_phase, _so_far, _done = self._turns.get(speaker, ("", phase, "", False))
+        self._turns[speaker] = (call_id, known_phase, text, True)
+
+    def clear(self) -> None:
+        self._turns.clear()
+
+    def __bool__(self) -> bool:
+        return bool(self._turns)
+
+    def entries(self) -> list[ViewEntry]:
+        order = {name: index for index, name in enumerate(SPEAKER_ORDER)}
+        return [
+            ViewEntry("discussion", speaker, text, data=TurnInfo(phase, live=not done))
+            for speaker, (_id, phase, text, done) in sorted(self._turns.items(), key=lambda kv: order.get(kv[0], 99))
+        ]
 
 
 def _reached(values: Mapping[str, Any], stage: str) -> bool:
@@ -144,6 +215,20 @@ def stage_statuses(values: Mapping[str, Any]) -> dict[str, str]:
     if str(verification.get("report") or "").strip() and not verification.get("passed"):
         return {"verification": "failed"}
     return {}
+
+
+def research_markdown(brief: Mapping[str, Any]) -> str:
+    """The research brief as Markdown (for the session export; the chat shows `render.research_card`)."""
+    rows: list[str] = []
+    if competitors := brief.get("competitors") or []:
+        rows += ["**Competitors**", ""]
+        for c in competitors:
+            rows.append(f"- [{c['name']}]({c['url']}) — {c['positioning']}" + (f" (pricing: {c['pricing']})" if c.get("pricing") else ""))
+        rows.append("")
+    for title, key in (("Market notes", "market_notes"), ("Gaps", "gaps"), ("Sources", "sources")):
+        if items := brief.get(key) or []:
+            rows += [f"**{title}**", "", *(f"- {item}" for item in items), ""]
+    return "\n".join(rows).strip()
 
 
 def with_notes(text: str, notes: str) -> str:
@@ -320,23 +405,35 @@ def transcript_from_state(
     *,
     running: tuple[str, str] | None = None,
     pending_user: ViewEntry | None = None,
+    live: Sequence[ViewEntry] = (),
     error: str | None = None,
 ) -> list[ViewEntry]:
     """Everything the chat shows, in pipeline order.
 
     `pending_interrupt` is the payload of the gate the graph is paused at (adds that gate's card).
-    `pending_user` / `running` / `error` are transient overlays for the moment right after a submit:
-    the user's message before the graph has recorded it, the step in progress, and a failure notice.
+    `pending_user` / `live` / `running` / `error` are transient overlays for the moment right after a submit:
+    the user's message before the graph has recorded it, the panel turns still being written (they replace the
+    in-progress indicator), the step in progress, and a failure notice.
     """
     entries: list[ViewEntry] = []
     idea = str(values.get("user_idea") or "").strip()
     if idea:
         entries.append(ViewEntry("idea", "You", idea))
+        if lines := preference_lines(stated_preferences(values.get("preferences"))):
+            entries.append(ViewEntry("preferences", "You", "Project preferences:\n" + "\n".join(lines)))
+        research = values.get("research") or {}
+        if research.get("competitors") or research.get("market_notes") or research.get("gaps"):
+            entries.append(ViewEntry("research", "Research", research_markdown(research), data=research))
 
-    for message in values.get("discussion_history") or []:
-        if isinstance(message, AIMessage):
-            speaker = display_speaker_name(message.name) if message.name else "Panelist"
-            entries.append(ViewEntry("discussion", speaker, normalize_message_content(message)))
+    turns = [m for m in values.get("discussion_history") or [] if isinstance(m, AIMessage)]
+    moderated = values.get("panel_mode", "moderated") == "moderated"
+    for index, message in enumerate(turns):
+        speaker = display_speaker_name(message.name) if message.name else "Panelist"
+        info = TurnInfo(
+            phase="opening" if moderated and index < len(SPEAKER_ORDER) else "turn",
+            collapsed=index < len(turns) - len(SPEAKER_ORDER),  # older than the last round
+        )
+        entries.append(ViewEntry("discussion", speaker, normalize_message_content(message), data=info))
 
     convergence = values.get("convergence") or {}
     if convergence.get("converged") and (reason := str(convergence.get("reason") or "").strip()):
@@ -370,7 +467,7 @@ def transcript_from_state(
         entries.append(ViewEntry("planner_decision", "You", with_notes(label, str(plan_decision.get("notes") or ""))))
 
     if bundle := str(values.get("project_bundle_summary") or values.get("project_bundle_dir") or "").strip():
-        entries.append(ViewEntry("project_bundle", "Planner", bundle))
+        entries.append(ViewEntry("project_bundle", "Planner", bundle, data=list(values.get("project_bundle_files") or [])))
 
     implement_decision = values.get("implement_decision") or {}
     if generated and _reached(values, "implementation"):
@@ -394,7 +491,7 @@ def transcript_from_state(
         content = (
             f"Verification {verdict} after {attempts} fix attempt(s).\n\n{str(verification['report']).strip()}"
         )
-        entries.append(ViewEntry("verification", "Verifier", content))
+        entries.append(ViewEntry("verification", "Verifier", content, data=verification))
 
     if report := str(values.get("delivery_report") or "").strip():
         entries.append(ViewEntry("delivery_report", "Delivery", report, data=values))  # rendered as the dashboard
@@ -403,7 +500,8 @@ def transcript_from_state(
 
     if pending_user is not None:
         entries.append(pending_user)
-    if running is not None:
+    entries.extend(live)
+    if running is not None and not live:
         entries.append(ViewEntry("thinking", running[0], running[1]))
     if error:
         entries.append(ViewEntry("system", "Orchestrator error", error))

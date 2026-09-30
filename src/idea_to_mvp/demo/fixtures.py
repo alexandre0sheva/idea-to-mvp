@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from idea_to_mvp import blueprints
 from idea_to_mvp.blueprint_review import CritiqueReport
+from idea_to_mvp.evals import CriterionScore, JudgeScores
 from idea_to_mvp.plan import (
     DEFAULT_WORKSTREAM,
     ChangePlan,
@@ -32,6 +33,7 @@ from idea_to_mvp.schemas import (
     ModeratorDecision,
     MvpQuestion,
     QuestionSet,
+    ResearchBrief,
     Workstream,
 )
 from idea_to_mvp.text_utils import normalize_content
@@ -436,7 +438,47 @@ def execution_strategy(messages: list[BaseMessage]) -> ExecutionStrategy:
     )
 
 
+DEMO_COMPETITORS = [
+    ("Demo Logbook", "https://demo-logbook.example.com", "A simple logbook for one niche", "Free; $4/month for export"),
+    ("Sample Tracker", "https://sample-tracker.example.com", "An all-in-one tracker with a large community", "$9/month"),
+]
+
+
+def researcher(messages: list[BaseMessage]) -> str:
+    """The research notes a real model would write from search results (canned: demo mode never searches)."""
+    idea = idea_from(messages)
+    rows = [f"- **{name}** ({url}): {positioning}. Pricing: {pricing}." for name, url, positioning, pricing in DEMO_COMPETITORS]
+    return (
+        f"## Competitors for \u201c{idea}\u201d\n" + "\n".join(rows) + "\n\n"
+        "## Market notes\n- The niche is small but growing.\n- Most users try two or three tools before settling.\n\n"
+        "## Gaps\n- Nobody connects the core journey to a simple progress view.\n\n"
+        "## Sources\n" + "\n".join(f"- {url}" for _n, url, _p, _c in DEMO_COMPETITORS)
+    )
+
+
+def research_brief(messages: list[BaseMessage]) -> ResearchBrief:
+    return ResearchBrief(
+        competitors=[
+            {"name": name, "url": url, "positioning": positioning, "pricing": pricing}  # type: ignore[misc]
+            for name, url, positioning, pricing in DEMO_COMPETITORS
+        ],
+        market_notes=["The niche is small but growing.", "Most users try two or three tools before settling."],
+        gaps=["Nobody connects the core journey to a simple progress view."],
+        sources=[url for _n, url, _p, _c in DEMO_COMPETITORS],
+    )
+
+
+def judge_scores(messages: list[BaseMessage]) -> JudgeScores:
+    """Canned rubric scores, so the eval script runs offline in demo mode."""
+    return JudgeScores(
+        requirement_coverage=CriterionScore(score=4, rationale="Demo: every P0 requirement has a task."),
+        contract_consistency=CriterionScore(score=4, rationale="Demo: the tasks share one contract."),
+        test_specificity=CriterionScore(score=3, rationale="Demo: tests are listed per acceptance criterion."),
+    )
+
+
 RESPONSES: dict[str, Callable[[list[BaseMessage]], str]] = {
+    "researcher": researcher,
     "pm": pm,
     "tech_lead": tech_lead,
     "skeptic": skeptic,
@@ -452,6 +494,8 @@ STRUCTURED: dict[type[BaseModel], Callable[[list[BaseMessage]], Any]] = {
     QuestionSet: question_set,
     ArchitectureProposal: architecture_proposal,
     ExecutionStrategy: execution_strategy,
+    ResearchBrief: research_brief,
+    JudgeScores: judge_scores,
 }
 
 

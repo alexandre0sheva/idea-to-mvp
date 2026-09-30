@@ -357,6 +357,7 @@ def build_bundle_context(
     strategy: dict[str, Any] | None,
     planning_request: str,
     chosen_option_details: str = "",
+    preferences: str = "",
 ) -> str:
     choice = arch_choice or {}
     extra_guidance = (planning_request or "").strip()
@@ -365,6 +366,7 @@ def build_bundle_context(
     details_block = f"Chosen option details:\n{details}\n\n" if details else ""
     return (
         f"Original idea:\n{user_idea.strip()}\n\n"
+        f"{preferences}"
         f"Discussion summary:\n{summary.strip() or 'No summary available.'}\n\n"
         f"Questions asked:\n{chr(10).join(questions) or 'No explicit questions.'}\n\n"
         f"User answers:\n{user_answers.strip() or 'No user answers provided.'}\n\n"

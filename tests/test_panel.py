@@ -125,7 +125,7 @@ def test_openings_are_written_without_seeing_each_other(rec: Recorder) -> None:
 def test_moderator_cannot_end_the_debate_before_everyone_spoke_twice(rec: Recorder) -> None:
     result = run_panel(rounds=3)  # turn cap: 9
     assert result["turn_count"] == 6
-    assert Counter(speakers(result)) == {name: 2 for name in SPEAKER_ORDER}
+    assert Counter(speakers(result)) == dict.fromkeys(SPEAKER_ORDER, 2)
     assert result["convergence"] == {"converged": True, "reason": "aligned"}
     assert rec.moderator_calls == 4  # after turns 3, 4 and 5 it was overruled; after turn 6 it stopped the panel
 
@@ -212,7 +212,7 @@ def test_the_panel_is_one_node_whose_llm_nodes_carry_the_retry_policy() -> None:
 
 @pytest.mark.parametrize(("limit", "expected_peak"), [(1, 1), (4, 3)])
 def test_run_config_caps_parallel_model_calls(rec: Recorder, limit: int, expected_peak: int) -> None:
-    rec.delays = {role: 0.05 for role in PANELISTS}
+    rec.delays = dict.fromkeys(PANELISTS, 0.05)
     run_panel(rounds=1, config=run_config("cap", max_concurrency=limit))
     assert rec.max_active == expected_peak
 
@@ -266,3 +266,26 @@ async def test_demo_panel_stops_early_and_its_progress_is_visible_while_it_runs(
     final = (await graph.aget_state(config)).values
     assert final["turn_count"] == 6 < final["max_rounds"] == 9  # the demo moderator converges early
     assert final["convergence"]["converged"] is True and final["convergence"]["reason"]
+
+
+async def test_demo_panel_turns_stream_token_by_token_with_their_speaker(demo_env) -> None:
+    from idea_to_mvp.ui.view import panel_token
+
+    graph = build_graph(MemorySaver())
+    config = run_config("tokens")
+    pieces: dict[str, list[str]] = {}
+    async for _namespace, mode, data in graph.astream(
+        make_initial_state("A climbing app", 1), config, stream_mode=["messages", "updates"], subgraphs=True
+    ):
+        token = panel_token(data) if mode == "messages" else None
+        if token:
+            assert token[2] == "opening"
+            pieces.setdefault(token[1], []).append(token[3])
+    final = (await graph.aget_state(config)).values
+    committed = {
+        TOKEN_TO_SPEAKER[m.name]: str(m.content) for m in final["discussion_history"] if isinstance(m, AIMessage)
+    }
+    assert set(pieces) == set(SPEAKER_ORDER)
+    for speaker, parts in pieces.items():
+        assert len(parts) > 1  # streamed in pieces, not delivered whole
+        assert "".join(parts) == committed[speaker]  # and the pieces are exactly the finished turn

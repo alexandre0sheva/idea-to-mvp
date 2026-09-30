@@ -94,7 +94,17 @@ CSS = """
 .speaker-card.speaker-questions { --card-accent: var(--accent-questions); }
 .speaker-card.speaker-architect { --card-accent: var(--accent-architect); }
 .speaker-card.speaker-planner { --card-accent: var(--accent-planner); }
+.speaker-card.speaker-research { --card-accent: var(--accent-planner); }
 .speaker-card.warning-card { --card-accent: var(--danger); }
+.speaker-card.live-turn { border-style: dashed; }
+.speaker-card.live-turn .speaker-body::after { content: "▍"; color: var(--card-accent); animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.opening-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
+.opening-row .speaker-card { margin: 0; }
+.moderator-banner {
+  border-left: 4px solid var(--accent); border-radius: 8px; padding: 0.35rem 0.75rem; margin: 0.25rem 0;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card-bg)); color: var(--text-muted); font-size: 0.9rem;
+}
 .speaker-head { color: var(--card-accent); font-weight: 700; margin-bottom: 0.45rem; }
 .speaker-body { color: var(--text); line-height: 1.35; white-space: normal; }
 .speaker-body p { margin: 0.1rem 0 0.3rem 0; }
@@ -218,6 +228,10 @@ CSS = """
   /* One scrolling row: a wrapped stepper would fill the screen while it is sticky. */
   .stage-stepper { flex-wrap: nowrap; overflow-x: auto; width: 100%; padding-bottom: 0.15rem; }
   .stage-step { flex: 0 0 auto; min-width: 0; padding: 0.1rem 0.5rem; }
+  .opening-row { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .speaker-card.live-turn .speaker-body::after { animation: none; }
 }
 """
 

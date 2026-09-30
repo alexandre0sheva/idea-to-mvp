@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from idea_to_mvp.config import Settings
-from idea_to_mvp.roles import ROLES
+from idea_to_mvp.roles import ROLES, resolve_role_model
 
 PIPELINE_STAGES: list[tuple[str, str]] = [
     ("discussion", "Panel"),
@@ -108,11 +108,13 @@ def stage_header(stage: str, statuses: Mapping[str, str], elapsed: Mapping[str, 
 
 
 def model_profile_markdown(settings: Settings) -> str:
-    """Which provider and model each agent uses (read-only: change them in `.env`)."""
+    """Which provider and model each agent uses (read-only: change the profile or the models in `.env`)."""
     if settings.demo_mode:
         return "**Demo mode:** every agent answers from canned fixtures; no model is called."
-    rows = ["| Agent | Provider | Model |", "|---|---|---|"]
+    rows = [f"Model profile: **{settings.model_profile}**", "", "| Agent | Provider | Model |", "|---|---|---|"]
     for key, spec in ROLES.items():
-        rows.append(f"| {key} | {getattr(settings, spec.provider_setting)} | `{getattr(settings, spec.model_setting)}` |")
+        provider, model = resolve_role_model(settings, key)
+        pinned = {spec.provider_setting, spec.model_setting} & settings.model_fields_set
+        rows.append(f"| {key} | {provider} | `{model}`{' (overrides the profile)' if pinned else ''} |")
     rows.append(f"| implementer (agent sessions) | anthropic | `{settings.implementer_model}` |")
-    return "\n".join(rows) + "\n\nSet the providers and models in `.env` (see `.env.example`)."
+    return "\n".join(rows) + "\n\nSet `MODEL_PROFILE` (fast, balanced, quality) and the per-role models in `.env` (see `.env.example`)."

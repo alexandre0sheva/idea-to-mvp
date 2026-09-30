@@ -281,12 +281,10 @@ def _check_segment(tokens: list[str], workspace: Path, depth: int) -> str | None
         nested = _check_command(args[args.index("-c") + 1], workspace, depth + 1)
         if nested:
             return nested
-    if name == "git":
-        if (reason := _check_git(args)) is not None:
-            return reason
-    if name == "rm":
-        if (reason := _check_rm(args, workspace)) is not None:
-            return reason
+    if name == "git" and (reason := _check_git(args)) is not None:
+        return reason
+    if name == "rm" and (reason := _check_rm(args, workspace)) is not None:
+        return reason
     for token in tokens[index + 1 :]:
         word = _path_candidate(token)
         if word is not None and (reason := _check_path_word(word, workspace)) is not None:

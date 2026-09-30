@@ -74,7 +74,7 @@ def test_every_gate_has_its_own_hidden_form_and_there_is_no_shared_decision_radi
     assert len(panels) == len(GATES) and all(panel.visible is False for panel in panels)
     assert not [b for b in _blocks(demo, "Radio") if b.label == "Decision"]
     assert [b for b in _blocks(demo, "Button") if b.value == "Use all suggestions"]
-    assert [b for b in _blocks(demo, "Code")]  # the blueprint editor
+    assert _blocks(demo, "Code")  # the blueprint editor
 
 
 def test_stop_cancels_every_way_of_starting_a_run() -> None:
@@ -83,3 +83,24 @@ def test_stop_cancels_every_way_of_starting_a_run() -> None:
     demo = _ui()
     stop = [fn for fn in demo.fns.values() if getattr(fn, "cancels", None)]
     assert stop and len(stop[0].cancels) == 1 + sum(len(spec.actions) for spec in GATES.values())
+
+
+def test_project_preferences_live_in_a_collapsed_accordion_with_no_constraints_preset() -> None:
+    demo = _ui()
+    (box,) = [b for b in _blocks(demo, "Accordion") if b.label == "Project preferences"]
+    assert box.open is False
+
+    def descendants(block) -> list:
+        return [d for child in getattr(block, "children", []) for d in (child, *descendants(child))]
+
+    inside = descendants(box)
+    (platform,) = [b for b in inside if type(b).__name__ == "Dropdown"]
+    assert platform.value == "any" and [c[1] for c in platform.choices] == ["web", "mobile", "cli", "api", "any"]
+    labels = [b.label for b in inside if type(b).__name__ == "Textbox"]
+    assert labels == ["Stack hints", "Deploy target", "Must use (hard constraint)", "Must avoid (hard constraint)"]
+    assert all(not b.value for b in inside if type(b).__name__ == "Textbox")
+
+
+def test_the_settings_accordion_shows_the_model_profile() -> None:
+    demo = make_ui(settings=Settings(_env_file=None, model_profile="fast"))
+    assert any("Model profile: **fast**" in v for v in _markdown_values(demo))

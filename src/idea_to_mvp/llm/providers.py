@@ -56,6 +56,18 @@ def warn_on_provider_mismatch(provider: Provider, model: str) -> None:
             return
 
 
+def web_search_tool(provider: Provider, max_uses: int) -> dict[str, Any]:
+    """The provider's own server-side web search tool, as `bind_tools` takes it (the provider runs the
+    searches; nothing here executes a tool). Anthropic: the versioned `web_search` tool with a per-request search
+    budget; OpenAI: the built-in Responses-API `web_search` (LangChain switches to that API on its own);
+    Google: Gemini's Google Search grounding. Only Anthropic's tool takes a search cap."""
+    if provider == "anthropic":
+        return {"type": "web_search_20260209", "name": "web_search", "max_uses": max_uses}
+    if provider == "openai":
+        return {"type": "web_search"}
+    return {"google_search": {}}
+
+
 def build_llm(provider: Provider, model: str, max_tokens: int, settings: Settings) -> BaseChatModel:
     warn_on_provider_mismatch(provider, model)
     sampling = sampling_kwargs(model, settings.temperature)

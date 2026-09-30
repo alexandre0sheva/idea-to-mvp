@@ -30,3 +30,9 @@ def test_blueprint_fields_start_empty() -> None:
     assert state["blueprint_docs"] == {}
     assert state["task_results"] == {} and state["finished_tasks"] == {}
     assert state["blueprint_review"] == {"approved": False, "revisions": 0, "issues": []}
+
+
+def test_preferences_start_as_no_constraints() -> None:
+    assert make_initial_state("An idea", 2)["preferences"] == {
+        "platform": "any", "stack_hints": "", "deploy_target": "", "must_use": "", "must_avoid": "",
+    }

@@ -59,7 +59,7 @@ def sandbox_available(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_secrets_are_blanked_with_empty_strings_because_the_sdk_merges_env_over_the_inherited_one() -> None:
     env = scrubbed_env({**SECRETS, **KEEP})
-    assert env == {name: "" for name in SECRETS}  # every secret blanked, nothing else touched or added
+    assert env == dict.fromkeys(SECRETS, "")  # every secret blanked, nothing else touched or added
     assert all(name not in env for name in KEEP)
 
 

@@ -71,6 +71,7 @@ async def submit(
     panel_mode: str | None = None,
     autopilot: bool = False,
     gate_inputs: dict[str, Any] | None = None,
+    preferences: dict[str, Any] | None = None,
 ) -> list[tuple[Any, ...]]:
     """Submit like the UI does: an idea (or Continue) from the main box, or a gate decision as form inputs
     (`gate_inputs`, or derived from `text` + `decision` for the common cases)."""
@@ -80,7 +81,9 @@ async def submit(
         gate_inputs = legacy_inputs(kind, text, decision, interrupt or {})
     return [
         output
-        async for output in service.handle_submit(text, rounds, thread, panel_mode, autopilot, gate_inputs=gate_inputs)
+        async for output in service.handle_submit(
+            text, rounds, thread, panel_mode, autopilot, gate_inputs=gate_inputs, preferences=preferences
+        )
     ]
 
 

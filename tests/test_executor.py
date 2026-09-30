@@ -165,7 +165,7 @@ def test_a_successful_task_is_committed_recorded_and_charged(workspace: Path) ->
     assert result["commit"] == head(workspace)
     assert load_progress(workspace)["T01"] == result
     assert budget.remaining() == pytest.approx(24.58)
-    assert [e["kind"] for e in events][0] == "task_start" and [e["kind"] for e in events][-1] == "task_end"
+    assert events[0]["kind"] == "task_start" and events[-1]["kind"] == "task_end"
     assert {"tool", "text", "cost"} <= {e["kind"] for e in events}
     assert events[-1]["detail"].startswith("done") and all(e["task_id"] == "T01" for e in events)
 

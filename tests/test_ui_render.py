@@ -117,6 +117,19 @@ def test_the_model_profile_lists_every_role_with_its_provider_and_model() -> Non
     assert "implementer" in text.lower() and "Demo mode" not in text
 
 
+def test_the_model_profile_names_the_preset_and_shows_the_models_it_resolves(monkeypatch) -> None:
+    for key in ("PM_MODEL", "PM_PROVIDER", "ARCHITECT_MODEL", "ARCHITECT_PROVIDER"):
+        monkeypatch.delenv(key, raising=False)
+    text = model_profile_markdown(Settings(_env_file=None, model_profile="fast"))
+    assert "fast" in text and "gpt-5.4-mini" in text and "claude-haiku-4-5-20251001" in text
+    assert "gpt-5.6-terra" not in text
+
+
+def test_a_role_pinned_in_the_environment_is_marked_as_overriding_the_profile() -> None:
+    text = model_profile_markdown(Settings(_env_file=None, model_profile="fast", architect_model="my-model"))
+    assert "my-model" in text and "overrides the profile" in text
+
+
 def test_the_model_profile_says_when_demo_mode_makes_it_moot() -> None:
     assert "Demo mode" in model_profile_markdown(Settings(_env_file=None, demo_mode=True))
 

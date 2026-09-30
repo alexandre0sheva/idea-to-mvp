@@ -1020,7 +1020,7 @@ wheels = [
 
 [[package]]
 name = "idea-to-mvp"
-version = "0.3.0.dev0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },

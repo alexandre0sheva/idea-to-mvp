@@ -9,6 +9,7 @@ from langgraph.graph.message import add_messages
 from idea_to_mvp.config import PanelMode
 from idea_to_mvp.implementation.progress import TaskResult
 from idea_to_mvp.roles import SPEAKER_ORDER
+from idea_to_mvp.schemas import ProjectPreferences
 from idea_to_mvp.usage import UsageRecord
 
 Stage = Literal[
@@ -86,6 +87,8 @@ class IdeaDiscussionState(TypedDict):
     """State shared by all nodes in the orchestrator graph."""
 
     user_idea: str
+    preferences: dict[str, Any]  # a `ProjectPreferences` dump: what the user stated up front
+    research: dict[str, Any]  # a `ResearchBrief` dump ({} when research is off or found nothing)
     discussion_history: Annotated[list[BaseMessage], add_messages]
     summary: str
     questions: list[dict[str, Any]]  # MvpQuestion dumps (schemas.py)
@@ -126,11 +129,18 @@ class IdeaDiscussionState(TypedDict):
 
 
 def make_initial_state(
-    idea: str, rounds: int, *, panel_mode: PanelMode = "moderated", autopilot: bool = False
+    idea: str,
+    rounds: int,
+    *,
+    panel_mode: PanelMode = "moderated",
+    autopilot: bool = False,
+    preferences: ProjectPreferences | None = None,
 ) -> IdeaDiscussionState:
     """Fresh state for a new pipeline run; the single place every field gets its default."""
     return {
         "user_idea": idea,
+        "preferences": (preferences or ProjectPreferences()).model_dump(),
+        "research": {},
         "discussion_history": [HumanMessage(content=idea)],
         "summary": "",
         "questions": [],
