@@ -16,7 +16,7 @@ SCHEMAS = [QuestionSet, ArchitectureProposal, ExecutionStrategy]
 
 @pytest.mark.parametrize("schema", SCHEMAS)
 def test_openai_accepts_schema(schema) -> None:
-    llm = ChatOpenAI(model="gpt-5.6-terra", api_key="x")  # type: ignore[arg-type]
+    llm = ChatOpenAI(model="gpt-6.1-sol", api_key="x")  # type: ignore[arg-type]
     assert llm.with_structured_output(schema) is not None
 
 

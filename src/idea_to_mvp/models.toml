@@ -1,0 +1,175 @@
+# The model catalog: the one place that knows which models exist, what they cost, and what they can do.
+# Read by `model_catalog.py` (validated on load); `idea-to-mvp models` prints it and `idea-to-mvp models --check`
+# compares it with what each provider lists today.
+#
+# Prices are USD per million tokens (standard tier, no batch or priority discount). A model without a price is
+# "unpriced": it still works, but cost figures leave it out. `checked` is the day the row was verified against
+# `source`; refresh both together.
+
+[[models]]
+id = "gpt-6-luna"
+provider = "openai"
+tier = "fast"
+input_per_mtok = 0.10
+output_per_mtok = 0.50
+cached_input_per_mtok = 0.01
+context_window = 1050000
+max_output = 128000
+structured_output = true
+sampling = false
+web_search = true
+checked = 2026-10-19
+source = "https://developers.openai.com/api/docs/models/gpt-6-luna"
+notes = "Prompts over 272K input tokens cost $0.20 in / $0.75 out. Reasoning model: sampling parameters are not sent."
+
+[[models]]
+id = "gpt-6.1-sol"
+provider = "openai"
+tier = "balanced"
+input_per_mtok = 2.00
+output_per_mtok = 10.00
+cached_input_per_mtok = 0.10
+context_window = 1050000
+max_output = 128000
+structured_output = true
+sampling = false
+web_search = true
+checked = 2026-10-19
+source = "https://developers.openai.com/api/docs/models/gpt-6.1-sol"
+notes = "Near gpt-6-astra capability at a lower price. Prompts over 272K input tokens cost $4 in / $15 out. Reasoning model: sampling parameters are not sent."
+
+[[models]]
+id = "claude-haiku-5-5"
+provider = "anthropic"
+tier = "fast"
+input_per_mtok = 0.10
+output_per_mtok = 0.50
+cached_input_per_mtok = 0.01
+context_window = 1000000
+max_output = 128000
+structured_output = true
+sampling = false
+web_search = true
+checked = 2026-10-19
+source = "https://platform.claude.com/docs/en/models/haiku-5-5/overview"
+notes = "Prompts over 100K tokens cost $0.50 in / $2.50 out (cached $0.05). Retirement not sooner than 2027-10-07."
+
+[[models]]
+id = "claude-sonnet-5-5"
+provider = "anthropic"
+tier = "balanced"
+input_per_mtok = 2.00
+output_per_mtok = 10.00
+cached_input_per_mtok = 0.10
+context_window = 1000000
+max_output = 128000
+structured_output = true
+sampling = false
+web_search = true
+checked = 2026-10-19
+source = "https://platform.claude.com/docs/en/about-claude/pricing"
+notes = "Retirement not sooner than 2027-09-28."
+
+[[models]]
+id = "claude-opus-5-5"
+provider = "anthropic"
+tier = "frontier"
+input_per_mtok = 4.00
+output_per_mtok = 20.00
+cached_input_per_mtok = 0.20
+context_window = 1000000
+max_output = 128000
+structured_output = true
+sampling = false
+web_search = true
+checked = 2026-10-19
+source = "https://platform.claude.com/docs/en/about-claude/pricing"
+notes = "Retirement not sooner than 2027-09-22."
+
+[[models]]
+id = "gemini-3.8-flash"
+provider = "google"
+tier = "fast"
+input_per_mtok = 0.75
+output_per_mtok = 3.75
+cached_input_per_mtok = 0.075
+context_window = 1048576
+max_output = 65536
+structured_output = true
+sampling = false
+web_search = true
+checked = 2026-10-19
+source = "https://ai.google.dev/gemini-api/docs/pricing"
+notes = "Introductory price through 2026-12-31; from 2027-01-01 it doubles to $1.50 / $7.50 (cached $0.15)."
+
+# What each profile (`MODEL_PROFILE`) puts on every role that has its own model settings. Roles that share the
+# architect's settings (strategy, plan writer, change planner, blueprint critic) follow the `architect` row.
+# The provider of a role is the provider of the model named here.
+
+[profiles.fast]
+pm = "gpt-6-luna"
+tech_lead = "claude-haiku-5-5"
+skeptic = "gemini-3.8-flash"
+summarizer = "claude-haiku-5-5"
+architect = "claude-haiku-5-5"
+moderator = "claude-haiku-5-5"
+research = "claude-haiku-5-5"
+
+[profiles.balanced]
+pm = "gpt-6.1-sol"
+tech_lead = "claude-sonnet-5-5"
+skeptic = "gemini-3.8-flash"
+summarizer = "claude-sonnet-5-5"
+architect = "claude-sonnet-5-5"
+moderator = "claude-haiku-5-5"
+research = "claude-sonnet-5-5"
+
+[profiles.quality]
+pm = "gpt-6.1-sol"
+tech_lead = "claude-opus-5-5"
+skeptic = "gemini-3.8-flash"
+summarizer = "claude-opus-5-5"
+architect = "claude-opus-5-5"
+moderator = "claude-haiku-5-5"
+research = "claude-sonnet-5-5"  # searching and condensing, not deep reasoning
+
+# The shape of a typical run, for `idea-to-mvp models`: how many calls a role makes and how many tokens each call
+# reads and writes. These are planning assumptions (a three-round panel, a three-task plan), not measurements;
+# `cached_fraction` is the share of input tokens served from the provider's prompt cache. Optional steps
+# (the research step) are left out. `implementer` is every agent session: three task sessions and three lanes.
+
+[typical_run.pm]
+calls = 3
+input_tokens = 4000
+output_tokens = 600
+
+[typical_run.tech_lead]
+calls = 3
+input_tokens = 4000
+output_tokens = 600
+
+[typical_run.skeptic]
+calls = 3
+input_tokens = 4000
+output_tokens = 800
+
+[typical_run.moderator]
+calls = 9
+input_tokens = 3000
+output_tokens = 150
+
+[typical_run.summarizer]
+calls = 1
+input_tokens = 8000
+output_tokens = 1500
+
+[typical_run.architect]
+calls = 12
+input_tokens = 10000
+output_tokens = 3500
+
+[typical_run.implementer]
+calls = 6
+input_tokens = 300000
+output_tokens = 25000
+cached_fraction = 0.8

@@ -11,7 +11,9 @@ from idea_to_mvp.llm.providers import sampling_kwargs, warn_on_provider_mismatch
         "claude-opus-4-8",
         "claude-fable-5-1",
         "gemini-3.8-flash",
-        "gpt-5.6-terra",
+        "gpt-6.1-sol",
+        "gpt-6-luna",
+        "claude-haiku-5-5",
     ],
 )
 def test_sampling_params_omitted_for_models_that_reject_them(model: str) -> None:
@@ -44,7 +46,7 @@ def test_every_provider_gets_the_configured_timeout_and_retries() -> None:
 
     settings = Settings(_env_file=None, llm_timeout_seconds=45, llm_max_retries=4, openai_api_key="x",
                         anthropic_api_key="x", google_api_key="x")
-    openai = build_llm("openai", "gpt-5.6-terra", 100, settings)
+    openai = build_llm("openai", "gpt-6.1-sol", 100, settings)
     anthropic = build_llm("anthropic", "claude-sonnet-5-5", 100, settings)
     google = build_llm("google", "gemini-3.8-flash", 100, settings)
     assert (openai.request_timeout, openai.max_retries) == (45, 4)

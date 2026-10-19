@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-Provider = Literal["openai", "anthropic", "google"]
+from idea_to_mvp.model_catalog import Provider, get_catalog
+
 PanelMode = Literal["moderated", "round_robin"]
 ModelProfile = Literal["fast", "balanced", "quality"]
 SandboxMode = Literal["auto", "on", "off"]
@@ -15,37 +16,11 @@ DEFAULT_ALLOWED_DOMAINS = ("pypi.org", "files.pythonhosted.org", "registry.npmjs
 PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "dontAsk", "auto"]
 
 
-# Provider and model of every role that has its own settings, per profile. `balanced` is the field defaults of
-# `Settings` (a test keeps them equal). The panel's critics stay on the providers they are chosen for; only the
-# model tier changes.
+# Provider and model of every role that has its own settings, per profile, read from the model catalog
+# (`models.toml`). `balanced` is the field defaults of `Settings` (a test keeps them equal). The panel's critics
+# stay on the providers they are chosen for; only the model tier changes.
 PROFILES: dict[ModelProfile, dict[str, tuple[Provider, str]]] = {
-    "fast": {
-        "pm": ("openai", "gpt-5.4-mini"),
-        "tech_lead": ("anthropic", "claude-haiku-4-5-20251001"),
-        "skeptic": ("google", "gemini-3.8-flash"),
-        "summarizer": ("anthropic", "claude-haiku-4-5-20251001"),
-        "architect": ("anthropic", "claude-haiku-4-5-20251001"),
-        "moderator": ("anthropic", "claude-haiku-4-5-20251001"),
-        "research": ("anthropic", "claude-haiku-4-5-20251001"),
-    },
-    "balanced": {
-        "pm": ("openai", "gpt-5.6-terra"),
-        "tech_lead": ("anthropic", "claude-sonnet-5-5"),
-        "skeptic": ("google", "gemini-3.8-flash"),
-        "summarizer": ("anthropic", "claude-sonnet-5-5"),
-        "architect": ("anthropic", "claude-sonnet-5-5"),
-        "moderator": ("anthropic", "claude-haiku-4-5-20251001"),
-        "research": ("anthropic", "claude-sonnet-5-5"),
-    },
-    "quality": {
-        "pm": ("openai", "gpt-5.6-terra"),
-        "tech_lead": ("anthropic", "claude-opus-5-5"),
-        "skeptic": ("google", "gemini-3.8-flash"),
-        "summarizer": ("anthropic", "claude-opus-5-5"),
-        "architect": ("anthropic", "claude-opus-5-5"),
-        "moderator": ("anthropic", "claude-haiku-4-5-20251001"),
-        "research": ("anthropic", "claude-sonnet-5-5"),  # searching and condensing, not deep reasoning
-    },
+    name: get_catalog().profile_choices(name) for name in get_args(ModelProfile)
 }
 
 
@@ -87,12 +62,12 @@ class Settings(BaseSettings):
     architect_provider: Provider = "anthropic"
     moderator_provider: Provider = "anthropic"
 
-    pm_model: str = "gpt-5.6-terra"
+    pm_model: str = "gpt-6.1-sol"
     tech_lead_model: str = "claude-sonnet-5-5"
     skeptic_model: str = "gemini-3.8-flash"
     summarizer_model: str = "claude-sonnet-5-5"
     architect_model: str = "claude-sonnet-5-5"
-    moderator_model: str = "claude-haiku-4-5-20251001"  # a cheap call after every panel turn
+    moderator_model: str = "claude-haiku-5-5"  # a cheap call after every panel turn
     # The optional research step (off by default) needs a provider with a native web-search tool: the
     # provider's own tool is used (Anthropic web search, OpenAI web search, Gemini Google Search grounding).
     research_provider: Provider = "anthropic"

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 from langchain_anthropic import ChatAnthropic
@@ -13,14 +12,9 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from idea_to_mvp.config import Provider, Settings
+from idea_to_mvp.model_catalog import accepts_sampling
 
 LOGGER = logging.getLogger(__name__)
-
-# Current-generation models reject (Claude 4.7+/5.x, GPT-5.x reasoning) or discourage (Gemini 3.x)
-# custom sampling parameters, so a global TEMPERATURE must not be forwarded to them.
-NO_SAMPLING_PARAMS = re.compile(
-    r"^(claude-(opus-(5|4-[78])|sonnet-5|fable|mythos)|gemini-3|gpt-5)", flags=re.IGNORECASE
-)
 
 # Substring/prefix markers that identify which vendor a model name belongs to.
 _PROVIDER_MARKERS: tuple[tuple[str, Provider], ...] = (
@@ -31,7 +25,7 @@ _PROVIDER_MARKERS: tuple[tuple[str, Provider], ...] = (
 
 
 def sampling_kwargs(model: str, temperature: float | None) -> dict[str, Any]:
-    if temperature is None or NO_SAMPLING_PARAMS.match((model or "").strip()):
+    if temperature is None or not accepts_sampling(model):
         return {}
     return {"temperature": temperature}
 

@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Models
+- **Model catalog**: `src/idea_to_mvp/models.toml` is now the one source of truth for model knowledge: for every model its provider, id and aliases, tier (`fast` / `balanced` / `frontier`), status, $ per million tokens (input / output / cached input), context window, max output, structured-output / sampling / web-search support, the date it was last checked, and a source link. The model profiles (the choice per role of `fast` / `balanced` / `quality`) and the "accepts `temperature`" rule read from it. A model that is not listed still works and falls back to the old name pattern for sampling.
+- **`idea-to-mvp models`** prints the model of every role for each profile, the price list, and the estimated cost of a typical run per profile (planning calls plus agent sessions on `IMPLEMENTER_MODEL`). `--check` is opt-in and makes one live call per provider with a key to list its models, then flags configured models the provider does not list, ones the catalog marks deprecated, and ones with a newer release of the same family (exit code 1 for unknown or deprecated).
+- **Newer default models** (checked against the providers' pages on 2026-10-19): the PM is `gpt-6.1-sol` (`gpt-6-luna` in the `fast` profile) instead of `gpt-5.6-terra`, and the moderator and the whole `fast` profile use `claude-haiku-5-5` instead of `claude-haiku-4-5-20251001` (the `gpt-5.4-mini`, `gpt-5.6-terra`, and Haiku 4.5 entries are gone from the catalog). `claude-sonnet-5-5`, `claude-opus-5-5`, and `gemini-3.8-flash` stay. *Upgrade note:* a `.env` that pins `PM_MODEL`, `MODERATOR_MODEL`, or any other `*_MODEL` / `*_PROVIDER` keeps the pinned model; remove those lines to get the new defaults. `idea-to-mvp doctor` warns about pinned models the catalog does not know.
+- `idea-to-mvp doctor` now warns, offline, about a configured model that is not in the catalog, has no price, or is deprecated. The settings accordion shows each model's price per million tokens.
+
+### Dependencies
+- Updated to the newest versions the `pyproject.toml` ranges allow (supersedes Dependabot PR #4): gradio 6.30.0, langgraph 1.2.16, langchain-core 1.6.12, langchain-openai 1.7.2, langchain-anthropic 1.7.6, langchain-google-genai 4.4.2, claude-agent-sdk 0.2.168, pydantic-settings 2.16.0, python-dotenv 1.2.4, langgraph-checkpoint-sqlite 3.1.2, markdown 3.11.1; dev tools ruff 0.17.1 and mypy 2.4.0. No code changes were needed; the `ruff-pre-commit` hook is pinned to v0.17.1 to match.
+
 ## [0.3.0] - 2026-09-30
 
 The pipeline is now one durable, parallel, sandboxed LangGraph run with a rebuilt interface. Changes that affect an existing setup are listed under *Upgrade notes*.

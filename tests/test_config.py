@@ -151,7 +151,7 @@ def test_the_fast_profile_resolves_a_cheaper_architect_than_quality(monkeypatch)
         monkeypatch.delenv(key, raising=False)
     fast = resolve_role_model(Settings(_env_file=None, model_profile="fast"), "architect")
     quality = resolve_role_model(Settings(_env_file=None, model_profile="quality"), "architect")
-    assert fast == ("anthropic", "claude-haiku-4-5-20251001")
+    assert fast == ("anthropic", "claude-haiku-5-5")
     assert quality == ("anthropic", "claude-opus-5-5")
     assert fast != quality
 

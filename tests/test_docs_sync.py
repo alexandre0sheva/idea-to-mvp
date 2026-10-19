@@ -133,10 +133,10 @@ def test_the_version_is_released_and_matches_the_changelog() -> None:
     assert headings[0] == version  # the newest release is the one in pyproject
 
 
-def test_the_changelog_keeps_no_unreleased_leftovers_after_a_release() -> None:
+def test_the_changelog_keeps_unreleased_above_the_newest_release() -> None:
     text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = text.split("## Unreleased", 1)[1].split("\n## [", 1)[0] if "## Unreleased" in text else ""
-    assert not unreleased.strip(), "entries under Unreleased belong to the 0.3.0 release"
+    assert text.count("## Unreleased") == 1
+    assert text.index("## Unreleased") < text.index("\n## [")
 
 
 def test_the_architecture_doc_maps_every_langgraph_pattern_to_code_and_a_test() -> None:

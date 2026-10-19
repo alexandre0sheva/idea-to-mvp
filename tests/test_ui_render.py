@@ -113,7 +113,7 @@ def test_small_token_counts_are_shown_exactly() -> None:
 
 def test_the_model_profile_lists_every_role_with_its_provider_and_model() -> None:
     text = model_profile_markdown(Settings(_env_file=None))
-    assert "gpt-5.6-terra" in text and "claude-sonnet-5-5" in text and "gemini-3.8-flash" in text
+    assert "gpt-6.1-sol" in text and "claude-sonnet-5-5" in text and "gemini-3.8-flash" in text
     assert "implementer" in text.lower() and "Demo mode" not in text
 
 
@@ -121,8 +121,8 @@ def test_the_model_profile_names_the_preset_and_shows_the_models_it_resolves(mon
     for key in ("PM_MODEL", "PM_PROVIDER", "ARCHITECT_MODEL", "ARCHITECT_PROVIDER"):
         monkeypatch.delenv(key, raising=False)
     text = model_profile_markdown(Settings(_env_file=None, model_profile="fast"))
-    assert "fast" in text and "gpt-5.4-mini" in text and "claude-haiku-4-5-20251001" in text
-    assert "gpt-5.6-terra" not in text
+    assert "fast" in text and "gpt-6-luna" in text and "claude-haiku-5-5" in text
+    assert "gpt-6.1-sol" not in text
 
 
 def test_a_role_pinned_in_the_environment_is_marked_as_overriding_the_profile() -> None:

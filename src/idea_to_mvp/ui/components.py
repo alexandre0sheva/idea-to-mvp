@@ -10,6 +10,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from idea_to_mvp.config import Settings
+from idea_to_mvp.model_catalog import get_catalog
+from idea_to_mvp.model_report import price_label
 from idea_to_mvp.roles import ROLES, resolve_role_model
 
 PIPELINE_STAGES: list[tuple[str, str]] = [
@@ -111,10 +113,22 @@ def model_profile_markdown(settings: Settings) -> str:
     """Which provider and model each agent uses (read-only: change the profile or the models in `.env`)."""
     if settings.demo_mode:
         return "**Demo mode:** every agent answers from canned fixtures; no model is called."
-    rows = [f"Model profile: **{settings.model_profile}**", "", "| Agent | Provider | Model |", "|---|---|---|"]
+    catalog = get_catalog()
+    rows = [
+        f"Model profile: **{settings.model_profile}**",
+        "",
+        "| Agent | Provider | Model | $ in / out per MTok |",
+        "|---|---|---|---|",
+    ]
     for key, spec in ROLES.items():
         provider, model = resolve_role_model(settings, key)
         pinned = {spec.provider_setting, spec.model_setting} & settings.model_fields_set
-        rows.append(f"| {key} | {provider} | `{model}`{' (overrides the profile)' if pinned else ''} |")
-    rows.append(f"| implementer (agent sessions) | anthropic | `{settings.implementer_model}` |")
-    return "\n".join(rows) + "\n\nSet `MODEL_PROFILE` (fast, balanced, quality) and the per-role models in `.env` (see `.env.example`)."
+        note = " (overrides the profile)" if pinned else ""
+        rows.append(f"| {key} | {provider} | `{model}`{note} | {price_label(catalog.find(model))} |")
+    implementer = settings.implementer_model
+    rows.append(f"| implementer (agent sessions) | anthropic | `{implementer}` | {price_label(catalog.find(implementer))} |")
+    return (
+        "\n".join(rows)
+        + "\n\nSet `MODEL_PROFILE` (fast, balanced, quality) and the per-role models in `.env` (see `.env.example`). "
+        "`idea-to-mvp models` prints the full price list."
+    )

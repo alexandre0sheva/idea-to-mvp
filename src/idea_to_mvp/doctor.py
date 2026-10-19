@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
@@ -12,6 +13,7 @@ from langchain_core.messages import HumanMessage
 
 from idea_to_mvp import llm
 from idea_to_mvp.config import Settings
+from idea_to_mvp.model_catalog import ModelCatalog, get_catalog
 from idea_to_mvp.roles import ROLES, resolve_role_model
 
 Status = Literal["ok", "warn", "fail"]
@@ -70,12 +72,36 @@ def _implementer_checks(settings: Settings) -> list[Check]:
     return checks
 
 
+def _catalog_checks(settings: Settings, catalog: ModelCatalog) -> list[Check]:
+    """Warn about a configured model the catalog does not know, has no price for, or marks as retiring."""
+    used: dict[str, None] = {}  # insertion-ordered set
+    for role in ROLES:
+        if role == "researcher" and not settings.enable_research:
+            continue
+        used[resolve_role_model(settings, role)[1]] = None
+    used[settings.implementer_model] = None
+    checks: list[Check] = []
+    for model in used:
+        item = catalog.find(model)
+        name = f"catalog {model}"
+        if item is None:
+            checks.append(
+                Check(name, "warn", "not in the model catalog (models.toml): its price and capabilities are unknown")
+            )
+        elif not item.priced:
+            checks.append(Check(name, "warn", "no price in the model catalog: cost figures leave it out"))
+        elif item.status == "deprecated" or item.retired(date.today()):
+            checks.append(Check(name, "warn", "deprecated or retired according to the model catalog"))
+    return checks
+
+
 def collect_checks(
     settings: Settings,
     *,
     runtime_for: Callable[[str], Any] = llm.get_runtime,
     ping: Callable[[Any], str] = default_ping,
     offline: bool = False,
+    catalog: ModelCatalog | None = None,
 ) -> list[Check]:
     """Run every check; failures are reported, never raised."""
     if settings.demo_mode:
@@ -105,6 +131,7 @@ def collect_checks(
         status, detail = pinged[key]
         checks.append(Check(name, status, detail))
     checks.extend(_implementer_checks(settings))
+    checks.extend(_catalog_checks(settings, catalog or get_catalog()))
     return checks
 
 

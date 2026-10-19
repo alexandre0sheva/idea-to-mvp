@@ -15,6 +15,7 @@ cp .env.example .env
 uv run idea-to-mvp                 # real providers (needs keys in .env)
 DEMO_MODE=true uv run idea-to-mvp  # offline: canned outputs, no keys, no spend
 uv run idea-to-mvp doctor          # verify keys and models before a real run
+uv run idea-to-mvp models          # model catalog: profiles, prices, cost of a typical run (--check: live, opt-in)
 ```
 
 Use demo mode to exercise UI and graph changes end to end. When you add an LLM call, structured schema, or agent session, add its fixture in `src/idea_to_mvp/demo/` so demo mode and `tests/test_e2e_demo.py` keep covering the whole pipeline.

@@ -20,6 +20,7 @@ For a real run:
 ```bash
 cp .env.example .env            # add OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY
 uv run idea-to-mvp doctor       # checks keys, model IDs, and the agent CLI before you spend anything
+uv run idea-to-mvp models       # every profile's models, prices, and the cost of a typical run
 uv run idea-to-mvp
 ```
 
