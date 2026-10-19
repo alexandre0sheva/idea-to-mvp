@@ -19,6 +19,7 @@ from idea_to_mvp import implementer
 from idea_to_mvp.config import Settings, get_settings
 from idea_to_mvp.implementation import executor
 from idea_to_mvp.implementation.events import ImplEvent
+from idea_to_mvp.implementation.ledger import load_ledger
 from idea_to_mvp.implementation.progress import TaskResult
 from idea_to_mvp.plan import Plan, iteration_of, load_plan
 from idea_to_mvp.roles import resolve_agent_model
@@ -56,21 +57,42 @@ def runnable_plan(workspace: Path) -> Plan | None:
     return plan
 
 
-def usage_records(results: list[TaskResult], settings: Settings, iteration: int | None = None) -> list[UsageRecord]:
+def _agent_record(role: str, model: str, cost_usd: float) -> UsageRecord:
+    return {
+        "role": role,
+        "provider": "anthropic",
+        "model": model,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": cost_usd,
+    }
+
+
+def usage_records(
+    results: list[TaskResult], settings: Settings, iteration: int | None = None, workspace: Path | None = None
+) -> list[UsageRecord]:
     """Usage records for task results. With `iteration`, only that version's tasks: earlier versions are
-    already in the run's usage, and the engine returns every task's result (finished ones included)."""
-    return [
-        {
-            "role": "implementer",
-            "provider": "anthropic",
-            "model": resolve_agent_model(settings, "implementer"),
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "cost_usd": result["cost_usd"],
-        }
-        for result in results
-        if result["cost_usd"] > 0 and (iteration is None or iteration_of(result["task_id"]) == iteration)
-    ]
+    already in the run's usage, and the engine returns every task's result (finished ones included).
+
+    A task's cost includes what its merge resolver spent. With the `workspace` (whose ledger knows the
+    resolver sessions) that part becomes a `resolver` record on the model the resolver ran on, and the
+    task's own record keeps the rest; without it the resolver stays folded into the task."""
+    resolvers: dict[str, list[tuple[float, str]]] = {}
+    if workspace is not None:
+        for row in load_ledger(workspace):
+            if row["kind"] == "resolver" and row["task_id"]:
+                resolvers.setdefault(row["task_id"], []).append((row["cost_usd"], row["model"]))
+    task_model = resolve_agent_model(settings, "implementer")
+    records: list[UsageRecord] = []
+    for result in results:
+        if not (result["cost_usd"] > 0 and (iteration is None or iteration_of(result["task_id"]) == iteration)):
+            continue
+        spent = result["cost_usd"]
+        resolver = min(sum(cost for cost, _ in resolvers.get(result["task_id"], [])), spent)
+        records.append(_agent_record("implementer", task_model, spent - resolver))
+        if resolver > 0:
+            records.append(_agent_record("resolver", resolvers[result["task_id"]][-1][1] or task_model, resolver))
+    return records
 
 
 def effective_parallel(state: IdeaDiscussionState, settings: Settings) -> int:
@@ -114,12 +136,16 @@ async def implementer_node(state: IdeaDiscussionState) -> dict[str, Any]:
         return {
             "implementation_log": executor.render_task_log(plan, results),
             "task_results": {result["task_id"]: result for result in results},
-            "usage": usage_records(results, settings, iteration),
+            "usage": usage_records(results, settings, iteration, workspace),
             "stage": "verification",
         }
 
     if builds_task_by_task(state):
         LOGGER.warning("No usable plan.json in %s; building with workstream sessions instead.", workspace)
+    before = len(load_ledger(workspace))
     log = await asyncio.to_thread(implementer.run_implementation, workspace, strategy, settings)
     await asyncio.to_thread(implementer.commit_workspace, workspace, "implementation")  # commits are the orchestrator's
-    return {"implementation_log": log, "stage": "verification"}
+    # The lead / workstream sessions just recorded in the ledger are this node's spend: count it in usage,
+    # and so against the whole-run budget.
+    sessions = [_agent_record("implementer", row["model"], row["cost_usd"]) for row in load_ledger(workspace)[before:] if row["cost_usd"] > 0]
+    return {"implementation_log": log, "usage": sessions, "stage": "verification"}

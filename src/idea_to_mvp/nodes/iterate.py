@@ -230,6 +230,6 @@ def change_planner_node(state: IdeaDiscussionState) -> dict[str, Any]:
     fresh: VerificationResult = {"passed": False, "attempts": 0, "report": "", "lanes": []}
     return {
         "verification": fresh,
-        "spent_before_iteration": summarize_usage(state.get("usage") or [])["cost_usd"] or 0.0,
+        "spent_before_iteration": summarize_usage(state.get("usage") or [])["agent_cost_usd"],
         "stage": "implementation",
     }

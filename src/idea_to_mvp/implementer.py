@@ -8,8 +8,13 @@ Two execution modes (chosen by the strategy agent):
 - ``subagents``: a single lead session that delegates to per-workstream subagents
   (passed programmatically as ``AgentDefinition`` objects, with prompts taken from
   the blueprint's ``.claude/agents/*.md`` files when present).
-- ``agent_team``: one focused session per workstream, run sequentially; later
-  sessions see earlier work through the shared filesystem.
+- ``agent_team``: one fresh session per plan task, scheduled by ``implementation/executor.py``
+  (in parallel git worktrees where the plan allows, see ``nodes/implement_graph.py``). This module's
+  ``run_implementation`` only runs ``agent_team`` as one session per *workstream*, one after the
+  other, for a project whose ``plan.json`` cannot be scheduled; later sessions see earlier work
+  through the shared filesystem.
+
+Every session is recorded as a trajectory and a ledger row (``implementation/trajectory.py``).
 
 All SDK imports are local to the functions that need them so the rest of the app
 imports without the SDK and tests can monkeypatch these functions wholesale.
@@ -24,7 +29,8 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from idea_to_mvp.implementation.options import build_agent_options
+from idea_to_mvp.implementation.options import SandboxUnavailableError, build_agent_options
+from idea_to_mvp.implementation.trajectory import SessionLog, model_label
 from idea_to_mvp.implementation.workspace import commit_workspace, prepare_workspace
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -134,29 +140,50 @@ async def _run_agent_async(
     agents: dict[str, Any] | None = None,
     max_turns: int,
     max_budget_usd: float | None = None,
+    log: SessionLog | None = None,
 ) -> str:
     from claude_agent_sdk import ResultMessage
 
     result_text = ""
-    async for message in iter_agent_messages(
-        prompt,
-        workspace=workspace,
-        settings=settings,
-        agents=agents,
-        max_turns=max_turns,
-        max_budget_usd=max_budget_usd,
-    ):
-        if isinstance(message, ResultMessage):
-            result_text = (message.result or "").strip()
-            if message.is_error:
-                result_text = f"Agent run ended with an error ({message.subtype}). {result_text}".strip()
-            cost = message.total_cost_usd
-            LOGGER.info(
-                "Agent session finished: turns=%s cost_usd=%s error=%s",
-                message.num_turns,
-                f"{cost:.4f}" if isinstance(cost, (int, float)) else "n/a",
-                message.is_error,
-            )
+    cost: float | None = None
+    turns, session_id, failed = 0, None, False
+    try:
+        async for message in iter_agent_messages(
+            prompt,
+            workspace=workspace,
+            settings=settings,
+            agents=agents,
+            max_turns=max_turns,
+            max_budget_usd=max_budget_usd,
+        ):
+            if log is not None:
+                log.message(message)
+            if isinstance(message, ResultMessage):
+                result_text = (message.result or "").strip()
+                if message.is_error:
+                    result_text = f"Agent run ended with an error ({message.subtype}). {result_text}".strip()
+                    failed = True
+                cost, turns, session_id = message.total_cost_usd, message.num_turns, message.session_id
+                LOGGER.info(
+                    "Agent session finished: turns=%s cost_usd=%s error=%s",
+                    message.num_turns,
+                    f"{cost:.4f}" if isinstance(cost, (int, float)) else "n/a",
+                    message.is_error,
+                )
+    except SandboxUnavailableError:
+        raise  # a configuration problem: no session ran
+    except Exception as exc:
+        if log is not None:
+            log.finish(
+                outcome="crashed", cost_usd=float(cost or 0.0), turns=turns, session_id=session_id,
+                note=f"{type(exc).__name__}: {exc}",
+            )  # fmt: skip
+        raise
+    if log is not None:
+        log.finish(
+            outcome="failed" if failed else "success", cost_usd=float(cost or 0.0), turns=turns, session_id=session_id,
+            note=result_text if failed else "",
+        )  # fmt: skip
     return result_text
 
 
@@ -168,7 +195,10 @@ def _run_agent(
     agents: dict[str, Any] | None = None,
     max_turns: int,
     max_budget_usd: float | None = None,
+    label: str,
 ) -> str:
+    """Run one session to its end on its own event loop, recording it under `label` (this runs in a worker thread)."""
+    log = SessionLog(workspace, kind="task", label=label, model=model_label(settings, "implementer"))
     return asyncio.run(
         _run_agent_async(
             prompt,
@@ -177,6 +207,7 @@ def _run_agent(
             agents=agents,
             max_turns=max_turns,
             max_budget_usd=max_budget_usd,
+            log=log,
         )
     )
 
@@ -207,6 +238,7 @@ def run_implementation(workspace: Path, strategy: dict[str, Any], settings: Sett
                 settings=settings,
                 max_turns=settings.implementer_max_turns,
                 max_budget_usd=settings.implementer_max_total_usd / len(workstreams),  # an equal share each
+                label=f"workstream-{name}",
             )
             logs.append(f"## Workstream `{name}`\n\n{session_log or 'No summary produced.'}")
         return "\n\n".join(logs)
@@ -220,5 +252,6 @@ def run_implementation(workspace: Path, strategy: dict[str, Any], settings: Sett
         agents=agent_definitions or None,
         max_turns=settings.implementer_max_turns,
         max_budget_usd=settings.implementer_max_total_usd,  # one session builds everything
+        label="lead",
     )
     return log or "No implementation summary produced."

@@ -12,6 +12,7 @@ from idea_to_mvp.implementation.options import SandboxStatus, sandbox_status
 from idea_to_mvp.implementation.scheduler import dag_width
 from idea_to_mvp.model_catalog import AGENT_ROLES
 from idea_to_mvp.plan import load_plan
+from idea_to_mvp.pricing import estimate_run_cost, task_cost_history
 from idea_to_mvp.roles import resolve_agent_model
 from idea_to_mvp.state import (
     ArchChoice,
@@ -146,6 +147,9 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
     status = sandbox_status(settings)
     task_count, width, shape = _plan_shape(state, settings.implementer_max_parallel)
     models = {role: resolve_agent_model(settings, role) for role in AGENT_ROLES}
+    estimate = estimate_run_cost(
+        settings, task_count, task_cost_history(settings.projects_dir, models["implementer"])
+    ).to_dict()
     question = (
         f"The blueprint pack is ready in `{state.get('project_bundle_dir', '')}`. "
         "Should I start the implementation stage now? "
@@ -179,6 +183,7 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
             "max_total_usd": settings.implementer_max_total_usd,
             "max_task_usd": settings.implementer_max_task_usd,
             "max_fix_attempts": settings.max_fix_attempts,
+            "cost_estimate": estimate,
             "task_count": task_count,
             "dag_width": width,
             "max_parallel": settings.implementer_max_parallel,
@@ -198,7 +203,11 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
         implement = bool(decision)
         notes = ""
     implement_decision: ImplementDecision = {"implement": implement, "notes": notes, "parallel": parallel}
-    return {"implement_decision": implement_decision, "stage": "implementation" if implement else "done"}
+    return {
+        "implement_decision": implement_decision,
+        "cost_estimate": estimate,
+        "stage": "implementation" if implement else "done",
+    }
 
 
 def route_after_implement_gate(state: IdeaDiscussionState) -> Literal["prepare_workspace", "__end__"]:

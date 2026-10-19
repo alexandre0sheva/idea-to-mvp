@@ -222,3 +222,67 @@ def test_the_decline_path_never_creates_a_workspace(demo_env: Path) -> None:
 
     asyncio.run(go())
     assert not (demo_env / "projects").exists() or not list((demo_env / "projects").iterdir())
+
+
+def _result(task_id: str, cost: float) -> TaskResult:
+    return {"task_id": task_id, "status": "done", "summary": "s", "cost_usd": cost, "turns": 3, "session_id": None, "commit": None}
+
+
+def _resolver_row(task_id: str, cost: float, model: str) -> Any:
+    return {
+        "kind": "resolver", "label": f"{task_id}-resolver", "task_id": task_id, "iteration": 1, "attempt": 1,
+        "model": model, "cost_usd": cost, "turns": 4, "outcome": "success", "session_id": None,
+        "trajectory": "t.md", "started_at": 1.0, "ended_at": 2.0,
+    }  # fmt: skip
+
+
+def test_resolver_spend_is_its_own_usage_record_on_its_own_model(tmp_path: Path) -> None:
+    from idea_to_mvp.config import Settings
+    from idea_to_mvp.implementation.ledger import append_row
+
+    settings = Settings(_env_file=None, implementer_model="m-task")
+    append_row(tmp_path, _resolver_row("T02", 0.4, "m-hard"))
+    records = implement_nodes.usage_records([_result("T01", 0.5), _result("T02", 1.0)], settings, workspace=tmp_path)
+    assert [(r["role"], r["model"], r["cost_usd"]) for r in records] == [
+        ("implementer", "m-task", 0.5),
+        ("implementer", "m-task", 0.6),
+        ("resolver", "m-hard", 0.4),
+    ]
+    assert sum(r["cost_usd"] or 0 for r in records) == pytest.approx(1.5)  # nothing counted twice or lost
+
+
+def test_without_a_workspace_the_resolver_stays_folded_into_its_task() -> None:
+    from idea_to_mvp.config import Settings
+
+    records = implement_nodes.usage_records([_result("T02", 1.0)], Settings(_env_file=None))
+    assert [(r["role"], r["cost_usd"]) for r in records] == [("implementer", 1.0)]
+
+
+def test_a_resolver_row_larger_than_the_task_cost_cannot_make_a_negative_record(tmp_path: Path) -> None:
+    from idea_to_mvp.config import Settings
+    from idea_to_mvp.implementation.ledger import append_row
+
+    append_row(tmp_path, _resolver_row("T02", 5.0, "m-hard"))  # a cost the progress file never recorded
+    records = implement_nodes.usage_records([_result("T02", 1.0)], Settings(_env_file=None), workspace=tmp_path)
+    assert all((r["cost_usd"] or 0) >= 0 for r in records) and sum(r["cost_usd"] or 0 for r in records) == pytest.approx(1.0)
+
+
+async def test_the_lead_session_is_counted_in_usage_and_so_in_the_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from idea_to_mvp.implementation.ledger import append_row, check_ledger
+
+    monkeypatch.chdir(tmp_path)
+    clear_settings_cache()
+    row = {**_resolver_row("x", 0.9, "m-lead"), "kind": "task", "label": "lead", "task_id": None}
+
+    def fake_run(workspace: Path, strategy: Any, settings: Any) -> str:
+        append_row(workspace, row)
+        return "Built it."
+
+    monkeypatch.setattr(implementer, "run_implementation", fake_run)
+    state = dict(make_initial_state(IDEA, 1))
+    state.update(workspace_dir=str(tmp_path), execution_strategy={"mode": "subagents", "workstreams": []})
+    append_row(tmp_path, {**row, "label": "earlier", "cost_usd": 7.0})  # a session from before: not this node's
+    update = await implement_nodes.implementer_node(state)  # type: ignore[arg-type]
+    clear_settings_cache()
+    assert [(r["role"], r["model"], r["cost_usd"]) for r in update["usage"]] == [("implementer", "m-lead", 0.9)]
+    assert check_ledger(tmp_path, update["usage"]).ledger_usd == pytest.approx(7.9)

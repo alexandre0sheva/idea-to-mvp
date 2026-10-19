@@ -318,3 +318,48 @@ def test_the_demo_fix_session_changes_nothing(tmp_path: Path) -> None:
         run_fix(tmp_path, ["x"], make_settings(demo_mode=True), budget_usd=1.0, emit=lambda e: None)
     )
     assert outcome.success is True and outcome.cost_usd == 0.0
+
+
+# ------------------------------------------------ trajectories and the run ledger
+
+
+def test_a_lane_session_is_recorded_as_its_verification_round(tmp_path: Path) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+
+    settings = make_settings(verifier_model="m-verify")
+    query = FakeLaneQuery(structured=report("tests").model_dump())
+    asyncio.run(run_lane(tmp_path, "tests", settings, budget_usd=1.0, emit=lambda e: None, query_fn=query))
+    asyncio.run(run_lane(tmp_path, "tests", settings, budget_usd=1.0, emit=lambda e: None, query_fn=query, attempt=2, iteration=2))
+    first, second = load_ledger(tmp_path)
+    assert (first["kind"], first["label"], first["task_id"], first["attempt"], first["iteration"]) == ("lane", "lane-tests-1", None, 1, 1)
+    assert (first["cost_usd"], first["turns"], first["outcome"], first["model"]) == (0.75, 6, "success", "m-verify")
+    assert (second["label"], second["attempt"], second["iteration"]) == ("v2-lane-tests-2", 2, 2)
+    assert (tmp_path / first["trajectory"]).is_file()
+
+
+def test_a_lane_whose_session_died_is_recorded_as_crashed(tmp_path: Path) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+
+    asyncio.run(run_lane(tmp_path, "quality", make_settings(), budget_usd=1.0, emit=lambda e: None, query_fn=FakeLaneQuery(crash=True)))
+    assert [r["outcome"] for r in load_ledger(tmp_path)] == ["crashed"]
+
+
+def test_a_fix_session_is_recorded_with_its_attempt_and_model(tmp_path: Path) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+
+    settings = make_settings(implementer_model="m-task", escalation_model="m-hard")
+    for attempt in (1, 2):
+        asyncio.run(run_fix(tmp_path, ["x"], settings, budget_usd=1.0, emit=lambda e: None, query_fn=FakeLaneQuery(text="ok"), attempt=attempt))
+    first, second = load_ledger(tmp_path)
+    assert (first["kind"], first["label"], first["attempt"], first["model"]) == ("fix", "fix-1", 1, "m-task")
+    assert (second["label"], second["attempt"], second["model"]) == ("fix-2", 2, "m-hard")
+
+
+def test_demo_lanes_and_fixes_are_recorded_too(tmp_path: Path) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+
+    settings = make_settings(demo_mode=True)
+    for lane in LANES:
+        asyncio.run(run_lane(tmp_path, lane, settings, budget_usd=1.0, emit=lambda e: None))
+    asyncio.run(run_fix(tmp_path, ["x"], settings, budget_usd=1.0, emit=lambda e: None))
+    assert [r["label"] for r in load_ledger(tmp_path)] == ["lane-tests-1", "lane-quality-1", "lane-requirements-1", "fix-1"]

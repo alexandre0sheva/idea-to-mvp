@@ -6,6 +6,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from idea_to_mvp import llm
+from idea_to_mvp.config import clear_settings_cache
+from idea_to_mvp.model_catalog import get_catalog
 from idea_to_mvp.state import IdeaDiscussionState
 from idea_to_mvp.usage import UsageRecord, summarize_usage, with_usage
 
@@ -142,3 +144,102 @@ def test_usage_is_captured_through_chains_like_structured_output(fake_runtime) -
         return {}
 
     assert node({})["usage"][0]["input_tokens"] == 10
+
+
+# ----------------------------------------------------------- dollars for model calls
+
+
+class CachedModel(UsageModel):
+    """A call that read part of its prompt from the provider's cache."""
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs: Any) -> ChatResult:
+        message = AIMessage(
+            content="ok",
+            usage_metadata={
+                "input_tokens": 1_000_000,
+                "output_tokens": 100_000,
+                "total_tokens": 1_100_000,
+                "input_token_details": {"cache_read": 800_000},
+            },
+            response_metadata={"model_name": self.model_label},
+        )
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+
+def _run_node(model: BaseChatModel, role: str = "architect") -> dict:
+    @with_usage(role=role)
+    def node(state: dict) -> dict:
+        model.invoke("go")
+        return {}
+
+    return node({})
+
+
+def test_calls_to_a_listed_model_are_priced_from_the_catalog(fake_runtime) -> None:
+    (record,) = _run_node(CachedModel(model_label="claude-sonnet-5-5"))["usage"]
+    entry = get_catalog().find("claude-sonnet-5-5")
+    assert entry and entry.cached_input_per_mtok is not None
+    expected = (200_000 * 2.0 + 800_000 * entry.cached_input_per_mtok + 100_000 * 10.0) / 1_000_000
+    assert record["cost_usd"] == pytest.approx(expected)
+
+
+def test_calls_to_an_unlisted_model_stay_unpriced(fake_runtime) -> None:
+    (record,) = _run_node(UsageModel(model_label="mystery-model"))["usage"]
+    assert record["cost_usd"] is None
+
+
+def test_demo_calls_cost_nothing(fake_runtime, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEMO_MODE", "true")
+    clear_settings_cache()
+    try:
+        (record,) = _run_node(UsageModel(model_label="demo"))["usage"]
+    finally:
+        clear_settings_cache()
+    assert record["cost_usd"] == 0.0
+
+
+def test_a_prices_file_sets_the_price_of_a_call(fake_runtime, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    path = tmp_path / "prices.toml"
+    path.write_text('[prices."mystery-model"]\ninput_per_mtok = 1.0\noutput_per_mtok = 2.0\n')
+    monkeypatch.setenv("MODEL_PRICES_FILE", str(path))
+    clear_settings_cache()
+    try:
+        (record,) = _run_node(CachedModel(model_label="mystery-model"))["usage"]
+    finally:
+        clear_settings_cache()
+    assert record["cost_usd"] == pytest.approx((1_000_000 * 1.0 + 100_000 * 2.0) / 1_000_000)
+
+
+def test_an_unreadable_prices_file_never_fails_a_finished_node(fake_runtime, monkeypatch: pytest.MonkeyPatch, tmp_path, caplog) -> None:
+    monkeypatch.setenv("MODEL_PRICES_FILE", str(tmp_path / "missing.toml"))
+    clear_settings_cache()
+    try:
+        (record,) = _run_node(CachedModel(model_label="claude-sonnet-5-5"))["usage"]
+    finally:
+        clear_settings_cache()
+    assert record["cost_usd"] is not None  # the catalog price is used
+    assert "MODEL_PRICES_FILE" in caplog.text
+
+
+def test_summarize_usage_separates_planning_from_agent_spend() -> None:
+    summary = summarize_usage(
+        [
+            _record("pm", "a", 100, 50, 0.25),
+            _record("architect", "b", 100, 50, 0.5),
+            _record("moderator", "c", 100, 50),  # unpriced
+            _record("implementer", "d", 0, 0, 1.0),
+            _record("verifier", "d", 0, 0, 0.5),
+            _record("fixer", "d", 0, 0, 0.25),
+            _record("resolver", "d", 0, 0, 0.125),
+        ]
+    )
+    assert summary["planning_cost_usd"] == 0.75 and summary["unpriced_calls"] == 1
+    assert summary["agent_cost_usd"] == 1.875 and summary["agent_calls"] == 4
+    assert summary["cost_usd"] == 2.625  # everything that could be priced
+
+
+def test_summarize_usage_tells_nothing_priced_from_nothing_spent() -> None:
+    summary = summarize_usage([_record("pm", "a", 100, 50)])
+    assert summary["planning_cost_usd"] is None and summary["unpriced_calls"] == 1
+    assert summary["agent_cost_usd"] == 0.0 and summary["agent_calls"] == 0
+    assert summarize_usage([])["planning_cost_usd"] is None and summarize_usage([])["unpriced_calls"] == 0

@@ -178,3 +178,17 @@ def test_the_researcher_is_checked_only_when_research_is_enabled() -> None:
     off = _by_name(collect_checks(_settings(), runtime_for=_runtime_for, ping=ping))
     on = _by_name(collect_checks(_settings(enable_research=True), runtime_for=_runtime_for, ping=ping))
     assert "researcher" not in off and on["researcher"].status == "ok"
+
+
+def test_offline_doctor_warns_about_an_unreadable_prices_file(tmp_path: Path) -> None:
+    checks = collect_checks(_settings(model_prices_file=tmp_path / "missing.toml"), runtime_for=_runtime_for, ping=lambda r: "OK", offline=True)
+    prices = next(check for check in checks if check.name == "model prices file")
+    assert prices.status == "warn" and "cannot read" in prices.detail
+
+
+def test_offline_doctor_accepts_a_good_prices_file_and_says_nothing_without_one(tmp_path: Path) -> None:
+    good = tmp_path / "prices.toml"
+    good.write_text('[prices."m"]\ninput_per_mtok = 1.0\noutput_per_mtok = 2.0\n')
+    checks = collect_checks(_settings(model_prices_file=good), runtime_for=_runtime_for, ping=lambda r: "OK", offline=True)
+    assert next(check for check in checks if check.name == "model prices file").status == "ok"
+    assert not [c for c in collect_checks(_settings(), runtime_for=_runtime_for, ping=lambda r: "OK", offline=True) if c.name == "model prices file"]

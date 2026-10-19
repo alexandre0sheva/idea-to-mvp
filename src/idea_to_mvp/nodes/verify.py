@@ -41,12 +41,14 @@ class LaneInput(TypedDict):
     lane: LaneName
     workspace_dir: str
     budget_usd: float
+    iteration: int  # the version being verified
+    attempt: int  # the verification round: 1 before any fix
 
 
 def remaining_budget(state: IdeaDiscussionState, settings: Settings) -> float:
     """What is left of the whole-run cap after everything this version has spent (implementation, lanes,
     fixes). Earlier versions of an iterated project are not counted: each has its own budget."""
-    spent = (summarize_usage(state.get("usage") or [])["cost_usd"] or 0.0) - float(state.get("spent_before_iteration") or 0.0)
+    spent = summarize_usage(state.get("usage") or [])["agent_cost_usd"] - float(state.get("spent_before_iteration") or 0.0)
     return max(0.0, settings.implementer_max_total_usd - spent)
 
 
@@ -98,13 +100,27 @@ def route_after_verify(state: IdeaDiscussionState) -> list[Send] | Literal["deli
     # The three lanes run at once, so each may spend the per-task cap or its share of what is left.
     budget = min(settings.implementer_max_task_usd, remaining / len(LANES))
     workspace = str(state["workspace_dir"])
-    return [Send("verify_lane", LaneInput(lane=lane, workspace_dir=workspace, budget_usd=budget)) for lane in LANES]
+    iteration = int(state.get("iteration") or 1)
+    attempt = int(_previous(state).get("attempts") or 0) + 1
+    return [
+        Send(
+            "verify_lane",
+            LaneInput(lane=lane, workspace_dir=workspace, budget_usd=budget, iteration=iteration, attempt=attempt),
+        )
+        for lane in LANES
+    ]
 
 
 async def verify_lane_node(state: LaneInput) -> dict[str, Any]:
     settings = get_settings()
     outcome = await lanes.run_lane(
-        Path(state["workspace_dir"]), state["lane"], settings, budget_usd=state["budget_usd"], emit=emitter()
+        Path(state["workspace_dir"]),
+        state["lane"],
+        settings,
+        budget_usd=state["budget_usd"],
+        emit=emitter(),
+        iteration=state.get("iteration", 1),
+        attempt=state.get("attempt", 1),
     )
     update: dict[str, Any] = {"lane_reports": {state["lane"]: outcome.report.model_dump()}}
     if outcome.cost_usd > 0:
@@ -157,7 +173,15 @@ async def fix_node(state: IdeaDiscussionState) -> dict[str, Any]:
     failures = lanes.failure_list(verification.get("lanes") or []) or [str(verification.get("report") or "unknown failure")]
     LOGGER.info("Verification failed; fix attempt %d/%d", attempt, settings.max_fix_attempts)
     budget = min(settings.implementer_max_task_usd, remaining_budget(state, settings))
-    outcome = await lanes.run_fix(workspace, failures, settings, budget_usd=budget, emit=emitter(), attempt=attempt)
+    outcome = await lanes.run_fix(
+        workspace,
+        failures,
+        settings,
+        budget_usd=budget,
+        emit=emitter(),
+        attempt=attempt,
+        iteration=int(state.get("iteration") or 1),
+    )
     await asyncio.to_thread(implementer.commit_workspace, workspace, f"fix attempt {attempt}")
     update: dict[str, Any] = {"verification": {**verification, "attempts": attempt}, "stage": "verification"}
     if outcome.cost_usd > 0:

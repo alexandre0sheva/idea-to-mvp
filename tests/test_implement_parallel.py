@@ -196,3 +196,29 @@ async def test_choosing_sequential_at_the_gate_runs_the_sequential_engine(demo_e
     workspace = Path(values["workspace_dir"])
     assert values["implement_decision"]["parallel"] == 1
     assert git_log(workspace, "--merges") == [] and [r["status"] for r in values["task_results"].values()] == ["done"] * 3
+
+
+@pytest.mark.parametrize("parallel", ["3", "1"])
+async def test_every_demo_session_is_in_the_ledger_and_the_ledger_matches_usage(
+    demo_env: Path, monkeypatch: pytest.MonkeyPatch, parallel: str
+) -> None:
+    import zipfile
+
+    from idea_to_mvp.implementation.ledger import check_ledger, load_ledger
+
+    use_parallel(monkeypatch, parallel)
+    graph = build_graph(MemorySaver())
+    config = run_config(f"ledger-{parallel}")
+    await to_implement_gate(graph, config)
+    await graph.ainvoke(Command(resume={"implement": True, "notes": ""}), config)
+
+    values = (await graph.aget_state(config)).values
+    workspace = Path(values["workspace_dir"])
+    rows = load_ledger(workspace)
+    assert sorted(r["label"] for r in rows if r["kind"] == "task") == ["T01", "T02", "T03"]
+    assert sorted(r["label"] for r in rows if r["kind"] == "lane") == ["lane-quality-1", "lane-requirements-1", "lane-tests-1"]
+    assert {r["outcome"] for r in rows} == {"success"}
+    assert all((workspace / r["trajectory"]).is_file() for r in rows)  # in the main workspace, not a worktree
+    assert check_ledger(workspace, values["usage"]).ok
+    archive = zipfile.ZipFile(values["delivery_zip"])
+    assert not [name for name in archive.namelist() if ".idea-to-mvp" in name]  # evidence stays with the run

@@ -185,3 +185,50 @@ def test_everything_the_agents_wrote_is_escaped(tmp_path: Path) -> None:
 def test_an_empty_state_still_renders(tmp_path: Path) -> None:
     html = render_dashboard(dict(make_initial_state("idea", 1)))
     assert "Delivery report" in html
+
+
+# ------------------------------------------------- planning cost, and estimate vs actual
+
+
+def stat_value(html: str, name: str) -> str:
+    return re.search(rf"stat-{name}'><span class='stat-label'>[^<]*</span><span class='stat-value'>([^<]*)<", html).group(1)  # type: ignore[union-attr]
+
+
+def test_planning_and_agent_spend_are_separate_figures(tmp_path: Path) -> None:
+    usage = [
+        {"role": "pm", "provider": "x", "model": "m", "input_tokens": 9000, "output_tokens": 3300, "cost_usd": 0.25},
+        {"role": "architect", "provider": "x", "model": "m", "input_tokens": 100, "output_tokens": 100, "cost_usd": 0.5},
+        {"role": "implementer", "provider": "anthropic", "model": "m", "input_tokens": 0, "output_tokens": 0, "cost_usd": 1.204},
+    ]
+    html = render_dashboard(state(tmp_path, usage=usage))
+    assert stat_value(html, "planning") == "$0.75" and stat_value(html, "cost") == "$1.20"
+
+
+def test_planning_calls_without_a_price_are_called_unpriced(tmp_path: Path) -> None:
+    usage = [{"role": "pm", "provider": "x", "model": "mystery", "input_tokens": 90, "output_tokens": 30, "cost_usd": None}]
+    assert stat_value(render_dashboard(state(tmp_path, usage=usage)), "planning") == "unpriced"
+    partly = usage + [{"role": "architect", "provider": "x", "model": "m", "input_tokens": 1, "output_tokens": 1, "cost_usd": 0.5}]
+    assert stat_value(render_dashboard(state(tmp_path, usage=partly)), "planning") == "$0.50 + unpriced calls"
+
+
+ESTIMATE = {"low": 1.0, "high": 3.0, "per_task": 0.5, "basis": "catalog", "samples": 0, "tasks": 2, "unpriced": []}
+SPENT = [{"role": "implementer", "provider": "anthropic", "model": "m", "input_tokens": 0, "output_tokens": 0, "cost_usd": 1.204}]
+
+
+def test_the_dashboard_sets_the_gates_estimate_beside_what_was_spent(tmp_path: Path) -> None:
+    value = stat_value(render_dashboard(state(tmp_path, usage=SPENT, cost_estimate=ESTIMATE)), "estimate")
+    assert "$1.00–$3.00" in value and "$1.20" in value and "within" in value
+
+
+def test_an_overrun_is_called_an_overrun(tmp_path: Path) -> None:
+    over = [{**SPENT[0], "cost_usd": 4.5}]
+    assert "over" in stat_value(render_dashboard(state(tmp_path, usage=over, cost_estimate=ESTIMATE)), "estimate")
+    under = [{**SPENT[0], "cost_usd": 0.4}]
+    assert "under" in stat_value(render_dashboard(state(tmp_path, usage=under, cost_estimate=ESTIMATE)), "estimate")
+
+
+def test_there_is_no_estimate_figure_without_an_estimate_or_after_the_first_version(tmp_path: Path) -> None:
+    assert "stat-estimate" not in render_dashboard(state(tmp_path, usage=SPENT))
+    assert "stat-estimate" not in render_dashboard(state(tmp_path, usage=SPENT, cost_estimate=ESTIMATE, iteration=2))
+    unpriced = {**ESTIMATE, "low": None, "high": None, "basis": "unpriced"}
+    assert "unpriced" in stat_value(render_dashboard(state(tmp_path, usage=SPENT, cost_estimate=unpriced)), "estimate")

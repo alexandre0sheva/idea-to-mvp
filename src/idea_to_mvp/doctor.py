@@ -14,6 +14,7 @@ from langchain_core.messages import HumanMessage
 from idea_to_mvp import llm
 from idea_to_mvp.config import Settings
 from idea_to_mvp.model_catalog import AGENT_ROLES, ModelCatalog, get_catalog
+from idea_to_mvp.pricing import PricingError, settings_overrides
 from idea_to_mvp.roles import ROLES, resolve_agent_model, resolve_role_model
 
 Status = Literal["ok", "warn", "fail"]
@@ -96,6 +97,17 @@ def _catalog_checks(settings: Settings, catalog: ModelCatalog) -> list[Check]:
     return checks
 
 
+def _prices_checks(settings: Settings) -> list[Check]:
+    """Warn when MODEL_PRICES_FILE is set but cannot be used (cost figures then fall back to the catalog)."""
+    if not settings.model_prices_file:
+        return []
+    try:
+        prices = settings_overrides(settings)
+    except PricingError as exc:
+        return [Check("model prices file", "warn", f"{exc}; catalog prices are used instead")]
+    return [Check("model prices file", "ok", f"{len(prices)} model price(s) from {settings.model_prices_file}")]
+
+
 def collect_checks(
     settings: Settings,
     *,
@@ -133,6 +145,7 @@ def collect_checks(
         checks.append(Check(name, status, detail))
     checks.extend(_implementer_checks(settings))
     checks.extend(_catalog_checks(settings, catalog or get_catalog()))
+    checks.extend(_prices_checks(settings))
     return checks
 
 

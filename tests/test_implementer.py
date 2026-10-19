@@ -50,3 +50,67 @@ def test_subagent_prompt_prefers_workspace_definition(tmp_path) -> None:
     assert _subagent_prompt(workspace, "backend-api", "fallback") == "Custom body from blueprint."
     assert _subagent_prompt(workspace, "missing", "fallback") == "fallback"
     assert _subagent_prompt(None, "backend-api", "fallback") == "fallback"
+
+
+# ------------------------------------------- lead and workstream sessions are recorded
+
+
+def _fake_sessions(monkeypatch, *, error: bool = False, crash: bool = False):
+    from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+
+    from idea_to_mvp import implementer
+
+    prompts: list[str] = []
+
+    async def messages(prompt, **_kwargs):
+        prompts.append(prompt)
+        yield AssistantMessage(content=[TextBlock(text="Building.")], model="claude-x")
+        if crash:
+            raise RuntimeError("agent process died")
+        yield ResultMessage(
+            subtype="error_max_turns" if error else "success", duration_ms=1, duration_api_ms=1, is_error=error,
+            num_turns=7, session_id="s-1", total_cost_usd=0.4, result="Stopped." if error else "Built it.",
+        )  # fmt: skip
+
+    monkeypatch.setattr(implementer, "iter_agent_messages", messages)
+    return prompts
+
+
+def _settings(**overrides):
+    from idea_to_mvp.config import Settings
+
+    return Settings(_env_file=None, implementer_sandbox="off", **overrides)
+
+
+def test_the_lead_session_is_in_the_ledger_with_its_trajectory(tmp_path, monkeypatch) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+    from idea_to_mvp.implementer import run_implementation
+
+    _fake_sessions(monkeypatch)
+    assert run_implementation(tmp_path, STRATEGY, _settings()) == "Built it."
+    (row,) = load_ledger(tmp_path)
+    assert (row["kind"], row["label"], row["task_id"], row["cost_usd"], row["turns"], row["outcome"]) == ("task", "lead", None, 0.4, 7, "success")
+    assert "Building." in (tmp_path / row["trajectory"]).read_text()
+
+
+def test_every_workstream_session_of_a_team_has_its_own_row(tmp_path, monkeypatch) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+    from idea_to_mvp.implementer import run_implementation
+
+    _fake_sessions(monkeypatch)
+    run_implementation(tmp_path, {**STRATEGY, "mode": "agent_team"}, _settings())
+    assert [r["label"] for r in load_ledger(tmp_path)] == ["workstream-backend-api", "workstream-web-ui"]
+
+
+def test_a_session_that_ends_in_an_error_or_dies_is_recorded_as_such(tmp_path, monkeypatch) -> None:
+    import pytest
+
+    from idea_to_mvp.implementation.ledger import load_ledger
+    from idea_to_mvp.implementer import run_implementation
+
+    _fake_sessions(monkeypatch, error=True)
+    run_implementation(tmp_path, STRATEGY, _settings())
+    _fake_sessions(monkeypatch, crash=True)
+    with pytest.raises(RuntimeError, match="agent process died"):
+        run_implementation(tmp_path, STRATEGY, _settings())
+    assert [(r["label"], r["outcome"]) for r in load_ledger(tmp_path)] == [("lead", "failed"), ("lead-2", "crashed")]

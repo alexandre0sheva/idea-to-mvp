@@ -567,3 +567,47 @@ async def test_the_forms_disappear_while_a_decision_is_being_sent_and_the_main_b
     outputs = await submit(service, "", "", thread, gate_inputs={"action": "submit", **{f"answer_{i}": "x" for i in range(1, 6)}})
     assert panel_visible(outputs[0], "answers") is False  # the overlay while the graph runs
     assert update_value(outputs[0][POS_INPUT], "visible") is False and update_value(outputs[0][POS_BUTTON], "visible") is False
+
+
+def test_the_implement_gate_estimates_the_dollars_of_the_run(monkeypatch: pytest.MonkeyPatch, bundle: Path) -> None:
+    payload = implement_payload(monkeypatch, bundle, {"IMPLEMENTER_MODEL": "claude-sonnet-5-5", "VERIFIER_MODEL": "claude-sonnet-5-5"})
+    estimate = payload["cost_estimate"]
+    assert estimate["basis"] == "catalog" and estimate["tasks"] == 3 and 0 < estimate["low"] < estimate["high"] <= 25.0
+    html = GATES["implement_gate"].render(payload).updates["summary"]["value"]
+    assert "Estimated cost" in html and f"${estimate['low']:.2f}–${estimate['high']:.2f}" in html
+
+
+def test_an_unpriced_session_model_makes_the_gate_say_so(monkeypatch: pytest.MonkeyPatch, bundle: Path) -> None:
+    payload = implement_payload(monkeypatch, bundle, {"IMPLEMENTER_MODEL": "mystery-model"})
+    assert payload["cost_estimate"]["basis"] == "unpriced"
+    html = GATES["implement_gate"].render(payload).updates["summary"]["value"]
+    assert "unpriced" in html.split("Estimated cost")[1].split("</tr>")[0]
+
+
+def test_earlier_projects_ledgers_set_the_estimate(monkeypatch: pytest.MonkeyPatch, bundle: Path, tmp_path: Path) -> None:
+    from idea_to_mvp.implementation.ledger import append_row
+
+    out = tmp_path / "out"
+    for index, cost in enumerate([1.0, 2.0, 3.0]):
+        row = {
+            "kind": "task", "label": f"T0{index}", "task_id": f"T0{index}", "iteration": 1, "attempt": 1,
+            "model": "claude-sonnet-5-5", "cost_usd": cost, "turns": 2, "outcome": "success", "session_id": None,
+            "trajectory": "t.md", "started_at": 1.0, "ended_at": 2.0,
+        }  # fmt: skip
+        append_row(out / "projects" / "20260101-earlier", row)  # type: ignore[arg-type]
+    payload = implement_payload(monkeypatch, bundle, {"OUTPUT_DIR": str(out), "IMPLEMENTER_MODEL": "claude-sonnet-5-5"})
+    estimate = payload["cost_estimate"]
+    assert estimate["basis"] == "history" and estimate["samples"] == 3 and estimate["per_task"] == 2.0
+    assert "median" in GATES["implement_gate"].render(payload).updates["summary"]["value"]
+
+
+def test_the_estimate_is_kept_in_state_for_the_dashboard(monkeypatch: pytest.MonkeyPatch, bundle: Path) -> None:
+    clear_settings_cache()
+    monkeypatch.setattr(gate_nodes, "interrupt", lambda payload: {"implement": True, "notes": ""})
+    update = gate_nodes.implement_gate_node(base_state(project_bundle_dir=str(bundle), execution_strategy={"mode": "agent_team", "workstreams": []}))
+    assert update["cost_estimate"]["tasks"] == 3 and update["cost_estimate"]["basis"] in ("catalog", "unpriced", "history")
+
+
+def test_a_checkpoint_from_before_the_estimate_still_renders() -> None:
+    old = {"kind": "implement_gate", "question": "q", "task_count": 3, "strategy_mode": "agent_team", "models": {}}
+    assert "Estimated cost" not in GATES["implement_gate"].render(old).updates["summary"]["value"]

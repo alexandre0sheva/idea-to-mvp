@@ -2,20 +2,26 @@
 
 Nodes that call a model are wrapped with `@with_usage(role=...)`. The wrapper records every model call
 made while the node runs (text *and* structured, retries included) through LangChain's usage callback and
-adds `UsageRecord`s to the `usage` state channel, which accumulates across the whole run. Agent SDK
-sessions (implementation stage) report a dollar cost instead; `cost_usd` is None for plain model calls
-because prices go stale and are not hard-coded.
+adds `UsageRecord`s to the `usage` state channel, which accumulates across the whole run. A call is priced
+from the model catalog (or the `MODEL_PRICES_FILE` override, see `pricing.py`); `cost_usd` stays None for a
+model with no price, and the UI calls that "unpriced". Agent SDK sessions report their own dollar cost.
 """
 
 from __future__ import annotations
 
 import functools
+import logging
 from collections.abc import Callable, Mapping
 from typing import Any, TypedDict
 
 from langchain_core.callbacks import get_usage_metadata_callback
 
 from idea_to_mvp import llm
+from idea_to_mvp.config import get_settings
+from idea_to_mvp.implementation.ledger import AGENT_USAGE_ROLES
+from idea_to_mvp.pricing import Price, PricingError, call_cost, settings_overrides
+
+LOGGER = logging.getLogger(__name__)
 
 
 class UsageRecord(TypedDict):
@@ -34,6 +40,31 @@ def _provider_of(role: str) -> str:
         return ""
 
 
+def _pricing_context() -> tuple[bool, dict[str, Price]]:
+    """(demo mode, the prices file's overrides). A bad prices file or settings never fail a finished node."""
+    try:
+        settings = get_settings()
+        if settings.demo_mode:
+            return True, {}
+        return False, settings_overrides(settings)
+    except PricingError as exc:
+        LOGGER.warning("MODEL_PRICES_FILE ignored, using the catalog prices: %s", exc)
+    except Exception:  # settings that cannot be read are the node's problem, not the usage record's
+        LOGGER.debug("Could not read the settings to price model calls.", exc_info=True)
+    return False, {}
+
+
+def _cost(model: str, usage: Mapping[str, Any], demo: bool, overrides: dict[str, Price]) -> float | None:
+    """Dollars for the calls of one model (a demo run calls no model, so it costs nothing)."""
+    if demo:
+        return 0.0
+    details = usage.get("input_token_details") or {}
+    cached = int(details.get("cache_read") or 0) if isinstance(details, Mapping) else 0
+    return call_cost(
+        model, int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0), cached, overrides=overrides
+    )
+
+
 def with_usage(
     role: str | Callable[[Mapping[str, Any]], str],
 ) -> Callable[[Callable[..., dict[str, Any]]], Callable[..., dict[str, Any]]]:
@@ -48,6 +79,7 @@ def with_usage(
             if not callback.usage_metadata:
                 return update
             provider = _provider_of(role_key)
+            demo, overrides = _pricing_context()
             records: list[UsageRecord] = [
                 {
                     "role": role_key,
@@ -55,7 +87,7 @@ def with_usage(
                     "model": model,
                     "input_tokens": int(usage.get("input_tokens") or 0),
                     "output_tokens": int(usage.get("output_tokens") or 0),
-                    "cost_usd": None,
+                    "cost_usd": _cost(model, usage, demo, overrides),
                 }
                 for model, usage in callback.usage_metadata.items()
             ]
@@ -67,8 +99,16 @@ def with_usage(
 
 
 def summarize_usage(records: list[UsageRecord]) -> dict[str, Any]:
+    """Totals of a run's usage. `agent_cost_usd` (sessions: tasks, resolvers, lanes, fixes) is what the whole-run
+    budget counts; `planning_cost_usd` (panel, research, summary, architecture, blueprint, critic calls) is None
+    when none of those calls could be priced, and `unpriced_calls` counts the ones that could not.
+    `cost_usd` is everything that could be priced."""
     by_role: dict[str, dict[str, Any]] = {}
     cost_total: float | None = None
+    planning: float | None = None
+    agent = 0.0
+    agent_calls = 0
+    unpriced = 0
     for record in records:
         row = by_role.setdefault(
             record["role"], {"input_tokens": 0, "output_tokens": 0, "calls": 0, "cost_usd": None}
@@ -76,9 +116,17 @@ def summarize_usage(records: list[UsageRecord]) -> dict[str, Any]:
         row["input_tokens"] += record["input_tokens"]
         row["output_tokens"] += record["output_tokens"]
         row["calls"] += 1
-        if record["cost_usd"] is not None:
-            row["cost_usd"] = (row["cost_usd"] or 0.0) + record["cost_usd"]
-            cost_total = (cost_total or 0.0) + record["cost_usd"]
+        is_agent = record["role"] in AGENT_USAGE_ROLES
+        agent_calls += is_agent
+        if record["cost_usd"] is None:
+            unpriced += not is_agent
+            continue
+        row["cost_usd"] = (row["cost_usd"] or 0.0) + record["cost_usd"]
+        cost_total = (cost_total or 0.0) + record["cost_usd"]
+        if is_agent:
+            agent += record["cost_usd"]
+        else:
+            planning = (planning or 0.0) + record["cost_usd"]
     input_tokens = sum(r["input_tokens"] for r in records)
     output_tokens = sum(r["output_tokens"] for r in records)
     return {
@@ -87,5 +135,9 @@ def summarize_usage(records: list[UsageRecord]) -> dict[str, Any]:
         "total_tokens": input_tokens + output_tokens,
         "calls": len(records),
         "cost_usd": cost_total,
+        "planning_cost_usd": planning,
+        "agent_cost_usd": agent,
+        "agent_calls": agent_calls,
+        "unpriced_calls": unpriced,
         "by_role": by_role,
     }

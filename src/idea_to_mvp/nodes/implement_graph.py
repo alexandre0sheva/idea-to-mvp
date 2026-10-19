@@ -282,7 +282,7 @@ def finish_node(state: IdeaDiscussionState) -> dict[str, Any]:
     return {
         "implementation_log": executor.render_task_log(plan, results),
         "task_results": {result["task_id"]: result for result in results},
-        "usage": usage_records(results, settings, int(state.get("iteration") or 1)),
+        "usage": usage_records(results, settings, int(state.get("iteration") or 1), workspace),
         "stage": "verification",
     }
 

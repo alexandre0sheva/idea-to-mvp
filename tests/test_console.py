@@ -177,3 +177,25 @@ def test_running_tasks_are_those_started_and_not_yet_ended() -> None:
     assert running_tasks(events) == {"T02"}
     assert running_tasks(events + [make_event("task_end", task_id="T02")]) == set()
     assert running_tasks(events + [make_event("task_start", task_id="T01")]) == {"T01", "T02"}  # started again
+
+
+# ------------------------------------------------------------ trajectory links
+
+
+def test_a_card_names_the_trajectory_file_to_open_in_the_file_viewer() -> None:
+    html = render_task_board(
+        plan_dict(), {"T01": result("T01")}, set(), trajectories={"T01": ".idea-to-mvp/trajectories/T01.md"}
+    )
+    card = re.search(r"<article class='task-card done' data-task='T01'>.*?</article>", html, flags=re.DOTALL)
+    assert card and "<code class='task-trajectory'>.idea-to-mvp/trajectories/T01.md</code>" in card.group(0)
+    assert "task-trajectory" not in render_task_board(plan_dict(), {"T01": result("T01")}, set())  # no ledger, no link
+
+
+def test_a_running_task_links_its_trajectory_while_it_is_written() -> None:
+    html = render_task_board(plan_dict(), {}, {"T01"}, trajectories={"T01": ".idea-to-mvp/trajectories/T01.md"})
+    assert "task-trajectory" in html
+
+
+def test_the_trajectory_path_is_escaped() -> None:
+    html = render_task_board(plan_dict(), {"T01": result("T01")}, set(), trajectories={"T01": "<img src=x>"})
+    assert "<img src=x>" not in html and "&lt;img src=x&gt;" in html

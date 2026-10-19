@@ -348,6 +348,22 @@ def _estimate(payload: Mapping[str, Any]) -> str:
     return f"≈ {build} + 3 verification lanes, plus up to {fixes} fix round(s)"
 
 
+def _cost_cell(estimate: Mapping[str, Any]) -> str:
+    """The dollar range the run is expected to cost, and what it rests on."""
+    if estimate.get("basis") == "unpriced" or estimate.get("low") is None or estimate.get("high") is None:
+        roles = ", ".join(str(role) for role in estimate.get("unpriced") or []) or "a model"
+        return f"unpriced: no price for the {_e(roles)} model (add one in models.toml or MODEL_PRICES_FILE)"
+    tasks, per_task = int(estimate.get("tasks") or 0), float(estimate.get("per_task") or 0.0)
+    if estimate.get("basis") == "history":
+        basis = f"median of {int(estimate.get('samples') or 0)} earlier task sessions on this model: ${per_task:.2f} each"
+    else:
+        basis = f"catalog guess of ${per_task:.2f} per task session; no history on this model yet"
+    return (
+        f"<strong>${float(estimate['low']):.2f}–${float(estimate['high']):.2f}</strong> "
+        f"<span class='gate-note'>({tasks} task(s), one verification round; the high end adds the fix attempts. {_e(basis)})</span>"
+    )
+
+
 def _parallel_choices(payload: Mapping[str, Any]) -> tuple[list[str], str | None, bool]:
     """(choices, default, whether it can be changed): Sequential, or Parallel 2..width of the plan."""
     if payload.get("strategy_mode") != "agent_team":
@@ -382,6 +398,7 @@ def _implement_view(payload: dict[str, Any]) -> GateView:
         + _row("DAG width", _e(payload.get("dag_width", 0)))
         + _row("Budget", f"${float(payload.get('max_total_usd') or 0):.2f} total, ${float(payload.get('max_task_usd') or 0):.2f} per task")
         + _row("Estimated sessions", _e(_estimate(payload)))
+        + (_row("Estimated cost", _cost_cell(payload["cost_estimate"])) if payload.get("cost_estimate") else "")
         + "</tbody></table>"
     )
     warning = str(payload.get("warning") or "").strip()

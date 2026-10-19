@@ -16,7 +16,9 @@ from idea_to_mvp.config import PanelMode, Settings
 from idea_to_mvp.exporter import save_session_export
 from idea_to_mvp.graph import GraphProvider, merged_values, pending_interrupt, run_config
 from idea_to_mvp.implementation.events import EVENT_KINDS, ImplEvent
+from idea_to_mvp.implementation.ledger import ledger_path, task_trajectories
 from idea_to_mvp.implementation.progress import TaskResult, load_progress, spent_in_iteration
+from idea_to_mvp.implementation.trajectory import events_from_trajectories
 from idea_to_mvp.implementation.workspace import diff_stat
 from idea_to_mvp.nodes.common import stated_preferences
 from idea_to_mvp.nodes.implement import builds_task_by_task, effective_parallel
@@ -188,6 +190,8 @@ class SubmitService:
         self._active: set[str] = set()  # threads with a run streaming right now
         self._live: dict[str, LiveTurns] = {}  # the panel turns being written, per streaming thread
         self._diffs: dict[tuple[str, str], str] = {}  # (workspace, commit) -> git diff --stat (commits never change)
+        # The console rebuilt from the trajectory files, per workspace, for the ledger version it was read at
+        self._replayed: dict[str, tuple[tuple[int, int], list[ImplEvent]]] = {}
         self._tab: dict[str, str] = {}  # the tab last selected for each thread
         self._artifact_seen: dict[str, tuple[str, str, int, str]] = {}  # what the artifacts panel currently shows
 
@@ -334,13 +338,16 @@ class SubmitService:
 
     async def _implementation_view(self, thread_id: str, values: dict[str, Any], stage: str) -> tuple[Any, ...]:
         settings = self._context.settings
-        events = self._events.get(thread_id, [])
         workspace_dir = str(values.get("workspace_dir") or "")
         workspace = Path(workspace_dir) if workspace_dir and Path(workspace_dir).is_dir() else None
+        # Live events exist only for the life of the process; after a restart the console is read back from disk.
+        events = self._events.get(thread_id) or (self._replay(workspace) if workspace is not None else [])
         plan: dict[str, Any] = {}
         results: dict[str, TaskResult] = {}
         diffs: dict[str, str] = {}
+        trajectories: dict[str, str] = {}
         if workspace is not None:
+            trajectories = task_trajectories(workspace)
             loaded = load_plan(_read_text(workspace / "plan.json"))
             plan = loaded.model_dump() if loaded else {}
             results = {**(values.get("task_results") or {}), **load_progress(workspace)}  # the file is fresher mid-run
@@ -353,17 +360,36 @@ class SubmitService:
             and effective_parallel(cast(Any, values), settings) > 1
         )
         iteration = int(values.get("iteration") or 1)
-        usage_spent = (summarize_usage(values.get("usage") or [])["cost_usd"] or 0.0) - float(
+        usage_spent = summarize_usage(values.get("usage") or [])["agent_cost_usd"] - float(
             values.get("spent_before_iteration") or 0.0
         )
         spent = max(spent_in_iteration(results, iteration), usage_spent)  # progress is live, usage catches lanes/fixes
         return (
             self._tab_update(thread_id, str(values.get("stage") or "")),  # the state's own stage: the view's flickers
-            gr.update(value=render_task_board(plan, results, running, diffs=diffs, parallel=bool(parallel))),
+            gr.update(
+                value=render_task_board(
+                    plan, results, running, diffs=diffs, parallel=bool(parallel), trajectories=trajectories
+                )
+            ),
             gr.update(value=render_console(events)),
             gr.update(value=render_cost_meter(spent, settings.implementer_max_total_usd)),
             *await self._artifact_updates(thread_id, values, workspace),
         )
+
+    def _replay(self, workspace: Path) -> list[ImplEvent]:
+        """The console of a workspace as its trajectory files tell it (re-read only when the ledger changed)."""
+        try:
+            stat = ledger_path(workspace).stat()
+        except OSError:
+            return []
+        version = (stat.st_mtime_ns, stat.st_size)
+        key = str(workspace)
+        cached = self._replayed.get(key)
+        if cached is None or cached[0] != version:
+            plan = load_plan(_read_text(workspace / "plan.json"))
+            titles = {task.id: task.title for task in plan.tasks} if plan else {}
+            cached = self._replayed[key] = (version, events_from_trajectories(workspace, _LOG_LIMIT, titles))
+        return cached[1]
 
     async def _diff_stats(self, workspace: Path, results: dict[str, TaskResult]) -> dict[str, str]:
         found: dict[str, str] = {}
@@ -530,6 +556,8 @@ class SubmitService:
         live = self._live[thread_id] = LiveTurns()
         last_token_render = 0.0
         history = self._events.setdefault(thread_id, [])
+        if not history and (workspace_dir := str(values.get("workspace_dir") or "")) and Path(workspace_dir).is_dir():
+            history.extend(self._replay(Path(workspace_dir)))  # a restarted UI keeps what happened before
         last_progress = 0.0
         self._active.add(thread_id)
         try:

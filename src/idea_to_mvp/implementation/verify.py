@@ -25,7 +25,9 @@ from pydantic import BaseModel, ValidationError
 
 from idea_to_mvp import implementer
 from idea_to_mvp.implementation.events import ImplEvent, events_from_sdk_message, make_event
+from idea_to_mvp.implementation.ledger import SessionOutcome
 from idea_to_mvp.implementation.options import SandboxUnavailableError
+from idea_to_mvp.implementation.trajectory import SessionLog, model_label
 from idea_to_mvp.plan import Plan, load_plan, parse_requirements
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -279,6 +281,7 @@ class _Session:
     cost_usd: float = 0.0
     turns: int = 0
     crashed: str = ""  # why the session raised, if it did
+    session_id: str | None = None
 
 
 async def _run_session(
@@ -294,6 +297,7 @@ async def _run_session(
     extra_disallowed_tools: Sequence[str] = (),
     role: AgentRole,
     query_fn: Callable[..., AsyncIterator[Any]] | None = None,
+    log: SessionLog | None = None,
 ) -> _Session:
     from claude_agent_sdk import ResultMessage
 
@@ -310,6 +314,8 @@ async def _run_session(
             role=role,
             query_fn=query_fn,
         ):
+            if log is not None:
+                log.message(message)
             for event in events_from_sdk_message(message, task_id):
                 emit(event)
             if isinstance(message, ResultMessage):
@@ -319,6 +325,7 @@ async def _run_session(
                 session.subtype = message.subtype
                 session.cost_usd = float(message.total_cost_usd or 0.0)
                 session.turns = message.num_turns
+                session.session_id = message.session_id
     except SandboxUnavailableError:
         raise  # a configuration problem, not a failed check
     except Exception as exc:  # the agent process died, the API failed, ...
@@ -332,6 +339,18 @@ def _read(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except OSError:
         return ""
+
+
+def _finish_log(log: SessionLog, session: _Session) -> None:
+    """Close a session's trajectory and add it to the ledger (a lane that fails its checks is still a session that worked)."""
+    outcome: SessionOutcome = "crashed" if session.crashed else "failed" if session.is_error else "success"
+    note = session.crashed or (f"The session ended with {session.subtype}. {session.text}".strip() if session.is_error else "")
+    log.finish(outcome=outcome, cost_usd=session.cost_usd, turns=session.turns, session_id=session.session_id, note=note)
+
+
+def _log_name(iteration: int, name: str) -> str:
+    """Trajectory label of a verification session; later versions are prefixed so their files stay apart."""
+    return f"v{iteration}-{name}" if iteration > 1 else name
 
 
 def _lane_report_from(lane: LaneName, session: _Session) -> LaneReport:
@@ -350,17 +369,33 @@ async def run_lane(
     budget_usd: float,
     emit: Callable[[ImplEvent], None],
     plan: Plan | None = None,
+    iteration: int = 1,
+    attempt: int = 1,
     query_fn: Callable[..., AsyncIterator[Any]] | None = None,
 ) -> LaneOutcome:
-    """Run one verification lane in `workspace` and return its validated report (never raises for a bad lane)."""
+    """Run one verification lane in `workspace` and return its validated report (never raises for a bad lane).
+
+    `attempt` is the verification round (1 = before any fix) and `iteration` the version being built; they
+    name the lane's trajectory and ledger row.
+    """
     workspace = Path(workspace)
     task_id, label = f"verify:{lane}", f"{lane.capitalize()} lane"
     emit(make_event("task_start", task_id=task_id, label=label))
+    log = SessionLog(
+        workspace,
+        kind="lane",
+        label=_log_name(iteration, f"lane-{lane}-{attempt}"),
+        iteration=iteration,
+        attempt=attempt,
+        model=model_label(settings, "verifier"),
+    )
     if settings.demo_mode:
         from idea_to_mvp.demo.implementer import demo_verify_lane
 
         await asyncio.sleep(0)
         outcome = LaneOutcome(await asyncio.to_thread(demo_verify_lane, workspace, lane))
+        log.event(make_event("text", task_id=task_id, label="agent", detail=outcome.report.summary))
+        log.finish(outcome="success", cost_usd=0.0, turns=0, session_id=None)
     else:
         plan = plan or load_plan(_read(workspace / "plan.json"))
         session = await _run_session(
@@ -375,7 +410,9 @@ async def run_lane(
             extra_disallowed_tools=() if lane == "tests" else WRITE_TOOLS,
             role="verifier",
             query_fn=query_fn,
+            log=log,
         )
+        _finish_log(log, session)
         outcome = LaneOutcome(_lane_report_from(lane, session), session.cost_usd, session.turns)
     detail = "passed" if outcome.report.passed else f"failed: {outcome.report.failures[0][:120] if outcome.report.failures else 'see report'}"
     emit(make_event("task_end", task_id=task_id, label=label, detail=detail))
@@ -395,6 +432,7 @@ async def run_fix(
     budget_usd: float,
     emit: Callable[[ImplEvent], None],
     attempt: int = 1,
+    iteration: int = 1,
     query_fn: Callable[..., AsyncIterator[Any]] | None = None,
 ) -> FixOutcome:
     """One implementation session that fixes the merged failure list (a failing session is reported, not raised).
@@ -403,11 +441,21 @@ async def run_fix(
     """
     task_id, label = "verify:fix", "Fix"
     emit(make_event("task_start", task_id=task_id, label=label, detail=f"{len(failures)} failure(s)"))
+    log = SessionLog(
+        workspace,
+        kind="fix",
+        label=_log_name(iteration, f"fix-{attempt}"),
+        iteration=iteration,
+        attempt=attempt,
+        model=model_label(settings, fix_role(attempt)),
+    )
     if settings.demo_mode:
         from idea_to_mvp.demo.implementer import demo_fix
 
         await asyncio.sleep(0)
         outcome = FixOutcome(True, demo_fix("\n".join(failures)))
+        log.event(make_event("text", task_id=task_id, label="agent", detail=outcome.summary))
+        log.finish(outcome="success", cost_usd=0.0, turns=0, session_id=None)
     else:
         session = await _run_session(
             Path(workspace),
@@ -419,7 +467,9 @@ async def run_fix(
             emit=emit,
             role=fix_role(attempt),
             query_fn=query_fn,
+            log=log,
         )
+        _finish_log(log, session)
         if session.crashed:
             summary = f"The fix session failed: {session.crashed}"
         else:

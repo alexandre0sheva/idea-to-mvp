@@ -50,7 +50,7 @@ def test_the_zip_holds_the_project_under_its_own_folder(workspace: Path, tmp_pat
 @pytest.mark.parametrize(
     "excluded",
     ["node_modules/pkg/index.js", ".venv/bin/python", "venv/lib/x.py", "coverage/lcov.info", "dist/app.js", "src/__pycache__/app.pyc",
-     ".pytest_cache/v/cache", ".idea-to-mvp/progress.json"],
+     ".pytest_cache/v/cache", ".idea-to-mvp/progress.json", ".idea-to-mvp/ledger.json", ".idea-to-mvp/trajectories/T01.md"],
 )
 def test_dependencies_build_output_and_orchestrator_files_are_left_out(workspace: Path, tmp_path: Path, excluded: str) -> None:
     path = workspace / excluded

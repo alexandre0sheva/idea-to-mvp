@@ -6,6 +6,7 @@ from typing import Any
 
 from idea_to_mvp.config import get_settings
 from idea_to_mvp.delivery import make_delivery_zip, tag_iteration
+from idea_to_mvp.implementation.ledger import check_ledger
 from idea_to_mvp.implementation.workspace import workspace_tree
 from idea_to_mvp.state import IdeaDiscussionState
 
@@ -32,6 +33,10 @@ def delivery_report_node(state: IdeaDiscussionState) -> dict[str, Any]:
     attempts = int(verification.get("attempts") or 0)
     iteration = int(state.get("iteration") or 1)
     tag, archive = _bundle(Path(workspace_dir), iteration, passed) if workspace_dir and Path(workspace_dir).is_dir() else ("", "")
+    if workspace_dir and Path(workspace_dir).is_dir():
+        check = check_ledger(Path(workspace_dir), state.get("usage") or [])
+        if not check.ok:  # spend that the ledger or the usage record misses: worth a line in the log
+            LOGGER.warning("%s", check.message)
     lane_verdicts = " · ".join(
         f"{lane.get('lane')} {'✅' if lane.get('passed') else '❌'}" for lane in verification.get("lanes") or []
     )

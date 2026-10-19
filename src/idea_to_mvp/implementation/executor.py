@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from idea_to_mvp import implementer
 from idea_to_mvp.implementation import merge
 from idea_to_mvp.implementation.events import ImplEvent, events_from_sdk_message, make_event
+from idea_to_mvp.implementation.ledger import SessionOutcome
 from idea_to_mvp.implementation.options import SandboxUnavailableError
 from idea_to_mvp.implementation.progress import (
     TaskResult,
@@ -26,8 +27,9 @@ from idea_to_mvp.implementation.progress import (
     save_result,
     spent_in_iteration,
 )
+from idea_to_mvp.implementation.trajectory import SessionLog, model_label
 from idea_to_mvp.implementation.workspace import commit_workspace, head_commit
-from idea_to_mvp.plan import Plan, PlanTask, execution_waves
+from idea_to_mvp.plan import Plan, PlanTask, execution_waves, iteration_of
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.config import Settings
@@ -131,6 +133,7 @@ class _Outcome:
     cost_usd: float = 0.0
     turns: int = 0
     session_id: str | None = None
+    crashed: bool = False  # the session raised instead of ending with a result
 
 
 def _bullets(items: list[str]) -> str:
@@ -180,6 +183,7 @@ async def _run_session(
     emit: Callable[[ImplEvent], None],
     query_fn: Callable[..., AsyncIterator[Any]] | None,
     role: AgentRole = "implementer",
+    log: SessionLog | None = None,
 ) -> _Outcome:
     from claude_agent_sdk import ResultMessage
 
@@ -194,6 +198,8 @@ async def _run_session(
             role=role,
             query_fn=query_fn,
         ):
+            if log is not None:
+                log.message(message)
             for event in events_from_sdk_message(message, task.id):
                 emit(event)
             if isinstance(message, ResultMessage):
@@ -215,8 +221,21 @@ async def _run_session(
             cost_usd=outcome.cost_usd,
             turns=outcome.turns,
             session_id=outcome.session_id,
+            crashed=True,
         )
     return outcome
+
+
+def _finish_log(log: SessionLog, outcome: _Outcome) -> None:
+    """Close a session's trajectory and add it to the ledger; what went wrong is written into the trajectory."""
+    result: SessionOutcome = "crashed" if outcome.crashed else "success" if outcome.success else "failed"
+    log.finish(
+        outcome=result,
+        cost_usd=outcome.cost_usd,
+        turns=outcome.turns,
+        session_id=outcome.session_id,
+        note="" if outcome.success else outcome.summary,
+    )
 
 
 async def _run_demo_session(workspace: Path, task: PlanTask, emit: Callable[[ImplEvent], None]) -> _Outcome:
@@ -258,10 +277,21 @@ async def run_task(
     emit(make_event("task_start", task_id=task.id, label=task.title, detail=detail))
 
     remaining = budget.remaining()
+    # The trajectory and the ledger row live in the main workspace even when the session runs in a worktree,
+    # which is removed once the task is merged.
+    log = SessionLog(
+        workspace,
+        kind="task",
+        label=task.id,
+        task_id=task.id,
+        iteration=iteration_of(task.id),
+        model=model_label(settings, "implementer"),
+    )
     if remaining <= 0:
         outcome = _Outcome(success=False, summary="Not started: the whole-run budget is used up.")
     elif settings.demo_mode:
-        outcome = await _run_demo_session(work_dir or workspace, task, emit)
+        outcome = await _run_demo_session(work_dir or workspace, task, log.tee(emit))
+        _finish_log(log, outcome)
     else:
         outcome = await _run_session(
             work_dir or workspace,
@@ -271,7 +301,9 @@ async def run_task(
             budget_usd=min(settings.implementer_max_task_usd, remaining),
             emit=emit,
             query_fn=query_fn,
+            log=log,
         )
+        _finish_log(log, outcome)
     budget.charge(outcome.cost_usd)
 
     commit = None
@@ -330,6 +362,14 @@ async def run_merge_resolver(
         scope=task.scope,
         test_hint=f" (`{test_command}`)" if test_command.strip() else "",
     )
+    log = SessionLog(
+        Path(workspace),
+        kind="resolver",
+        label=f"{task.id}-resolver",
+        task_id=task.id,
+        iteration=iteration_of(task.id),
+        model=model_label(settings, "escalation"),
+    )
     outcome = await _run_session(
         Path(workspace),
         task,
@@ -339,7 +379,9 @@ async def run_merge_resolver(
         emit=emit,
         query_fn=query_fn,
         role="escalation",  # a conflict between two finished tasks is a hard case
+        log=log,
     )
+    _finish_log(log, outcome)
     return ResolverOutcome(success=outcome.success, summary=outcome.summary, cost_usd=outcome.cost_usd)
 
 

@@ -15,7 +15,7 @@ EVENT_KINDS: tuple[str, ...] = ("task_start", "tool", "text", "task_end", "cost"
 
 _DETAIL_LIMIT = 160
 # Tool inputs in order of how telling they are as a one-line description.
-_DETAIL_KEYS = ("file_path", "notebook_path", "command", "pattern", "path", "description")
+_DETAIL_KEYS = ("file_path", "notebook_path", "command", "pattern", "path", "description", "detail")
 
 
 class ImplEvent(TypedDict):
@@ -38,18 +38,18 @@ def make_event(
     return {"kind": kind, "task_id": task_id, "label": label, "detail": detail, "cost_usd": cost_usd, "ts": time.time()}
 
 
-def _shorten(text: str, limit: int = _DETAIL_LIMIT) -> str:
+def shorten(text: str, limit: int = _DETAIL_LIMIT) -> str:
     collapsed = " ".join(text.split())
     return collapsed if len(collapsed) <= limit else collapsed[: limit - 1] + "…"
 
 
-def _tool_detail(tool_input: Any) -> str:
+def tool_detail(tool_input: Any) -> str:
     if not isinstance(tool_input, dict):
         return ""
     for key in _DETAIL_KEYS:
         value = tool_input.get(key)
         if isinstance(value, str) and value.strip():
-            return _shorten(value)
+            return shorten(value)
     return ""
 
 
@@ -61,9 +61,9 @@ def events_from_sdk_message(message: Any, task_id: str | None) -> list[ImplEvent
         events: list[ImplEvent] = []
         for block in message.content:
             if isinstance(block, ToolUseBlock):
-                events.append(make_event("tool", task_id=task_id, label=block.name, detail=_tool_detail(block.input)))
+                events.append(make_event("tool", task_id=task_id, label=block.name, detail=tool_detail(block.input)))
             elif isinstance(block, TextBlock) and block.text.strip():
-                events.append(make_event("text", task_id=task_id, label="agent", detail=_shorten(block.text, 240)))
+                events.append(make_event("text", task_id=task_id, label="agent", detail=shorten(block.text, 240)))
         return events
     if isinstance(message, ResultMessage) and message.total_cost_usd is not None:
         detail = f"{message.num_turns} turns"

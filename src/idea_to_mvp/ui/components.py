@@ -99,14 +99,29 @@ def compact_count(count: int) -> str:
 
 
 def usage_badge(summary: Mapping[str, Any]) -> str:
-    """Token total and agent spend of the run so far ('' before anything was spent)."""
+    """Token total, planning spend, and agent spend of the run so far ('' before anything was spent).
+
+    Planning calls (panel, summary, architecture, blueprint, ...) are priced from the model catalog; calls to a
+    model with no price are called unpriced rather than left out silently."""
     if not summary.get("calls"):
         return ""
     tokens = int(summary.get("total_tokens") or 0)
     detail = f"{int(summary.get('input_tokens') or 0):,} in / {int(summary.get('output_tokens') or 0):,} out"
     badges = [f"<span class='usage-badge' title='{detail}'>{compact_count(tokens)} tokens</span>"]
-    if summary.get("cost_usd") is not None:
-        badges.append(f"<span class='usage-badge cost' title='Agent sessions'>${float(summary['cost_usd']):.2f}</span>")
+    planning, unpriced = summary.get("planning_cost_usd"), int(summary.get("unpriced_calls") or 0)
+    if planning is not None:
+        extra = f" + {unpriced} unpriced" if unpriced else ""
+        title = "Panel, research, summary, architecture, and blueprint calls at catalog prices" + (
+            f"; {unpriced} call(s) to a model with no price are not in this figure" if unpriced else ""
+        )
+        badges.append(f"<span class='usage-badge cost' title='{title}'>${float(planning):.2f} planning{extra}</span>")
+    elif unpriced:
+        badges.append("<span class='usage-badge' title='These models have no price in the catalog'>planning unpriced</span>")
+    if summary.get("agent_calls"):
+        badges.append(
+            f"<span class='usage-badge cost' title='Agent sessions: tasks, merge conflicts, verification, fixes'>"
+            f"${float(summary.get('agent_cost_usd') or 0.0):.2f} agents</span>"
+        )
     return "<span class='usage-badges'>" + "".join(badges) + "</span>"
 
 

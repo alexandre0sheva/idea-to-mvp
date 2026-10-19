@@ -136,6 +136,27 @@ def _stat(name: str, label: str, value: str) -> str:
     return f"<div class='stat stat-{name}'><span class='stat-label'>{_e(label)}</span><span class='stat-value'>{_e(value)}</span></div>"
 
 
+def _planning_cost(summary: Mapping[str, Any]) -> str:
+    planning = summary["planning_cost_usd"]
+    if planning is None:
+        return "unpriced" if summary["unpriced_calls"] else "$0.00"
+    return f"${planning:.2f}" + (" + unpriced calls" if summary["unpriced_calls"] else "")
+
+
+def _estimate_stat(estimate: Mapping[str, Any], summary: Mapping[str, Any], iteration: int) -> str:
+    """The implement gate's estimate against what the first version's agents spent ('' for later versions)."""
+    if not estimate or iteration != 1:
+        return ""
+    low, high = estimate.get("low"), estimate.get("high")
+    if low is None or high is None:
+        return _stat("estimate", "Estimate vs actual", f"estimate unpriced · ${summary['agent_cost_usd']:.2f} actual")
+    actual = float(summary["agent_cost_usd"])
+    verdict = "under" if actual < low else "over" if actual > high else "within"
+    return _stat(
+        "estimate", "Estimate vs actual", f"${low:.2f}–${high:.2f} estimated · ${actual:.2f} actual ({verdict})"
+    )
+
+
 def render_dashboard(state: Mapping[str, Any], *, elapsed: Mapping[str, float] | None = None) -> str:
     """The delivery dashboard for a finished run (`elapsed`: seconds per pipeline step, when known)."""
     verification = state.get("verification") or {}
@@ -170,9 +191,12 @@ def render_dashboard(state: Mapping[str, Any], *, elapsed: Mapping[str, float] |
     tasks_total = len(plan.tasks) if plan else len(results)
     tasks_done = sum(1 for task_id, r in results.items() if r["status"] == "done" and (plan is None or any(t.id == task_id for t in plan.tasks)))
     took = sum((elapsed or {}).values())
+    estimate_html = _estimate_stat(state.get("cost_estimate") or {}, summary, iteration)
     stats = "".join(
         [
-            _stat("cost", "Agent cost", f"${summary['cost_usd'] or 0.0:.2f}"),
+            _stat("planning", "Planning cost", _planning_cost(summary)),
+            _stat("cost", "Agent cost", f"${summary['agent_cost_usd']:.2f}"),
+            estimate_html,
             _stat("tokens", "Model tokens", f"{compact_count(int(summary['total_tokens']))} tokens"),
             _stat("time", "Time", format_elapsed(took) if took > 0 else "—"),
             _stat("tasks", "Tasks", f"{tasks_done} of {tasks_total} tasks"),

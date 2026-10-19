@@ -190,3 +190,35 @@ async def test_a_stopped_implementation_leaves_no_task_marked_as_running(demo_se
     cols = board_columns(stopped)
     assert cols["running"] == [] and cols["done"] == ["T01"] and "T02" in cols["pending"]
     assert "Stopped" in str(update_value(stopped[POS_STATUS], "value"))
+
+
+async def test_a_restarted_ui_shows_the_old_log_and_links_each_task_to_its_trajectory(demo_service: Any) -> None:
+    from idea_to_mvp.ui.service import SubmitService
+
+    service, _ = demo_service
+    thread = "iv-restart"
+    await to_implement_gate(service, thread)
+    await submit(service, "", IMPL_CHOICE_START, thread)
+
+    restarted = SubmitService(service._context)  # same disk and checkpoints, no events in memory
+    output = await restarted.initial_view(thread)
+    console = str(update_value(output[POS_CONSOLE], "value"))
+    assert "started: Project setup" in console and "started: Tests lane" in console and "Waiting for the first event" not in console
+    board = str(update_value(output[POS_BOARD], "value"))
+    assert "<code class='task-trajectory'>.idea-to-mvp/trajectories/T01.md</code>" in board
+
+
+async def test_a_run_continued_after_a_restart_keeps_the_old_lines_in_its_console(demo_service: Any) -> None:
+    from idea_to_mvp.ui.service import SubmitService
+    from idea_to_mvp.ui.view import ITERATE_CHOICE_CHANGES
+
+    service, _ = demo_service
+    thread = "iv-restart-iterate"
+    await to_implement_gate(service, thread)
+    await submit(service, "", IMPL_CHOICE_START, thread)
+
+    restarted = SubmitService(service._context)
+    outputs = await submit(restarted, "Add a CSV export.", ITERATE_CHOICE_CHANGES, thread)
+    console = str(update_value(outputs[-1][POS_CONSOLE], "value"))
+    assert "started: Project setup" in console  # the first version's sessions, read back from disk
+    assert "I2-01" in console  # and the new version's, live

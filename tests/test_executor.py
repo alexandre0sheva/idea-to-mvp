@@ -492,3 +492,117 @@ def test_the_resolver_is_a_no_op_success_in_demo_mode(workspace: Path) -> None:
     plan = make_plan([make_task("T03")])
     outcome = run(run_merge_resolver(workspace, plan.tasks[0], ["a"], make_settings(demo_mode=True), emit=lambda e: None, budget_usd=1.0, plan=plan))
     assert outcome.success and outcome.cost_usd == 0.0
+
+
+# ------------------------------------------------ trajectories and the run ledger
+
+
+def trajectory_tags(workspace: Path, label: str) -> list[str]:
+    from idea_to_mvp.implementation.trajectory import parse_trajectory
+
+    text = (workspace / ".idea-to-mvp" / "trajectories" / f"{label}.md").read_text(encoding="utf-8")
+    return [tag for tag, _ in parse_trajectory(text)]
+
+
+def test_a_task_session_leaves_a_trajectory_and_a_ledger_row(workspace: Path) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+    from idea_to_mvp.roles import resolve_agent_model
+
+    settings = make_settings()
+    run(run_task(workspace, make_task("T01"), settings, budget=BudgetTracker(25), emit=lambda e: None, query_fn=FakeQuery(workspace)))
+    (row,) = load_ledger(workspace)
+    assert (row["kind"], row["label"], row["task_id"], row["iteration"], row["attempt"]) == ("task", "T01", "T01", 1, 1)
+    assert (row["cost_usd"], row["turns"], row["outcome"], row["session_id"]) == (0.5, 5, "success", "session-T01")
+    assert row["model"] == resolve_agent_model(settings, "implementer")
+    assert trajectory_tags(workspace, "T01") == ["TEXT", "ACTION", "RESULT"]
+
+
+def test_every_attempt_at_a_task_keeps_its_own_trajectory(workspace: Path) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+
+    query = FakeQuery(workspace)
+    query.fail = {"T01"}
+    run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    query.fail = set()
+    run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    rows = load_ledger(workspace)
+    assert [(r["label"], r["attempt"], r["outcome"]) for r in rows] == [("T01", 1, "failed"), ("T01-2", 2, "success")]
+    assert "ERROR" in trajectory_tags(workspace, "T01") and "ERROR" not in trajectory_tags(workspace, "T01-2")
+
+
+def test_a_crashed_session_is_in_the_ledger_with_the_reason_in_its_trajectory(workspace: Path) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+    from idea_to_mvp.implementation.trajectory import parse_trajectory
+
+    query = FakeQuery(workspace)
+    query.crash = {"T01"}
+    run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    assert [r["outcome"] for r in load_ledger(workspace)] == ["crashed"]
+    errors = [text for tag, text in parse_trajectory((workspace / ".idea-to-mvp/trajectories/T01.md").read_text()) if tag == "ERROR"]
+    assert any("agent process died" in text for text in errors)
+
+
+def test_no_session_means_no_row(workspace: Path) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+
+    run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(0.0), emit=lambda e: None, query_fn=FakeQuery(workspace)))
+    save_result(workspace, {"task_id": "T02", "status": "done", "summary": "earlier", "cost_usd": 1.0, "turns": 2, "session_id": None, "commit": "abc"})
+    run(run_task(workspace, make_task("T02"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=FakeQuery(workspace)))
+    assert load_ledger(workspace) == []  # the budget was gone and the task was already done: nothing ran
+
+
+def test_a_later_versions_task_is_recorded_under_its_iteration(workspace: Path) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+
+    async def query(*, prompt: str, options: Any) -> AsyncIterator[Any]:
+        yield ResultMessage(
+            subtype="success", duration_ms=1, duration_api_ms=1, is_error=False, num_turns=2, session_id="s", total_cost_usd=0.1, result="ok"
+        )
+
+    run(run_task(workspace, make_task("I2-01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    assert [(r["label"], r["iteration"]) for r in load_ledger(workspace)] == [("I2-01", 2)]
+
+
+def test_a_worktree_session_is_recorded_in_the_main_workspace_where_the_worktree_will_not_outlive_it(workspace: Path) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+
+    worktree = run(merge.create_worktree(workspace, "T02"))
+    plan = make_plan([make_task("T01"), make_task("T02", depends_on=["T01"])])
+    run(run_task(workspace, plan.tasks[1], make_settings(), budget=BudgetTracker(5.0), emit=lambda e: None, plan=plan, work_dir=worktree, persist=False, query_fn=FakeQuery(worktree)))
+    assert [r["label"] for r in load_ledger(workspace)] == ["T02"]
+    assert trajectory_tags(workspace, "T02") and not (worktree / ".idea-to-mvp").exists()
+
+
+def test_the_resolver_has_its_own_row_on_the_escalation_model(workspace: Path) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+
+    plan = make_plan([make_task("T03")])
+    query = FakeQuery(workspace, cost=0.3, turns=6)
+    query.task_of = lambda prompt: "T03"  # type: ignore[method-assign]
+    settings = make_settings(escalation_model="m-hard")
+    run(run_merge_resolver(workspace, plan.tasks[0], ["README.md"], settings, emit=lambda e: None, budget_usd=2.0, plan=plan, query_fn=query))
+    (row,) = load_ledger(workspace)
+    assert (row["kind"], row["label"], row["task_id"], row["model"], row["cost_usd"]) == ("resolver", "T03-resolver", "T03", "m-hard", 0.3)
+
+
+def test_demo_sessions_are_recorded_too_so_the_console_survives_a_restart(workspace: Path) -> None:
+    from idea_to_mvp.implementation.ledger import load_ledger
+
+    plan = make_plan([make_task("T01", title="Setup"), make_task("T02", title="Core", depends_on=["T01"])])
+    run(run_plan(workspace, plan, make_settings(demo_mode=True), emit=lambda e: None))
+    rows = load_ledger(workspace)
+    assert [(r["label"], r["outcome"], r["cost_usd"], r["turns"], r["model"]) for r in rows] == [("T01", "success", 0.0, 3, "demo"), ("T02", "success", 0.0, 3, "demo")]
+    assert trajectory_tags(workspace, "T01")[-1] == "RESULT" and "ACTION" in trajectory_tags(workspace, "T01")
+
+
+def test_the_ledger_equals_the_agent_spend_that_usage_reports(workspace: Path) -> None:
+    from idea_to_mvp.implementation.ledger import check_ledger
+    from idea_to_mvp.nodes.implement import usage_records
+
+    plan = make_plan([make_task("T01"), make_task("T02", depends_on=["T01"]), make_task("T03", depends_on=["T02"])])
+    query = FakeQuery(workspace, cost=0.5)
+    query.fail = {"T02"}  # a failed session still cost money; its dependent is skipped and costs none
+    settings = make_settings()
+    results = run(run_plan(workspace, plan, settings, emit=lambda e: None, query_fn=query))
+    check = check_ledger(workspace, usage_records(results, settings))
+    assert check.ok and check.ledger_usd == 1.0, check.message

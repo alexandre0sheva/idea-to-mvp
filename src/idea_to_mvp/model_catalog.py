@@ -239,6 +239,11 @@ _VERSION_TOKEN = re.compile(r"\d+(?:\.\d+)*")
 _PREVIEW_TOKENS = {"preview", "latest", "exp", "experimental"}
 
 
+def strip_snapshot_date(model_id: str) -> str:
+    """The id without a trailing snapshot date (`claude-sonnet-5-5-20260301` -> `claude-sonnet-5-5`)."""
+    return _DATE_SUFFIX.sub("", model_id.strip())
+
+
 def parse_model_id(model_id: str) -> ParsedModelId:
     """Split an id into a family and a version, ignoring snapshot dates, so ids of one lineage can be compared."""
     name = _DATE_SUFFIX.sub("", model_id.strip().lower().removeprefix("models/"))

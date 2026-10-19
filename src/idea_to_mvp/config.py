@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     # `*_PROVIDER` or `*_MODEL` is set explicitly ignores it (see `roles.resolve_role_model` and
     # `roles.resolve_agent_model`).
     model_profile: ModelProfile = "balanced"
+    # Negotiated or otherwise non-list prices: a TOML file with one [prices."<model id>"] table per model
+    # (input_per_mtok, output_per_mtok, optional cached_input_per_mtok). It wins over models.toml (see pricing.py).
+    model_prices_file: Path | None = None
 
     pm_provider: Provider = "openai"
     tech_lead_provider: Provider = "anthropic"

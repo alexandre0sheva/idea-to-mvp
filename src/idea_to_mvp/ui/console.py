@@ -55,6 +55,7 @@ def _card(
     *,
     parallel: bool,
     diff: str,
+    trajectory: str = "",
 ) -> str:
     task_id = str(task.get("id") or "")
     meta = [f"<span class='chip'>{_e(task.get('workstream'))}</span>", f"<span class='chip'>{_e(f'task/{task_id}' if parallel else MAIN_BRANCH)}</span>"]
@@ -79,6 +80,8 @@ def _card(
             body = "<details><summary>Summary and changes</summary>" + "".join(parts) + "</details>"
     elif state == "pending" and task.get("depends_on"):
         meta.append(f"<span class='task-deps'>after {_e(', '.join(str(d) for d in task['depends_on']))}</span>")
+    if trajectory:  # the file to pick in the file viewer to read what the agent did
+        meta.append(f"<code class='task-trajectory'>{_e(trajectory)}</code>")
     return (
         f"<article class='task-card {state}' data-task='{_e(task_id)}'>"
         f"<header><strong>{_e(task_id)}</strong> <span class='task-title'>{_e(task.get('title'))}</span> {badge}</header>"
@@ -93,23 +96,35 @@ def render_task_board(
     *,
     diffs: Mapping[str, str] | None = None,
     parallel: bool = False,
+    trajectories: Mapping[str, str] | None = None,
 ) -> str:
     """Kanban of the plan's tasks: pending | running | done | failed (skipped tasks count as failed).
 
     `diffs` maps a commit to its `git diff --stat`; `parallel` says tasks run on their own `task/<id>` branch
-    rather than on the main line.
+    rather than on the main line; `trajectories` maps a task to the workspace path of its latest trajectory,
+    which a card names so the user can open it in the file viewer.
     """
     tasks = [task for task in plan.get("tasks") or [] if isinstance(task, Mapping)]
     if not tasks:
         return "<p class='board-empty'>The task board appears once the blueprint's plan is being built.</p>"
     diffs = diffs or {}
+    trajectories = trajectories or {}
     grouped: dict[str, list[str]] = {name: [] for name, _ in COLUMNS}
     for task in tasks:
         task_id = str(task.get("id") or "")
         state = task_state(task_id, results, running)
         result = results.get(task_id)
         commit = result["commit"] if result and result["commit"] else ""
-        grouped[state].append(_card(task, state, result, parallel=parallel, diff=diffs.get(commit, "") if commit else ""))
+        grouped[state].append(
+            _card(
+                task,
+                state,
+                result,
+                parallel=parallel,
+                diff=diffs.get(commit, "") if commit else "",
+                trajectory=trajectories.get(task_id, ""),
+            )
+        )
     columns = "".join(
         f"<section class='board-col' data-col='{name}'><h4>{label} ({len(grouped[name])})</h4>{''.join(grouped[name])}</section>"
         for name, label in COLUMNS

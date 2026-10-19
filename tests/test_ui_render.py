@@ -83,20 +83,30 @@ def test_elapsed_time_formatting(seconds: float, text: str) -> None:
 
 
 def summary(**overrides: object) -> dict:
-    fields: dict = {"input_tokens": 9000, "output_tokens": 3300, "total_tokens": 12300, "calls": 7, "cost_usd": 1.204}
+    fields: dict = {
+        "input_tokens": 9000, "output_tokens": 3300, "total_tokens": 12300, "calls": 7, "cost_usd": 1.454,
+        "planning_cost_usd": 0.25, "agent_cost_usd": 1.204, "agent_calls": 3, "unpriced_calls": 0,
+    }  # fmt: skip
     fields.update(overrides)
     return fields
 
 
-def test_the_usage_badge_shows_compact_tokens_and_the_dollar_cost() -> None:
+def test_the_usage_badge_shows_planning_and_agent_spend_apart() -> None:
     html = usage_badge(summary())
-    assert "12.3k tokens" in html and "$1.20" in html
+    assert "12.3k tokens" in html and "$0.25 planning" in html and "$1.20 agents" in html
     assert "9,000 in" in html and "3,300 out" in html  # the exact numbers are in the tooltip
 
 
-def test_the_usage_badge_omits_the_cost_when_no_agent_spend_was_reported() -> None:
-    html = usage_badge(summary(cost_usd=None, total_tokens=1_500_000))
-    assert "1.5M tokens" in html and "$" not in html
+def test_the_usage_badge_omits_the_agent_badge_before_any_session_ran() -> None:
+    html = usage_badge(summary(agent_cost_usd=0.0, agent_calls=0, total_tokens=1_500_000))
+    assert "1.5M tokens" in html and "$0.25 planning" in html and "agents" not in html
+
+
+def test_calls_without_a_price_are_called_unpriced() -> None:
+    mixed = usage_badge(summary(unpriced_calls=2))
+    assert "$0.25 planning" in mixed and "unpriced" in mixed  # the figure leaves some calls out, and says so
+    none = usage_badge(summary(planning_cost_usd=None, unpriced_calls=4, agent_cost_usd=0.0, agent_calls=0))
+    assert "planning unpriced" in none and "$" not in none
 
 
 def test_the_usage_badge_is_empty_before_anything_was_spent() -> None:
