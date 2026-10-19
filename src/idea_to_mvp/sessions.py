@@ -12,6 +12,9 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
+
+TITLE_LENGTH = 70
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS idea_sessions (
@@ -67,6 +70,25 @@ class SessionRegistry:
                     updated_at = excluded.updated_at
                 """,
                 (thread_id, title, stage, interrupted_at, now, now),
+            )
+
+    def record(
+        self,
+        thread_id: str,
+        values: dict[str, Any],
+        interrupt: dict[str, Any] | None,
+        *,
+        title: str | None = None,
+    ) -> None:
+        """Keep a thread's row in step with its checkpoint (title from the idea, stage, and the gate it waits
+        at); a thread with no idea yet (and no `title` for it) is not listed."""
+        text = str(values.get("user_idea") or title or "").strip()
+        if text:
+            self.upsert(
+                thread_id,
+                text[:TITLE_LENGTH],
+                str(values.get("stage") or "discussion"),
+                interrupted_at=(interrupt or {}).get("kind"),
             )
 
     def list(self, limit: int = 50) -> list[SessionInfo]:

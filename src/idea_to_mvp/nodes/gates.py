@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -30,17 +31,22 @@ PLAN_OFFER_QUESTION = (
 AUTOPILOT_NOTE = "Autopilot: the architect's recommendation."
 
 
-def _suggested_answers(state: IdeaDiscussionState) -> str | None:
-    """The questions' own suggested answers as the numbered list a user would type, if every one has one."""
-    items = state.get("questions") or []
+def suggested_answers(items: Sequence[Mapping[str, Any]]) -> str | None:
+    """The questions' own suggested answers as the numbered list a user would type, if every one has one
+    (`items` are the `MvpQuestion` dumps: the state's `questions`, the answers gate's `question_items`)."""
     suggestions = [str(item.get("suggested_answer") or "").strip() for item in items]
     if not items or not all(suggestions):
         return None
     return "\n".join(f"{number}. {suggestion}" for number, suggestion in enumerate(suggestions, start=1))
 
 
+def recommended_option(proposal: Mapping[str, Any]) -> Literal["A", "B"]:
+    """The option the architect recommends (A when it named neither)."""
+    return "B" if str(proposal.get("recommendation") or "A").strip().upper() == "B" else "A"
+
+
 def collect_answers_node(state: IdeaDiscussionState) -> dict[str, Any]:
-    if state.get("autopilot") and (suggested := _suggested_answers(state)):
+    if state.get("autopilot") and (suggested := suggested_answers(state.get("questions") or [])):
         return {"user_answers": suggested, "stage": "answers"}
     answers = interrupt(
         {
@@ -55,8 +61,7 @@ def collect_answers_node(state: IdeaDiscussionState) -> dict[str, Any]:
 
 def arch_choice_node(state: IdeaDiscussionState) -> dict[str, Any]:
     if state.get("autopilot"):
-        recommended = str((state.get("architecture_proposal") or {}).get("recommendation") or "A").strip().upper()
-        auto: ArchChoice = {"option": recommended if recommended in ("A", "B") else "A", "notes": AUTOPILOT_NOTE}
+        auto: ArchChoice = {"option": recommended_option(state.get("architecture_proposal") or {}), "notes": AUTOPILOT_NOTE}
         return {"arch_choice": auto, "stage": "arch_choice"}
     decision = interrupt(
         {

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Any
+from typing import Any, NamedTuple
 
 import aiosqlite
 from langchain_core.runnables import RunnableConfig
@@ -154,6 +154,22 @@ def pending_interrupt(snapshot: Any) -> dict[str, Any] | None:
             value = getattr(interrupt, "value", None)
             return value if isinstance(value, dict) else {}
     return None
+
+
+class ThreadView(NamedTuple):
+    """What a thread's latest checkpoint says: its state (with a running subgraph folded in), the gate it is
+    paused at (None if none), and the nodes that would run next (empty once the run has ended)."""
+
+    values: dict[str, Any]
+    interrupt: dict[str, Any] | None
+    next_nodes: tuple[str, ...]
+
+
+async def read_thread(graph: CompiledStateGraph, thread_id: str) -> ThreadView:
+    """Read a thread the way the UI and the headless CLI both see it."""
+    # subgraphs=True: while the panel runs, its turns live in the subgraph's checkpoint, not the parent's.
+    snapshot = await graph.aget_state({"configurable": {"thread_id": thread_id}}, subgraphs=True)
+    return ThreadView(merged_values(snapshot), pending_interrupt(snapshot), tuple(snapshot.next or ()))
 
 
 def merged_values(snapshot: Any) -> dict[str, Any]:

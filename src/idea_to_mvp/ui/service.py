@@ -14,7 +14,7 @@ from langgraph.types import Command
 
 from idea_to_mvp.config import PanelMode, Settings
 from idea_to_mvp.exporter import save_session_export
-from idea_to_mvp.graph import GraphProvider, merged_values, pending_interrupt, run_config
+from idea_to_mvp.graph import GraphProvider, read_thread, run_config
 from idea_to_mvp.implementation.events import EVENT_KINDS, ImplEvent
 from idea_to_mvp.implementation.ledger import ledger_path, task_trajectories
 from idea_to_mvp.implementation.progress import TaskResult, load_progress, spent_in_iteration
@@ -23,6 +23,7 @@ from idea_to_mvp.implementation.workspace import diff_stat
 from idea_to_mvp.nodes.common import stated_preferences
 from idea_to_mvp.nodes.implement import builds_task_by_task, effective_parallel
 from idea_to_mvp.plan import load_plan
+from idea_to_mvp.resilience import error_hint
 from idea_to_mvp.sessions import SessionRegistry
 from idea_to_mvp.state import make_initial_state
 from idea_to_mvp.ui.artifacts import (
@@ -77,7 +78,6 @@ LOGGER = logging.getLogger(__name__)
 
 __all__ = ["AppContext", "SubmitService"]
 
-_TITLE_LENGTH = 70
 _LOG_LIMIT = 2000  # events kept per thread for the console
 _PROGRESS_INTERVAL_SECONDS = 0.5  # tool events can arrive in bursts; task boundaries always render
 _TOKEN_INTERVAL_SECONDS = 0.15  # panel tokens arrive far faster than the chat is worth re-rendering
@@ -92,17 +92,6 @@ class AppContext:
     @property
     def sessions(self) -> SessionRegistry:
         return self.registry or SessionRegistry(self.settings.checkpoint_path)
-
-
-def _error_hint(stage: str, exc: Exception) -> str:
-    name = type(exc).__name__.lower()
-    if "authentication" in name or "permission" in name or "unauthorized" in name:
-        return f"{stage} failed due to API authentication/permission. Check provider keys and model access."
-    if "ratelimit" in name or "rate_limit" in name:
-        return f"{stage} hit a rate limit. Retry shortly or lower request frequency."
-    if "timeout" in name:
-        return f"{stage} timed out. Retry with fewer rounds or try another model."
-    return f"{stage} failed with `{type(exc).__name__}`: {exc}"
 
 
 def _chat_message(entry: ViewEntry, elapsed: dict[str, float] | None = None) -> dict[str, str]:
@@ -213,10 +202,7 @@ class SubmitService:
     # -------------------------------------------------------------- rendering
 
     async def _read(self, thread_id: str) -> tuple[dict[str, Any], dict[str, Any] | None, tuple[str, ...]]:
-        graph = await self._context.graphs.get()
-        # subgraphs=True: while the panel runs, its turns live in the subgraph's checkpoint, not the parent's.
-        snapshot = await graph.aget_state({"configurable": {"thread_id": thread_id}}, subgraphs=True)
-        return merged_values(snapshot), pending_interrupt(snapshot), tuple(snapshot.next or ())
+        return await read_thread(await self._context.graphs.get(), thread_id)
 
     async def _sessions_update(self, current: str | None) -> Any:
         sessions = self._context.sessions.list()
@@ -253,14 +239,7 @@ class SubmitService:
         )
         stage = stage_for_view(values, mode)
         elapsed = await self._elapsed(thread_id, values, stage, waiting=interrupt_payload is not None)
-        title = str(values.get("user_idea") or idea_title or "").strip()
-        if title:
-            self._context.sessions.upsert(
-                thread_id,
-                title[:_TITLE_LENGTH],
-                str(values.get("stage") or "discussion"),
-                interrupted_at=(interrupt_payload or {}).get("kind"),
-            )
+        self._context.sessions.record(thread_id, values, interrupt_payload, title=idea_title)
         return await self._pack(
             status=status if status is not None else status_from_state(values, mode, overlay),
             mode=mode,
@@ -597,7 +576,7 @@ class SubmitService:
                     )
         except Exception as exc:
             LOGGER.exception("Pipeline run failed")
-            hint = _error_hint("Pipeline", exc)
+            hint = error_hint("Pipeline", exc)
             yield await self._render(
                 thread_id,
                 status="Run failed. See the error in chat; you can retry or continue.",
@@ -665,7 +644,7 @@ class SubmitService:
         except Exception as exc:
             LOGGER.exception("Conversation export failed")
             return (
-                gr.update(value=_error_hint("Conversation export", exc)),
+                gr.update(value=error_hint("Conversation export", exc)),
                 gr.update(value=None, visible=False),
             )
         return (

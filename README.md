@@ -24,6 +24,17 @@ uv run idea-to-mvp models       # every profile's models, prices, and the cost o
 uv run idea-to-mvp
 ```
 
+Without the UI, the same pipeline runs from the command line (progress on stderr, a summary or `--json` on stdout; exit code 0 verified, 2 delivered with failures, 3 stopped at a gate, 1 error):
+
+```bash
+DEMO_MODE=true uv run idea-to-mvp run "a habit tracker" --autopilot --implement
+uv run idea-to-mvp run "a habit tracker" --autopilot   # stops at the implement gate and prints the cost estimate
+uv run idea-to-mvp sessions                            # saved sessions, from the UI or the CLI
+uv run idea-to-mvp resume <session> --implement --max-total-usd 10
+```
+
+Agents are only started with an explicit `--implement`. `--answers FILE` and `--arch 1|2` answer those gates yourself; `resume <session> --implement --feedback "..."` builds the next version.
+
 The implementation stage needs `ANTHROPIC_API_KEY` (it drives the Claude Agent SDK). Everything the app writes goes under `OUTPUT_DIR` (default `~/idea-to-mvp`, outside this repository).
 
 `MODEL_PROFILE` picks the models of every role and agent session in one setting. Estimated cost of a typical run (a three-round panel and a three-task plan, from the prices in `src/idea_to_mvp/models.toml`; real runs vary):
