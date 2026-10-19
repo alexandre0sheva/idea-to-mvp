@@ -75,6 +75,25 @@ def run_instructions(workspace: Path, plan: Plan | None = None) -> list[tuple[st
 # ------------------------------------------------------------------- lanes
 
 
+def _evidence_line(lane: Mapping[str, Any]) -> str:
+    """The tests lane's counts as the orchestrator read them from the test report (else a note that the lane's
+    verdict is the agent's word). Empty for the other lanes."""
+    if lane.get("lane") != "tests":
+        return ""
+    evidence = lane.get("evidence")
+    if not isinstance(evidence, Mapping):
+        return "<p class='lane-evidence unbacked'>Result is agent-reported: no test report backs it.</p>"
+    parts = [
+        f"{int(evidence.get('passed') or 0)} passed",
+        f"{int(evidence.get('failed') or 0) + int(evidence.get('errors') or 0)} failed",
+        f"{int(evidence.get('skipped') or 0)} skipped",
+    ]
+    coverage = evidence.get("coverage_percent")
+    if isinstance(coverage, int | float):
+        parts.append(f"{coverage:.0f}% coverage")
+    return f"<p class='lane-evidence'>{_e(', '.join(parts))} (from the test report)</p>"
+
+
 def _lane_card(lane: Mapping[str, Any]) -> str:
     name = str(lane.get("lane") or "")
     passed = bool(lane.get("passed"))
@@ -89,6 +108,7 @@ def _lane_card(lane: Mapping[str, Any]) -> str:
         f"<header><strong>{_e(name.capitalize())} lane</strong> "
         f"<span class='badge {'passed' if passed else 'failed'}'>{'PASSED' if passed else 'FAILED'}</span></header>"
         f"<p>{_e(lane.get('summary'))}</p>"
+        + _evidence_line(lane)
         + (f"<p class='lane-label'>Commands</p><ul>{commands}</ul>" if commands else "")
         + (f"<p class='lane-label'>Failures</p><ul class='lane-failures'>{failures}</ul>" if failures else "")
         + "</section>"

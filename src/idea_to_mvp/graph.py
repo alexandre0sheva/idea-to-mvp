@@ -33,6 +33,7 @@ from idea_to_mvp.nodes.implement_graph import build_implement_subgraph
 from idea_to_mvp.nodes.iterate import (
     change_planner_node,
     iterate_gate_node,
+    route_after_change_planner,
     route_after_delivery,
     route_after_iterate_gate,
 )
@@ -124,10 +125,11 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
         {"change_planner": "change_planner", "__end__": END},
     )
     # An iteration builds only its new tasks with the same engine (finished tasks are skipped).
+    # (or ends the run: a request the product already satisfies builds nothing)
     builder.add_conditional_edges(
         "change_planner",
-        route_after_workspace,
-        {"implementer": "implementer", "implement_plan": "implement_plan"},
+        route_after_change_planner,
+        {"implementer": "implementer", "implement_plan": "implement_plan", "__end__": END},
     )
 
     return builder.compile(checkpointer=checkpointer)

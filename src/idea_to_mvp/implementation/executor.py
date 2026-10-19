@@ -30,6 +30,7 @@ from idea_to_mvp.implementation.progress import (
 from idea_to_mvp.implementation.trajectory import SessionLog, model_label
 from idea_to_mvp.implementation.workspace import commit_workspace, head_commit
 from idea_to_mvp.plan import Plan, PlanTask, execution_waves, iteration_of
+from idea_to_mvp.prompts_common import ANSWER_FREE, EVIDENCE_BOUNDARY
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.config import Settings
@@ -70,7 +71,8 @@ Read `AGENTS.md`, `PRD.md`, `ARCHITECTURE.md`, and `plan.md` first (`plan.md` li
 - If the project's dependencies are not installed, run the install command first.
 - Do not run `git commit` or change git configuration; the orchestrator commits when you finish.
 - Finish with a short summary of what you built and anything the next tasks must know.
-"""
+
+""" + ANSWER_FREE
 
 
 WORKTREE_NOTE = """\
@@ -100,7 +102,8 @@ incompatible. Then run the project's test command{test_hint} and fix anything th
 - No conflict markers may remain in any file.
 - Do not run `git commit`, `git merge`, or `git merge --abort`; the orchestrator completes the merge when you finish.
 - Finish with one short paragraph on how you resolved it.
-"""
+
+""" + EVIDENCE_BOUNDARY
 
 
 class BudgetTracker:

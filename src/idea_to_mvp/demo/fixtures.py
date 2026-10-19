@@ -38,6 +38,9 @@ from idea_to_mvp.schemas import (
 )
 from idea_to_mvp.text_utils import normalize_content
 
+# The demo project ships a tiny runner that writes the JUnit report (the plan's `test_report` command).
+DEMO_TEST_REPORT_COMMAND = "python tests/run_with_report.py .idea-to-mvp/reports/junit.xml"
+
 _IDEA_RE = re.compile(
     r"(?:Anchor idea|Initial user idea|Original idea|Initial idea|Idea):\n(.+?)(?:\n\n|\Z)", flags=re.DOTALL
 )
@@ -379,7 +382,11 @@ def plan(messages: list[BaseMessage]) -> Plan:
         contracts=[Contract(id="C1", name="Core entry contract", description="How the slices share entries.")],
         tasks=tasks,
         commands=ProjectCommands(
-            install=None, test="python -m unittest discover", lint=None, run="python -m demo_app"
+            install=None,
+            test="python -m unittest discover",
+            test_report=DEMO_TEST_REPORT_COMMAND,
+            lint=None,
+            run="python -m demo_app",
         ),
     )
 
@@ -411,7 +418,8 @@ def change_plan(messages: list[BaseMessage]) -> ChangePlan:
                 coverage_target=80,
                 handoff="Updated notes.",
             )
-        ]
+        ],
+        reason="The request is not built yet, and one task is the smallest set that delivers it.",
     )
 
 

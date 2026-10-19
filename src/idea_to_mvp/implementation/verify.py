@@ -22,13 +22,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from pydantic import BaseModel, ValidationError
+from pydantic.json_schema import SkipJsonSchema
 
 from idea_to_mvp import implementer
 from idea_to_mvp.implementation.events import ImplEvent, events_from_sdk_message, make_event
 from idea_to_mvp.implementation.ledger import SessionOutcome
 from idea_to_mvp.implementation.options import SandboxUnavailableError
+from idea_to_mvp.implementation.reports import apply_evidence, clear_reports, read_evidence
 from idea_to_mvp.implementation.trajectory import SessionLog, model_label
 from idea_to_mvp.plan import Plan, load_plan, parse_requirements
+from idea_to_mvp.prompts_common import ANSWER_FREE, EVIDENCE_BOUNDARY, RUBRIC_ORDER
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.config import Settings
@@ -50,6 +53,9 @@ class LaneReport(BaseModel):
     commands_run: list[dict[str, Any]]  # {"command": str, "exit_code": int}
     failures: list[str]
     summary: str
+    # What the orchestrator read from the test reports (tests lane only). The agent is never asked for it
+    # (it is left out of the schema) and `parse_lane_report` drops it if one sends it anyway.
+    evidence: SkipJsonSchema[dict[str, Any] | None] = None
 
 
 class Combined(TypedDict):
@@ -95,10 +101,20 @@ say why in `failures`.
 TESTS_PROMPT = """\
 1. Read `README.md` and `quality/AGENTS.md` for the install and test commands.
 {commands}2. Install the dependencies if they are not installed (you own the install step; the other lanes wait for it).
-3. Run the project's full test suite. Measure coverage if the project has coverage tooling; you may write
-   coverage artefacts, nothing else.
+3. {run_tests}
 4. Report every failing test with its error output. If the suite cannot run, or runs zero tests, that is a failure.
 """
+
+_RUN_TESTS = (
+    "Run the project's full test suite. Measure coverage if the project has coverage tooling; you may write\n"
+    "   coverage artefacts, nothing else."
+)
+_RUN_TESTS_WITH_REPORT = (
+    "Run the project's full test suite with the plan's test report command `{command}`, not the plain test\n"
+    "   command. It leaves the machine-readable report the orchestrator reads from `.idea-to-mvp/reports/`, and the\n"
+    "   orchestrator judges the run by that report. Never create, edit, or copy a report by hand. Measure\n"
+    "   coverage if the project has coverage tooling (a coverage report may go in the same folder)."
+)
 
 QUALITY_PROMPT = """\
 1. Read `README.md` and `quality/AGENTS.md` for the lint, type-check, and run commands.
@@ -120,8 +136,10 @@ The PRD's requirements to cover:
 For every one of them, find at least one automated test that exercises it (check test names, docstrings, and
 what the assertions cover, not only the requirement id in a comment). A requirement no test really exercises
 is uncovered. `failures` has one entry per uncovered requirement, starting with its id and priority, for
-example `R2 (P0): no test covers exporting to CSV`. You need not run the tests; read them.
-"""
+example `R2 (P0): no test covers exporting to CSV`. List the failures most serious first, by the order
+below. You need not run the tests; read them.
+
+""" + RUBRIC_ORDER
 
 
 def _commands(plan: Plan | None) -> str:
@@ -149,7 +167,9 @@ def priority_requirements(prd_markdown: str) -> dict[str, str]:
 
 def build_lane_prompt(lane: LaneName, plan: Plan | None, prd_markdown: str) -> str:
     if lane == "tests":
-        body = TESTS_PROMPT.format(commands=_commands(plan))
+        report_command = (plan.commands.test_report or "").strip() if plan is not None else ""
+        run_tests = _RUN_TESTS_WITH_REPORT.format(command=report_command) if report_command else _RUN_TESTS
+        body = TESTS_PROMPT.format(commands=_commands(plan), run_tests=run_tests)
     elif lane == "quality":
         body = QUALITY_PROMPT.format(commands=_commands(plan))
     else:
@@ -158,7 +178,7 @@ def build_lane_prompt(lane: LaneName, plan: Plan | None, prd_markdown: str) -> s
         body = REQUIREMENTS_PROMPT.format(
             requirements=listing or "- (none could be parsed from PRD.md: read it and cover every requirement it states)"
         )
-    return _LANE_INTRO.format(lane=lane) + "\n" + body + _REPORT_FORMAT.format(lane=lane)
+    return _LANE_INTRO.format(lane=lane) + "\n" + body + "\n" + EVIDENCE_BOUNDARY + _REPORT_FORMAT.format(lane=lane)
 
 
 FIX_PROMPT = (
@@ -167,7 +187,10 @@ FIX_PROMPT = (
     "Diagnose and fix them, keeping changes minimal and consistent with `ARCHITECTURE.md` and the contracts in "
     "`plan.md`. A failure tagged `[requirements]` means a requirement has no test: write the missing test. "
     "Re-run the affected checks to confirm the fix. Do not run `git commit`; the orchestrator commits. "
-    "Finish with a short summary of what you changed."
+    "Finish with a short summary of what you changed.\n\n"
+    + ANSWER_FREE
+    + "\n"
+    + EVIDENCE_BOUNDARY
 )
 
 
@@ -221,6 +244,7 @@ def parse_lane_report(lane: str, structured: Any, text: str) -> LaneReport:
         return _invalid(lane, f"{where}: {first['msg']}.", text)
     if parsed.lane != lane:
         return _invalid(lane, f"it is a report for the {parsed.lane} lane.", text)
+    parsed = parsed.model_copy(update={"evidence": None})  # evidence comes from the orchestrator, never the agent
     if parsed.passed and parsed.failures:
         return parsed.model_copy(update={"passed": False})  # a lane that lists failures has not passed
     return parsed
@@ -353,6 +377,24 @@ def _log_name(iteration: int, name: str) -> str:
     return f"v{iteration}-{name}" if iteration > 1 else name
 
 
+_UNBACKED = " (Not backed by a test report: the plan declares no test report command, so this is the agent's word.)"
+
+
+def check_test_report(workspace: Path, plan: Plan | None, report: LaneReport) -> LaneReport:
+    """The tests lane's report after the orchestrator has read the test reports.
+
+    A plan with a `test_report` command is judged by the files that command left (they can fail the lane, never
+    rescue it). A plan from before the field existed keeps the agent's verdict, with a warning and a note in the
+    summary. No plan at all is left alone.
+    """
+    if plan is None:
+        return report
+    if (plan.commands.test_report or "").strip():
+        return apply_evidence(report, read_evidence(workspace))
+    LOGGER.warning("The plan has no test report command, so the tests lane's verdict is the agent's claim.")
+    return report.model_copy(update={"summary": report.summary.rstrip() + _UNBACKED})
+
+
 def _lane_report_from(lane: LaneName, session: _Session) -> LaneReport:
     if session.crashed:
         return _invalid(lane, f"the session failed ({session.crashed}).")
@@ -389,6 +431,9 @@ async def run_lane(
         attempt=attempt,
         model=model_label(settings, "verifier"),
     )
+    plan = plan or load_plan(_read(workspace / "plan.json"))
+    if lane == "tests":
+        clear_reports(workspace)  # whatever is in the folder afterwards was written by this round's run
     if settings.demo_mode:
         from idea_to_mvp.demo.implementer import demo_verify_lane
 
@@ -397,7 +442,6 @@ async def run_lane(
         log.event(make_event("text", task_id=task_id, label="agent", detail=outcome.report.summary))
         log.finish(outcome="success", cost_usd=0.0, turns=0, session_id=None)
     else:
-        plan = plan or load_plan(_read(workspace / "plan.json"))
         session = await _run_session(
             workspace,
             settings,
@@ -414,6 +458,8 @@ async def run_lane(
         )
         _finish_log(log, session)
         outcome = LaneOutcome(_lane_report_from(lane, session), session.cost_usd, session.turns)
+    if lane == "tests":
+        outcome.report = check_test_report(workspace, plan, outcome.report)
     detail = "passed" if outcome.report.passed else f"failed: {outcome.report.failures[0][:120] if outcome.report.failures else 'see report'}"
     emit(make_event("task_end", task_id=task_id, label=label, detail=detail))
     return outcome

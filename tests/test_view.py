@@ -232,6 +232,21 @@ def test_change_requests_appear_as_your_messages_before_the_new_implementation()
     assert _kinds(entries).index("change_request") < _kinds(entries).index("implementation")
 
 
+def test_a_request_that_needs_no_change_shows_the_request_and_the_planners_reason() -> None:
+    values = _values(
+        stage="done",
+        plan_decision={"generate": True, "notes": ""},
+        implement_decision={"implement": True, "notes": ""},
+        no_change={"request": "Add CSV export.", "reason": "T02 already exports CSV."},
+        delivery_report="## Delivery report",
+    )
+    entries = transcript_from_state(values, None)
+    request, note = [e for e in entries if e.kind in {"change_request", "change_planner"}]
+    assert (request.speaker, request.content) == ("You", "Change request: Add CSV export.")
+    assert note.speaker == "Change planner" and "No change needed" in note.content and "T02 already exports CSV." in note.content
+    assert _kinds(entries).index("change_request") > _kinds(entries).index("delivery_report")
+
+
 def test_the_change_planner_step_has_its_own_progress_message() -> None:
     running = running_from_state(_values(), ("change_planner",))
     assert running is not None and running[0] == "Change planner"

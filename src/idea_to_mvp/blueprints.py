@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from idea_to_mvp.plan import fallback_plan, load_plan, render_plan_markdown
+from idea_to_mvp.prompts_common import NO_CHANGE_REVISION
 from idea_to_mvp.roles import PLAN_WRITER_SYSTEM
 
 # Upstream documents are injected into later prompts up to this many characters each.
@@ -284,7 +285,7 @@ def prompt_for(
         if text:
             parts.append(f"## Upstream document: {path}\n\n{truncate_document(text, MAX_UPSTREAM_CHARS)}")
     if issues.strip():
-        parts.append(f"## Review issues to fix in this revision\n\n{issues.strip()}")
+        parts.append(f"## Review issues to fix in this revision\n\n{issues.strip()}\n\n{NO_CHANGE_REVISION.strip()}")
     if previous.strip():
         parts.append(
             f"## Your previous version of {spec.relative_path}\n\n{truncate_document(previous.strip(), MAX_UPSTREAM_CHARS)}"

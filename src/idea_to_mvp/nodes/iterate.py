@@ -25,6 +25,7 @@ from idea_to_mvp import llm
 from idea_to_mvp.config import get_settings
 from idea_to_mvp.implementation.progress import TaskResult, load_progress, save_result
 from idea_to_mvp.implementation.workspace import commit_workspace
+from idea_to_mvp.nodes.implement import route_after_workspace
 from idea_to_mvp.plan import (
     ChangePlan,
     Plan,
@@ -42,7 +43,14 @@ from idea_to_mvp.usage import summarize_usage, with_usage
 
 LOGGER = logging.getLogger(__name__)
 
-__all__ = ["ChangePlan", "change_planner_node", "iterate_gate_node", "route_after_delivery", "route_after_iterate_gate"]
+__all__ = [
+    "ChangePlan",
+    "change_planner_node",
+    "iterate_gate_node",
+    "route_after_change_planner",
+    "route_after_delivery",
+    "route_after_iterate_gate",
+]
 
 _PRD_LIMIT = 20000
 
@@ -97,6 +105,13 @@ def route_after_iterate_gate(state: IdeaDiscussionState) -> Literal["change_plan
     return "__end__"
 
 
+def route_after_change_planner(state: IdeaDiscussionState) -> Literal["implementer", "implement_plan", "__end__"]:
+    """A request the product already satisfies ends the run; anything else is built like the first version."""
+    if state.get("no_change"):
+        return "__end__"
+    return route_after_workspace(state)
+
+
 # ------------------------------------------------------------------ planner
 
 
@@ -128,6 +143,7 @@ def _prompt(plan: Plan, prd: str, feedback: str, iteration: int, workstreams: li
         f"## Existing tasks (already planned; finished ones must not change)\n{_task_lines(plan, progress)}\n\n"
         f"## Contract registry\n{contracts}\n\n"
         f"## Project commands\ninstall: {plan.commands.install}\ntest: {plan.commands.test}\n"
+        f"test report: {plan.commands.test_report}\n"
         f"lint: {plan.commands.lint}\nrun: {plan.commands.run}\n\n"
         f"## PRD.md\n{prd[:_PRD_LIMIT]}"
     )
@@ -147,6 +163,20 @@ def _change_issues(plan: Plan, tasks: list[PlanTask], iteration: int, prd: str, 
     except ValueError as error:
         return [*issues, str(error)]
     return [*issues, *(i for i in validate_plan(extended, prd_markdown=prd, workstreams=workstreams) if i not in baseline)]
+
+
+def _no_change_update(state: IdeaDiscussionState, iteration: int, feedback: str, reason: str) -> dict[str, Any]:
+    """The run ends at the delivered version: the version the gate announced is not built, so it is not counted
+    (and the request, which would be numbered as that version, moves into `no_change` with the planner's reason)."""
+    LOGGER.info("The change planner found nothing to build for the request: %s", reason)
+    requests = list(state.get("change_requests") or [])
+    return {
+        "no_change": {"request": feedback, "reason": reason.strip()},
+        "iteration": iteration - 1,
+        "change_requests": requests[:-1],
+        "iterate_decision": {"iterate": False, "feedback": ""},
+        "stage": "done",
+    }
 
 
 def _mark_first_delivery_done(workspace: Path, plan: Plan) -> None:
@@ -198,8 +228,10 @@ def change_planner_node(state: IdeaDiscussionState) -> dict[str, Any]:
         runtime,
         messages,
         ChangePlan,
-        fallback=lambda: ChangePlan(tasks=fallback_change_tasks(plan, iteration, feedback)),
+        fallback=lambda: ChangePlan(tasks=fallback_change_tasks(plan, iteration, feedback), reason="Fallback: the planner returned no usable plan."),
     )
+    if change.is_no_change:
+        return _no_change_update(state, iteration, feedback, change.reason)
     issues = _change_issues(plan, change.tasks, iteration, prd, workstreams, baseline)
     if issues:
         change = llm.invoke_structured(
@@ -218,10 +250,12 @@ def change_planner_node(state: IdeaDiscussionState) -> dict[str, Any]:
             ChangePlan,
             fallback=lambda: change,
         )
+        if change.is_no_change:
+            return _no_change_update(state, iteration, feedback, change.reason)
         issues = _change_issues(plan, change.tasks, iteration, prd, workstreams, baseline)
     if issues:
         LOGGER.warning("Change plan stayed invalid (%s); using the deterministic fallback task.", "; ".join(issues))
-        change = ChangePlan(tasks=fallback_change_tasks(plan, iteration, feedback))
+        change = ChangePlan(tasks=fallback_change_tasks(plan, iteration, feedback), reason="Fallback: the planner returned no usable plan.")
 
     extended = append_iteration_tasks(plan, change.tasks)
     (workspace / "plan.json").write_text(extended.model_dump_json(indent=2), encoding="utf-8")
@@ -231,5 +265,6 @@ def change_planner_node(state: IdeaDiscussionState) -> dict[str, Any]:
     return {
         "verification": fresh,
         "spent_before_iteration": summarize_usage(state.get("usage") or [])["agent_cost_usd"],
+        "no_change": {},
         "stage": "implementation",
     }

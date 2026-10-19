@@ -363,3 +363,109 @@ def test_demo_lanes_and_fixes_are_recorded_too(tmp_path: Path) -> None:
         asyncio.run(run_lane(tmp_path, lane, settings, budget_usd=1.0, emit=lambda e: None))
     asyncio.run(run_fix(tmp_path, ["x"], settings, budget_usd=1.0, emit=lambda e: None))
     assert [r["label"] for r in load_ledger(tmp_path)] == ["lane-tests-1", "lane-quality-1", "lane-requirements-1", "fix-1"]
+
+
+# ------------------------------------------------------------ deterministic test evidence
+
+REPORT_COMMAND = "pytest --junitxml=.idea-to-mvp/reports/junit.xml"
+GREEN_XML = '<testsuites><testsuite tests="2"><testcase classname="t" name="a"/><testcase classname="t" name="b"/></testsuite></testsuites>'
+RED_XML = '<testsuites><testsuite tests="2"><testcase classname="t" name="a"/><testcase classname="t" name="b"><failure message="boom">boom</failure></testcase></testsuite></testsuites>'
+
+
+class ReportWritingQuery(FakeLaneQuery):
+    """A lane session whose test command leaves a JUnit file (or nothing) in the reports folder, as pytest would."""
+
+    def __init__(self, workspace: Path, xml: str | None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.workspace, self.xml = workspace, xml
+
+    async def __call__(self, *, prompt: str, options: Any) -> AsyncIterator[Any]:
+        if self.xml is not None:
+            folder = self.workspace / ".idea-to-mvp" / "reports"
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "junit.xml").write_text(self.xml, encoding="utf-8")
+        async for message in super().__call__(prompt=prompt, options=options):
+            yield message
+
+
+def evidence_plan(workspace: Path, test_report: str | None = REPORT_COMMAND) -> None:
+    from idea_to_mvp.plan import ProjectCommands
+
+    commands = ProjectCommands(install=None, test="pytest", lint=None, run=None, test_report=test_report)
+    (workspace / "plan.json").write_text(make_plan(commands=commands).model_dump_json())
+
+
+def test_the_agent_cannot_hand_in_its_own_evidence() -> None:
+    forged = report("tests").model_dump() | {"evidence": {"tests": 99, "passed": 99}}
+    assert parse_lane_report("tests", forged, "").evidence is None
+    assert "evidence" not in LaneReport.model_json_schema()["properties"]  # and it is never asked for
+
+
+def test_the_tests_lane_prompt_names_the_report_command_and_forbids_a_hand_written_report() -> None:
+    prompt = build_lane_prompt("tests", make_plan(commands=_commands_with(REPORT_COMMAND)), PRD)
+    assert REPORT_COMMAND in prompt and ".idea-to-mvp/reports" in prompt and "by hand" in prompt
+    assert ".idea-to-mvp/reports" not in build_lane_prompt("tests", make_plan(), PRD)
+    assert REPORT_COMMAND not in build_lane_prompt("quality", make_plan(commands=_commands_with(REPORT_COMMAND)), PRD)
+
+
+def _commands_with(test_report: str | None) -> Any:
+    from idea_to_mvp.plan import ProjectCommands
+
+    return ProjectCommands(install="pip install -e .", test="pytest", lint=None, run=None, test_report=test_report)
+
+
+def test_a_green_report_confirms_the_lane_and_records_the_counts(tmp_path: Path) -> None:
+    evidence_plan(tmp_path)
+    outcome, _ = run_one("tests", ReportWritingQuery(tmp_path, GREEN_XML, structured=report("tests").model_dump()), tmp_path)
+    assert outcome.report.passed is True
+    assert outcome.report.evidence is not None and outcome.report.evidence["tests"] == 2 and outcome.report.evidence["passed"] == 2
+
+
+def test_a_red_report_overrides_the_lanes_claim_to_pass(tmp_path: Path) -> None:
+    evidence_plan(tmp_path)
+    outcome, _ = run_one("tests", ReportWritingQuery(tmp_path, RED_XML, structured=report("tests").model_dump()), tmp_path)
+    assert outcome.report.passed is False and "t::b: boom" in outcome.report.failures[0]
+
+
+def test_no_report_means_no_pass_even_if_the_agent_says_so(tmp_path: Path) -> None:
+    evidence_plan(tmp_path)
+    outcome, _ = run_one("tests", ReportWritingQuery(tmp_path, None, structured=report("tests").model_dump()), tmp_path)
+    assert outcome.report.passed is False and "no JUnit report" in outcome.report.failures[0]
+
+
+def test_a_report_left_by_an_earlier_round_does_not_count(tmp_path: Path) -> None:
+    evidence_plan(tmp_path)
+    stale = tmp_path / ".idea-to-mvp" / "reports"
+    stale.mkdir(parents=True)
+    (stale / "junit.xml").write_text(GREEN_XML)
+    outcome, _ = run_one("tests", ReportWritingQuery(tmp_path, None, structured=report("tests").model_dump()), tmp_path)
+    assert outcome.report.passed is False and "no JUnit report" in outcome.report.failures[0]
+
+
+def test_a_plan_without_a_report_command_keeps_the_agents_verdict_with_a_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    evidence_plan(tmp_path, test_report=None)
+    with caplog.at_level("WARNING"):
+        outcome, _ = run_one("tests", FakeLaneQuery(structured=report("tests").model_dump()), tmp_path)
+    assert outcome.report.passed is True and outcome.report.evidence is None
+    assert "no test report command" in caplog.text
+    assert "Not backed by a test report" in outcome.report.summary
+
+
+def test_the_other_lanes_never_read_the_reports_folder(tmp_path: Path) -> None:
+    evidence_plan(tmp_path)
+    outcome, _ = run_one("quality", FakeLaneQuery(structured=report("quality").model_dump()), tmp_path)
+    assert outcome.report.passed is True and outcome.report.evidence is None
+
+
+def test_the_demo_tests_lane_reports_real_counts_from_the_demo_projects_junit_file(tmp_path: Path) -> None:
+    from idea_to_mvp.demo.implementer import DEMO_TEST_REPORT_COMMAND, demo_implement
+
+    demo_implement(tmp_path, {"workstreams": []})
+    (tmp_path / "PRD.md").write_text(PRD)
+    from idea_to_mvp.plan import ProjectCommands
+
+    commands = ProjectCommands(install=None, test="python -m unittest", lint=None, run=None, test_report=DEMO_TEST_REPORT_COMMAND)
+    (tmp_path / "plan.json").write_text(make_plan(commands=commands).model_dump_json())
+    outcome = asyncio.run(run_lane(tmp_path, "tests", make_settings(demo_mode=True), budget_usd=1.0, emit=lambda e: None))
+    assert outcome.report.passed is True
+    assert outcome.report.evidence is not None and outcome.report.evidence["tests"] == 3 and outcome.report.evidence["failed"] == 0

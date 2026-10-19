@@ -116,6 +116,7 @@ class IdeaDiscussionState(TypedDict):
     iteration: int  # the version being built: 1 = the first delivery (v0.1), 2 = v0.2, ...
     change_requests: list[str]  # the user's feedback, one entry per iteration after the first
     iterate_decision: IterateDecision
+    no_change: dict[str, str]  # {request, reason} when the change planner found nothing to build, else {}
     cost_estimate: dict[str, Any]  # the implement gate's dollar range for the first version (a `CostRange` dump)
     spent_before_iteration: float  # cost of earlier versions: each iteration has its own whole-run budget
     usage: Annotated[list[UsageRecord], operator.add]  # model calls, accumulated over the run
@@ -169,6 +170,7 @@ def make_initial_state(
         "iteration": 1,
         "change_requests": [],
         "iterate_decision": {"iterate": False, "feedback": ""},
+        "no_change": {},
         "cost_estimate": {},
         "spent_before_iteration": 0.0,
         "usage": [],

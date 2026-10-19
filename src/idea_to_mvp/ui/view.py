@@ -496,6 +496,12 @@ def transcript_from_state(
     if report := str(values.get("delivery_report") or "").strip():
         entries.append(ViewEntry("delivery_report", "Delivery", report, data=values))  # rendered as the dashboard
 
+    if no_change := values.get("no_change") or {}:  # the request was not built, so it is not a version above
+        entries.append(ViewEntry("change_request", "You", f"Change request: {no_change.get('request', '')}"))
+        entries.append(
+            ViewEntry("change_planner", "Change planner", f"No change needed: {no_change.get('reason', '')}")
+        )
+
     entries.extend(_gate_card(pending_interrupt) if pending_user is None else [])
 
     if pending_user is not None:

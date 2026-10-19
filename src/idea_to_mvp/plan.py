@@ -16,7 +16,7 @@ from collections.abc import Mapping
 from graphlib import CycleError, TopologicalSorter
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, model_validator
 
 TASK_ID_RE = re.compile(r"^(T\d+|I\d+-\d+)$")  # T01... (first delivery), I2-01... (iteration 2)
 _ITERATION_ID_RE = re.compile(r"^I(\d+)-\d+$")
@@ -48,11 +48,25 @@ class PlanTask(BaseModel):
     handoff: str
 
 
+REPORTS_DIR = ".idea-to-mvp/reports"  # where the test command leaves its machine-readable reports
+
+
 class ProjectCommands(BaseModel):
     install: str | None
     test: str
     lint: str | None
     run: str | None
+    # The test command written so that it also leaves JUnit XML (and coverage) in REPORTS_DIR, for the
+    # orchestrator to read. None when the stack cannot. Required in the schema like every field, but a plan
+    # written before it existed still loads: a missing key reads as None.
+    test_report: str | None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _plans_before_test_reports(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "test_report" not in data:
+            return {**data, "test_report": None}
+        return data
 
 
 class Plan(BaseModel):
@@ -62,9 +76,19 @@ class Plan(BaseModel):
 
 
 class ChangePlan(BaseModel):
-    """What the change planner returns: only the NEW tasks of an iteration (ids `I<n>-01`, ...)."""
+    """What the change planner returns: only the NEW tasks of an iteration (ids `I<n>-01`, ...).
+
+    `tasks` may be empty when the product already satisfies the request; `reason` then says what covers it
+    (an empty plan without a reason is not an answer). With tasks it is a one-sentence rationale.
+    """
 
     tasks: list[PlanTask]
+    reason: str
+
+    @property
+    def is_no_change(self) -> bool:
+        """The planner decided nothing needs building and said why."""
+        return not self.tasks and bool(self.reason.strip())
 
 
 def load_plan(text: str | None) -> Plan | None:
@@ -158,6 +182,12 @@ def validate_plan(plan: Plan, *, prd_markdown: str, workstreams: list[str]) -> l
 
     if not plan.commands.test.strip():
         issues.append("the project test command is empty")
+    report = (plan.commands.test_report or "").strip()
+    if report and REPORTS_DIR not in report:
+        issues.append(
+            f"the test report command must write its JUnit XML into {REPORTS_DIR}/ "
+            f"(for example `--junitxml={REPORTS_DIR}/junit.xml`), or null when the stack cannot"
+        )
     return issues
 
 
@@ -255,6 +285,7 @@ def render_plan_markdown(plan: Plan) -> str:
         "",
         f"- Install: {_command(commands.install)}",
         f"- Test: {_command(commands.test)}",
+        f"- Test report: {_command(commands.test_report)}",
         f"- Lint: {_command(commands.lint)}",
         f"- Run: {_command(commands.run)}",
     ]
@@ -293,7 +324,7 @@ _LIST_FIELDS = {"acceptance", "tests"}
 _ID_LIST_FIELDS = {"depends_on", "requirement_ids", "contracts_in", "contracts_out"}
 _FIELD_LINE = re.compile(r"^- (" + "|".join(re.escape(label) for label in _TASK_FIELDS) + r"):\s*(.*)$")
 _TASK_HEADING = re.compile(r"^###\s+(\S+?)\.\s+(.*\S)\s*$")
-_COMMAND_LINE = re.compile(r"^- (Install|Test|Lint|Run):\s*(.*)$")
+_COMMAND_LINE = re.compile(r"^- (Install|Test report|Test|Lint|Run):\s*(.*)$")
 
 
 def _split_ids(value: str) -> list[str]:
@@ -390,6 +421,7 @@ def parse_plan_markdown(text: str) -> Plan:
         commands=ProjectCommands(
             install=commands.get("install"),
             test=commands.get("test") or "",
+            test_report=commands.get("test report"),
             lint=commands.get("lint"),
             run=commands.get("run"),
         ),
@@ -434,5 +466,5 @@ def fallback_plan(strategy: Mapping[str, Any] | None, prd_markdown: str) -> Plan
     return Plan(
         contracts=[Contract(id="C1", name="Core contract", description="The interface shared between workstreams.")],
         tasks=tasks,
-        commands=ProjectCommands(install=None, test=UNSET_TEST_COMMAND, lint=None, run=None),
+        commands=ProjectCommands(install=None, test=UNSET_TEST_COMMAND, test_report=None, lint=None, run=None),
     )

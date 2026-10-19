@@ -27,6 +27,7 @@ from idea_to_mvp.nodes.iterate import (
     ChangePlan,
     change_planner_node,
     iterate_gate_node,
+    route_after_change_planner,
     route_after_delivery,
     route_after_iterate_gate,
 )
@@ -177,7 +178,7 @@ def planner_state(workspace: Path, *, iteration: int = 2, mode: str = "agent_tea
 
 
 def good_change(task_id: str = "I2-01") -> ChangePlan:
-    return ChangePlan(tasks=[make_task(task_id, title="CSV export", goal=FEEDBACK, depends_on=["T02"], requirement_ids=[])])
+    return ChangePlan(tasks=[make_task(task_id, title="CSV export", goal=FEEDBACK, depends_on=["T02"], requirement_ids=[])], reason="Smallest change.")
 
 
 def test_the_planner_appends_the_new_tasks_to_plan_json_and_plan_md(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -207,7 +208,7 @@ def test_the_prompt_names_the_feedback_the_id_prefix_and_the_existing_tasks(work
 
 
 def test_a_bad_plan_gets_one_repair_with_the_problems_listed(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    broken = ChangePlan(tasks=[make_task("I2-01", depends_on=["T99"])])
+    broken = ChangePlan(tasks=[make_task("I2-01", depends_on=["T99"])], reason="r")
     model = FakeModel(monkeypatch, broken, good_change())
     change_planner_node(planner_state(workspace))
     assert len(model.calls) == 2 and "T99" in model.prompt(1) and "unknown task" in model.prompt(1)
@@ -216,7 +217,7 @@ def test_a_bad_plan_gets_one_repair_with_the_problems_listed(workspace: Path, mo
 
 
 def test_a_plan_that_stays_invalid_is_replaced_by_the_deterministic_fallback(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    broken = ChangePlan(tasks=[make_task("T05")])  # not an iteration id
+    broken = ChangePlan(tasks=[make_task("T05")], reason="r")  # not an iteration id
     model = FakeModel(monkeypatch, broken, broken)
     change_planner_node(planner_state(workspace))
     assert len(model.calls) == 2
@@ -236,7 +237,7 @@ def test_a_plan_that_stays_invalid_is_replaced_by_the_deterministic_fallback(wor
     ],
 )
 def test_change_plans_that_do_not_extend_the_plan_are_rejected(workspace: Path, monkeypatch: pytest.MonkeyPatch, tasks: list) -> None:
-    model = FakeModel(monkeypatch, ChangePlan(tasks=tasks), ChangePlan(tasks=tasks))
+    model = FakeModel(monkeypatch, ChangePlan(tasks=tasks, reason=""), ChangePlan(tasks=tasks, reason=""))
     change_planner_node(planner_state(workspace))
     assert len(model.calls) == 2  # rejected, repaired once, still rejected
     plan = load_plan((workspace / "plan.json").read_text())
@@ -251,7 +252,7 @@ def test_problems_the_plan_already_had_are_not_held_against_the_change(tmp_path:
     (bundle / "plan.json").write_text(plan.model_dump_json())
     ws = prepare_workspace(bundle, tmp_path / "projects")
     save_result(ws, _result("T01", 1.0))
-    model = FakeModel(monkeypatch, ChangePlan(tasks=[make_task("I2-01", title="CSV export", depends_on=["T01"])]))
+    model = FakeModel(monkeypatch, ChangePlan(tasks=[make_task("I2-01", title="CSV export", depends_on=["T01"])], reason="r"))
     change_planner_node(planner_state(ws))
     assert len(model.calls) == 1  # accepted at once
     stored = load_plan((ws / "plan.json").read_text())
@@ -284,6 +285,55 @@ def test_a_missing_plan_is_reported_clearly(tmp_path: Path, monkeypatch: pytest.
     empty.mkdir()
     with pytest.raises(RuntimeError, match=r"plan\.json"):
         change_planner_node(planner_state(empty))
+
+
+# --------------------------------------------------------------- no change needed
+
+SATISFIED = "CSV export already exists: T02 builds it and its test covers it."
+
+
+def no_change(reason: str = SATISFIED) -> ChangePlan:
+    return ChangePlan(tasks=[], reason=reason)
+
+
+def test_a_request_the_product_already_satisfies_plans_no_tasks(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    model = FakeModel(monkeypatch, no_change())
+    before = (workspace / "plan.json").read_text()
+    head = git(workspace, "rev-parse", "HEAD")
+    update = change_planner_node(planner_state(workspace))
+    assert len(model.calls) == 1  # accepted at once: no repair round
+    assert (workspace / "plan.json").read_text() == before and git(workspace, "rev-parse", "HEAD") == head
+    assert update["no_change"] == {"request": FEEDBACK, "reason": SATISFIED}
+    assert update["iteration"] == 1 and update["change_requests"] == []  # the version that was not built is not counted
+    assert update["iterate_decision"] == {"iterate": False, "feedback": ""} and update["stage"] == "done"
+    assert "verification" not in update  # the delivered verdict stands
+
+
+def test_a_plan_with_tasks_clears_an_earlier_no_change_note(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    FakeModel(monkeypatch, good_change())
+    assert change_planner_node(planner_state(workspace))["no_change"] == {}
+
+
+def test_an_empty_plan_needs_a_reason_to_count_as_no_change(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    model = FakeModel(monkeypatch, no_change("  "), no_change(""))
+    update = change_planner_node(planner_state(workspace))
+    assert len(model.calls) == 2 and update["no_change"] == {}  # repaired once, still empty: the fallback task
+    plan = load_plan((workspace / "plan.json").read_text())
+    assert plan is not None and [t.id for t in plan.tasks] == ["T01", "T02", "I2-01"]
+
+
+def test_a_repair_may_conclude_that_no_change_is_needed(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    broken = ChangePlan(tasks=[make_task("T05")], reason="r")
+    FakeModel(monkeypatch, broken, no_change())
+    update = change_planner_node(planner_state(workspace))
+    assert update["no_change"]["reason"] == SATISFIED
+
+
+def test_a_no_change_run_ends_instead_of_building(workspace: Path) -> None:
+    done = planner_state(workspace)
+    done["no_change"] = {"request": FEEDBACK, "reason": SATISFIED}
+    assert route_after_change_planner(done) == "__end__"
+    assert route_after_change_planner(planner_state(workspace)) in {"implementer", "implement_plan"}
 
 
 # ------------------------------------------------------------------ the gate
@@ -401,6 +451,22 @@ async def test_feedback_becomes_new_tasks_a_passing_verification_tag_v0_2_and_a_
     assert gate.value["kind"] == "iterate_gate" and gate.value["iteration"] == 2
     started = [e["task_id"] for e in events if e["kind"] == "task_start" and not str(e["task_id"]).startswith("verify:")]
     assert started == ["I2-01"]  # only the new task ran; the finished ones were skipped
+
+
+async def test_a_request_that_needs_no_change_ends_the_run_without_a_new_version(demo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from idea_to_mvp.demo.fixtures import STRUCTURED
+
+    monkeypatch.setitem(STRUCTURED, ChangePlan, lambda messages: no_change())
+    graph = build_graph(MemorySaver())
+    config = run_config("iter-no-change")
+    await to_first_delivery(graph, config)
+    events, gates = await iterate(graph, config)
+    snapshot = await graph.aget_state(config)
+    values = snapshot.values
+    assert gates == [] and snapshot.next == ()
+    assert values["iteration"] == 1 and values["change_requests"] == [] and values["no_change"]["reason"] == SATISFIED
+    assert not [e for e in events if e["kind"] == "task_start"]  # nothing was built or verified again
+    assert git(Path(values["workspace_dir"]), "tag", "--list") == "v0.1"
 
 
 async def test_the_sequential_engine_also_runs_only_the_new_tasks(demo: Path, monkeypatch: pytest.MonkeyPatch) -> None:

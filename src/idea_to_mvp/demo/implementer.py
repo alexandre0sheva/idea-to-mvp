@@ -14,11 +14,66 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from idea_to_mvp.demo.fixtures import DEMO_TEST_REPORT_COMMAND
 from idea_to_mvp.implementation.events import ImplEvent, make_event
 from idea_to_mvp.implementation.verify import LaneReport, priority_requirements
 from idea_to_mvp.plan import load_plan
 
 VERIFY_TIMEOUT_SECONDS = 60
+
+# A real, dependency-free test runner for the demo project: it runs the unittest suite and leaves the JUnit
+# XML report the orchestrator reads, as `pytest --junitxml` would for a real project.
+REPORT_RUNNER = '''"""Run the unittest suite and write a JUnit XML report: python tests/run_with_report.py REPORT.xml"""
+
+import sys
+import unittest
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
+
+class Recorder(unittest.TextTestResult):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cases = []
+
+    def _add(self, test, status, message=""):
+        self.cases.append((test, status, str(message)))
+
+    def addSuccess(self, test):
+        super().addSuccess(test)
+        self._add(test, "passed")
+
+    def addFailure(self, test, err):
+        super().addFailure(test, err)
+        self._add(test, "failure", self.failures[-1][1])
+
+    def addError(self, test, err):
+        super().addError(test, err)
+        self._add(test, "error", self.errors[-1][1])
+
+    def addSkip(self, test, reason):
+        super().addSkip(test, reason)
+        self._add(test, "skipped", reason)
+
+
+def main(report_path):
+    suite = unittest.defaultTestLoader.discover("tests", top_level_dir=".")
+    result = unittest.TextTestRunner(stream=sys.stderr, resultclass=Recorder).run(suite)
+    root = ET.Element("testsuites")
+    group = ET.SubElement(root, "testsuite", name="unittest", tests=str(len(result.cases)))
+    for test, status, message in result.cases:
+        case = ET.SubElement(group, "testcase", classname=type(test).__module__ + "." + type(test).__name__, name=test._testMethodName)
+        if status in ("failure", "error", "skipped"):
+            ET.SubElement(case, status, message=message.strip().splitlines()[-1] if message.strip() else status).text = message
+    target = Path(report_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    ET.ElementTree(root).write(target, encoding="utf-8", xml_declaration=True)
+    return 0 if result.wasSuccessful() else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else ".idea-to-mvp/reports/junit.xml"))
+'''
 
 
 def _idea_from_workspace(workspace: Path) -> str:
@@ -56,6 +111,7 @@ def add_entry(entries: list[str], entry: str) -> list[str]:
         "from demo_app.core import describe\n\nprint(describe())\n", encoding="utf-8"
     )
     (tests / "__init__.py").write_text("", encoding="utf-8")
+    (tests / "run_with_report.py").write_text(REPORT_RUNNER, encoding="utf-8")
     (tests / "test_core.py").write_text(
         '''import unittest
 
@@ -131,13 +187,13 @@ def demo_verify_lane(workspace: Path, lane: str) -> LaneReport:
     """One verification lane for the demo project, from real checks (the same contract as the agent lanes)."""
     workspace = Path(workspace)
     if lane == "tests":
-        command = [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."]
+        command = [sys.executable, *DEMO_TEST_REPORT_COMMAND.split()[1:]]
         code, output = _run(command, workspace)
         ran = re.search(r"Ran (\d+) tests?", output)
         return LaneReport(
             lane="tests",
             passed=code == 0,
-            commands_run=[{"command": "python -m unittest discover -s tests -t .", "exit_code": code}],
+            commands_run=[{"command": DEMO_TEST_REPORT_COMMAND, "exit_code": code}],
             failures=[] if code == 0 else [f"The unittest run failed:\n{output[-1500:]}"],
             summary=f"Ran {ran.group(1) if ran else '0'} tests with `python -m unittest`.",
         )

@@ -232,3 +232,34 @@ def test_there_is_no_estimate_figure_without_an_estimate_or_after_the_first_vers
     assert "stat-estimate" not in render_dashboard(state(tmp_path, usage=SPENT, cost_estimate=ESTIMATE, iteration=2))
     unpriced = {**ESTIMATE, "low": None, "high": None, "basis": "unpriced"}
     assert "unpriced" in stat_value(render_dashboard(state(tmp_path, usage=SPENT, cost_estimate=unpriced)), "estimate")
+
+
+# ------------------------------------------------------------- test evidence
+
+
+def card_of_the_tests_lane(html: str) -> str:
+    return re.search(r"<section class='lane-card \w+' data-lane='tests'>.*?</section>", html, flags=re.DOTALL).group(0)  # type: ignore[union-attr]
+
+
+def test_the_card_of_the_tests_lane_shows_the_counts_parsed_from_the_report(tmp_path: Path) -> None:
+    evidence = {"tests": 12, "passed": 9, "failed": 2, "errors": 0, "skipped": 1, "coverage_percent": 87.3}
+    lanes = [lane("tests", False, ["2 test(s) failed"], evidence=evidence), lane("quality"), lane("requirements")]
+    card = card_of_the_tests_lane(render_dashboard(state(tmp_path, lanes=lanes, passed=False)))
+    assert "9 passed" in card and "2 failed" in card and "1 skipped" in card and "87% coverage" in card
+    assert "from the test report" in card
+
+
+def test_errors_count_with_the_failures_and_a_missing_coverage_is_left_out(tmp_path: Path) -> None:
+    evidence = {"tests": 3, "passed": 1, "failed": 1, "errors": 1, "skipped": 0, "coverage_percent": None}
+    card = card_of_the_tests_lane(render_dashboard(state(tmp_path, lanes=[lane("tests", False, evidence=evidence)], passed=False)))
+    assert "2 failed" in card and "coverage" not in card
+
+
+def test_a_tests_lane_without_a_report_says_it_is_the_agents_word(tmp_path: Path) -> None:
+    card = card_of_the_tests_lane(render_dashboard(state(tmp_path, lanes=[lane("tests")])))
+    assert "agent-reported" in card and "passed" in card
+
+
+def test_the_other_lanes_show_no_test_counts(tmp_path: Path) -> None:
+    html = render_dashboard(state(tmp_path, lanes=[lane("tests"), lane("quality"), lane("requirements")]))
+    assert html.count("agent-reported") == 1

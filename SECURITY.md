@@ -60,6 +60,13 @@ red warning when the sandbox is off or unavailable or the permission mode is `by
   malicious package can do whatever the sandbox permits, including writing into the workspace.
 - **The generated project is untrusted.** When you run it yourself, it has your full permissions. Read it
   first, or run it in a container.
+- **Test reports are evidence, not proof.** The orchestrator parses the JUnit and coverage files the plan's
+  `test_report` command leaves in `.idea-to-mvp/reports/` and lets them overrule the tests lane's claim (no
+  report, no tests, or any failure fails the lane). The files are written by the project's own test command, so
+  test code can write a green report without running anything, which no check on the file can tell apart. The
+  folder is emptied before every tests lane, XML with a DOCTYPE or entity declaration and files over 20 MB are
+  refused, and reading a report never runs agent code. A plan from before `test_report` existed has no such
+  check, and the dashboard says its result is agent-reported.
 - **Model API keys stay in the orchestrator process**, and `OUTPUT_DIR/sessions.db` holds every session's
   ideas and transcript; neither is reachable by agents through the sandbox's credential list.
 - **Residual git risk:** an agent could plant a `.gitattributes` file or other in-tree content aimed at

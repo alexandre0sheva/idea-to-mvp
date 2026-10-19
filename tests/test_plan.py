@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from plan_helpers import PRD, WORKSTREAMS, make_plan, make_task
 
@@ -8,6 +10,8 @@ from idea_to_mvp.plan import (
     ProjectCommands,
     execution_waves,
     fallback_plan,
+    load_plan,
+    parse_plan_markdown,
     parse_requirements,
     render_plan_markdown,
     validate_plan,
@@ -191,6 +195,7 @@ EXPECTED_MARKDOWN = """\
 
 - Install: `pip install -e .`
 - Test: `pytest`
+- Test report: none
 - Lint: none
 - Run: `python -m app`
 """
@@ -321,3 +326,40 @@ def test_a_plan_without_a_test_command_parses_but_is_flagged_by_the_validator() 
     text = render_plan_markdown(make_plan()).replace("- Test: `pytest`", "- Test: none")
     plan = parse_plan_markdown(text)
     assert plan.commands.test == "" and "the project test command is empty" in validate_plan(plan, prd_markdown=PRD, workstreams=WORKSTREAMS)
+
+
+# ------------------------------------------------------------ test report command
+
+REPORT_COMMAND = "pytest --junitxml=.idea-to-mvp/reports/junit.xml"
+
+
+def test_a_plan_written_before_test_reports_existed_still_loads_without_one() -> None:
+    old = make_plan().model_dump()
+    del old["commands"]["test_report"]
+    plan = load_plan(json.dumps(old))
+    assert plan is not None and plan.commands.test_report is None
+
+
+def test_the_report_command_is_rendered_and_read_back() -> None:
+    plan = make_plan(commands=ProjectCommands(install=None, test="pytest", lint=None, run=None, test_report=REPORT_COMMAND))
+    text = render_plan_markdown(plan)
+    assert f"- Test report: `{REPORT_COMMAND}`" in text
+    assert parse_plan_markdown(text).commands == plan.commands
+    assert parse_plan_markdown(text.replace(f"- Test report: `{REPORT_COMMAND}`\n", "")).commands.test_report is None  # an old plan.md
+
+
+def test_a_report_command_must_write_where_the_orchestrator_reads() -> None:
+    def issues(report: str | None) -> list[str]:
+        commands = ProjectCommands(install=None, test="pytest", lint=None, run=None, test_report=report)
+        return validate_plan(make_plan(commands=commands), prd_markdown=PRD, workstreams=WORKSTREAMS)
+
+    assert issues(REPORT_COMMAND) == [] and issues(None) == [] and issues("  ") == []  # no command is allowed
+    (problem,) = issues("pytest --junitxml=report.xml")
+    assert ".idea-to-mvp/reports" in problem and "test report" in problem
+
+
+def test_the_plan_writer_is_told_how_to_declare_the_report_command() -> None:
+    from idea_to_mvp.roles import ROLES
+
+    prompt = ROLES["plan_writer"].system_prompt
+    assert "test_report" in prompt and ".idea-to-mvp/reports/junit.xml" in prompt and "junitxml" in prompt
