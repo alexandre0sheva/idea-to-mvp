@@ -7,16 +7,17 @@ from datetime import date
 
 from idea_to_mvp.config import PROFILES, Settings
 from idea_to_mvp.model_catalog import (
-    AGENT_ROLE,
+    AGENT_ROLES,
     Finding,
     ModelCatalog,
     ModelEntry,
     Provider,
+    RunEstimate,
     check_models,
     get_catalog,
     list_provider_models,
 )
-from idea_to_mvp.roles import ROLES, resolve_role_model
+from idea_to_mvp.roles import ROLES, resolve_agent_model, resolve_role_model
 
 _PROVIDERS: tuple[Provider, ...] = ("openai", "anthropic", "google")
 _BLOCKING = {"unknown", "deprecated"}  # `--check` exits 1 for these; "outdated" is advice
@@ -30,10 +31,19 @@ def price_label(item: ModelEntry | None) -> str:
 
 
 def configured_models(settings: Settings) -> list[tuple[str, str, str]]:
-    """`(role, provider, model)` for every role the settings resolve, then the agent sessions."""
+    """`(role, provider, model)` for every role the settings resolve, then each kind of agent session."""
     rows: list[tuple[str, str, str]] = [(role, *resolve_role_model(settings, role)) for role in ROLES]
-    rows.append((AGENT_ROLE, "anthropic", settings.implementer_model))
+    rows += [(role, "anthropic", resolve_agent_model(settings, role)) for role in AGENT_ROLES]
     return rows
+
+
+def configured_choices(settings: Settings) -> dict[str, str]:
+    """Profile role (`pm`, `architect`, `research`, `implementer`, ...) -> the model these settings run it on."""
+    choices = {
+        spec.provider_setting.removesuffix("_provider"): resolve_role_model(settings, key)[1]
+        for key, spec in ROLES.items()
+    }
+    return {**choices, **{role: resolve_agent_model(settings, role) for role in AGENT_ROLES}}
 
 
 def _table(header: list[str], rows: list[list[str]]) -> str:
@@ -78,21 +88,22 @@ def format_models_report(settings: Settings, catalog: ModelCatalog | None = None
         + _table(["model", "provider", "tier", "status", "in / out", "cached in", "context", "checked"], price_rows)
     )
 
-    agent_model = settings.implementer_model
     cost_rows: list[list[str]] = []
     notes: list[str] = []
-    for name in profiles:
-        estimate = catalog.estimate_run(name, agent_model)
+    estimates: list[tuple[str, RunEstimate]] = [(name, catalog.estimate_run(name)) for name in profiles]
+    estimates.append(("this configuration", catalog.estimate_run(settings.model_profile, configured_choices(settings))))
+    for name, estimate in estimates:
         cost_rows.append(
             [name, _dollars(estimate.planning), _dollars(estimate.agents), _dollars(estimate.total)]
         )
         if estimate.unpriced:
             notes.append(f"{name}: unpriced, left out of the estimate: {', '.join(estimate.unpriced)}")
     sections.append(
-        f"Typical run (a three-round panel, a three-task plan; agent sessions on {agent_model}, {price_label(catalog.find(agent_model))})\n"
-        + _table(["profile", "planning", "implementer sessions", "total"], cost_rows)
+        "Typical run (a three-round panel; a three-task plan built by implementer sessions, one fix, three verifier lanes)\n"
+        + _table(["profile", "planning", "agent sessions", "total"], cost_rows)
         + ("\n" + "\n".join(notes) if notes else "")
         + "\nEstimates from the token counts in models.toml, not a quote; real runs vary with the idea and the plan."
+        + "\nEscalated sessions (merge conflicts, fix attempts after the first) and the research step are not included."
     )
 
     configured = [

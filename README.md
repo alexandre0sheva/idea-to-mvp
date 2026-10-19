@@ -26,6 +26,14 @@ uv run idea-to-mvp
 
 The implementation stage needs `ANTHROPIC_API_KEY` (it drives the Claude Agent SDK). Everything the app writes goes under `OUTPUT_DIR` (default `~/idea-to-mvp`, outside this repository).
 
+`MODEL_PROFILE` picks the models of every role and agent session in one setting. Estimated cost of a typical run (a three-round panel and a three-task plan, from the prices in `src/idea_to_mvp/models.toml`; real runs vary):
+
+| Profile | Models | Typical run |
+|---|---|---|
+| `fast` | the cheapest current models (Haiku 5.5, `gpt-6-luna`; `gemini-3.8-flash` for the Skeptic) | $0.17 |
+| `balanced` (default) | Opus 5.5 plans, Sonnet 5.5 builds and verifies, Opus 5.5 takes merge conflicts and repeated fixes | $3.43 |
+| `quality` | Opus 5.5 for the key panel roles, planning, and every agent session; Fable 5.1 for the hard cases | $5.47 |
+
 ## What you get
 
 **Gates that ask the right question.** The MVP questions come prefilled with suggested answers; the architecture options sit side by side with a recommendation.
@@ -69,7 +77,7 @@ Every 🔒 is a real pause: the whole session is one checkpointed LangGraph thre
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup and quality checks
 - [CHANGELOG.md](CHANGELOG.md): what changed, including upgrade notes
 
-Before a real implementation run, check `IMPLEMENTER_MAX_TOTAL_USD` (the whole-run cost cap); the implementation gate shows the model, sandbox status, and budget before anything starts. Never commit `.env` or API keys.
+Before a real implementation run, check `IMPLEMENTER_MAX_TOTAL_USD` (the whole-run cost cap); the implementation gate shows the agents' models, sandbox status, and budget before anything starts. Never commit `.env` or API keys.
 
 ## License
 

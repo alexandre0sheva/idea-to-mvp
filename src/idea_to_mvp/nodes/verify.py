@@ -24,7 +24,9 @@ from idea_to_mvp import implementer
 from idea_to_mvp.config import Settings, get_settings
 from idea_to_mvp.implementation import verify as lanes
 from idea_to_mvp.implementation.verify import LANES, LaneName, LaneReport
+from idea_to_mvp.model_catalog import AgentRole
 from idea_to_mvp.nodes.implement import emitter
+from idea_to_mvp.roles import resolve_agent_model
 from idea_to_mvp.state import IdeaDiscussionState, VerificationResult
 from idea_to_mvp.usage import UsageRecord, summarize_usage
 
@@ -48,11 +50,11 @@ def remaining_budget(state: IdeaDiscussionState, settings: Settings) -> float:
     return max(0.0, settings.implementer_max_total_usd - spent)
 
 
-def _record(role: str, settings: Settings, cost_usd: float) -> UsageRecord:
+def _record(role: str, settings: Settings, cost_usd: float, kind: AgentRole) -> UsageRecord:
     return {
         "role": role,
         "provider": "anthropic",
-        "model": settings.implementer_model,
+        "model": resolve_agent_model(settings, kind),
         "input_tokens": 0,
         "output_tokens": 0,
         "cost_usd": cost_usd,
@@ -106,7 +108,7 @@ async def verify_lane_node(state: LaneInput) -> dict[str, Any]:
     )
     update: dict[str, Any] = {"lane_reports": {state["lane"]: outcome.report.model_dump()}}
     if outcome.cost_usd > 0:
-        update["usage"] = [_record("verifier", settings, outcome.cost_usd)]
+        update["usage"] = [_record("verifier", settings, outcome.cost_usd, "verifier")]
     return update
 
 
@@ -155,9 +157,9 @@ async def fix_node(state: IdeaDiscussionState) -> dict[str, Any]:
     failures = lanes.failure_list(verification.get("lanes") or []) or [str(verification.get("report") or "unknown failure")]
     LOGGER.info("Verification failed; fix attempt %d/%d", attempt, settings.max_fix_attempts)
     budget = min(settings.implementer_max_task_usd, remaining_budget(state, settings))
-    outcome = await lanes.run_fix(workspace, failures, settings, budget_usd=budget, emit=emitter())
+    outcome = await lanes.run_fix(workspace, failures, settings, budget_usd=budget, emit=emitter(), attempt=attempt)
     await asyncio.to_thread(implementer.commit_workspace, workspace, f"fix attempt {attempt}")
     update: dict[str, Any] = {"verification": {**verification, "attempts": attempt}, "stage": "verification"}
     if outcome.cost_usd > 0:
-        update["usage"] = [_record("fixer", settings, outcome.cost_usd)]
+        update["usage"] = [_record("fixer", settings, outcome.cost_usd, lanes.fix_role(attempt))]
     return update

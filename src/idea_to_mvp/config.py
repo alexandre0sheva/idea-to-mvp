@@ -17,8 +17,9 @@ PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", 
 
 
 # Provider and model of every role that has its own settings, per profile, read from the model catalog
-# (`models.toml`). `balanced` is the field defaults of `Settings` (a test keeps them equal). The panel's critics
-# stay on the providers they are chosen for; only the model tier changes.
+# (`models.toml`), plus the model of each kind of agent session (`implementer`, `verifier`, `escalation`).
+# `balanced` is the field defaults of `Settings` (a test keeps them equal). The panel's critics stay on the
+# providers they are chosen for; only the model tier changes.
 PROFILES: dict[ModelProfile, dict[str, tuple[Provider, str]]] = {
     name: get_catalog().profile_choices(name) for name in get_args(ModelProfile)
 }
@@ -51,8 +52,9 @@ class Settings(BaseSettings):
     # Offline demo: canned model outputs and a stand-in implementation stage; no API keys needed.
     demo_mode: bool = False
 
-    # A cost/quality preset for the models of every role below. A role whose `*_PROVIDER` or `*_MODEL` is set
-    # explicitly ignores it (see `roles.resolve_role_model`).
+    # A cost/quality preset for the models of every role below and of the agent sessions. A role whose
+    # `*_PROVIDER` or `*_MODEL` is set explicitly ignores it (see `roles.resolve_role_model` and
+    # `roles.resolve_agent_model`).
     model_profile: ModelProfile = "balanced"
 
     pm_provider: Provider = "openai"
@@ -66,7 +68,7 @@ class Settings(BaseSettings):
     tech_lead_model: str = "claude-sonnet-5-5"
     skeptic_model: str = "gemini-3.8-flash"
     summarizer_model: str = "claude-sonnet-5-5"
-    architect_model: str = "claude-sonnet-5-5"
+    architect_model: str = "claude-opus-5-5"  # also strategy, plan writer, change planner, blueprint critic
     moderator_model: str = "claude-haiku-5-5"  # a cheap call after every panel turn
     # The optional research step (off by default) needs a provider with a native web-search tool: the
     # provider's own tool is used (Anthropic web search, OpenAI web search, Gemini Google Search grounding).
@@ -97,8 +99,12 @@ class Settings(BaseSettings):
 
     # Implementation stage (Claude Agent SDK). Requires ANTHROPIC_API_KEY (or a
     # logged-in Claude Code install) and spends real tokens; every run is gated
-    # behind explicit user approval in the UI.
-    implementer_model: str = "claude-opus-5-5"
+    # behind explicit user approval in the UI. One model per kind of session: task sessions; the read-mostly
+    # verification lanes; the hard cases (merge-conflict resolver, every fix attempt after the first). Setting
+    # only IMPLEMENTER_MODEL runs every kind on it, as before the split.
+    implementer_model: str = "claude-sonnet-5-5"
+    verifier_model: str = "claude-sonnet-5-5"
+    escalation_model: str = "claude-opus-5-5"
     # acceptEdits: file edits are auto-approved and, with the OS sandbox on, so are shell commands (they
     # cannot leave the workspace). bypassPermissions approves every tool unattended; the implement gate
     # shows a red warning for it.

@@ -13,8 +13,8 @@ from langchain_core.messages import HumanMessage
 
 from idea_to_mvp import llm
 from idea_to_mvp.config import Settings
-from idea_to_mvp.model_catalog import ModelCatalog, get_catalog
-from idea_to_mvp.roles import ROLES, resolve_role_model
+from idea_to_mvp.model_catalog import AGENT_ROLES, ModelCatalog, get_catalog
+from idea_to_mvp.roles import ROLES, resolve_agent_model, resolve_role_model
 
 Status = Literal["ok", "warn", "fail"]
 
@@ -53,7 +53,7 @@ def _cli_path() -> str | None:
 
 def _implementer_checks(settings: Settings) -> list[Check]:
     checks: list[Check] = []
-    label = f"implementer ({settings.implementer_model})"
+    label = f"implementer ({resolve_agent_model(settings, 'implementer')})"
     cli = _cli_path()
     checks.append(
         Check(f"{label} CLI", "ok", f"Claude Code CLI found at {cli}")
@@ -79,7 +79,8 @@ def _catalog_checks(settings: Settings, catalog: ModelCatalog) -> list[Check]:
         if role == "researcher" and not settings.enable_research:
             continue
         used[resolve_role_model(settings, role)[1]] = None
-    used[settings.implementer_model] = None
+    for kind in AGENT_ROLES:
+        used[resolve_agent_model(settings, kind)] = None
     checks: list[Check] = []
     for model in used:
         item = catalog.find(model)

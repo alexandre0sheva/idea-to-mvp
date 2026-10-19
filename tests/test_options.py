@@ -86,6 +86,16 @@ def test_options_carry_cwd_model_budget_turns_and_isolation(workspace: Path) -> 
     assert {"WebFetch", "WebSearch"} <= set(options.disallowed_tools)
 
 
+def test_each_session_kind_runs_on_its_own_model(workspace: Path) -> None:
+    settings = settings_with(implementer_model="m-task", verifier_model="m-verify", escalation_model="m-hard")
+    models = {
+        role: build_agent_options(workspace=workspace, settings=settings, max_turns=3, role=role).model
+        for role in ("implementer", "verifier", "escalation")
+    }
+    assert models == {"implementer": "m-task", "verifier": "m-verify", "escalation": "m-hard"}
+    assert build_agent_options(workspace=workspace, settings=settings, max_turns=3).model == "m-task"
+
+
 def test_the_budget_and_agents_can_be_overridden_per_call(workspace: Path) -> None:
     sentinel = {"backend": object()}
     options = build_agent_options(

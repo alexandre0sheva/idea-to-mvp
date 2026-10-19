@@ -21,6 +21,7 @@ from idea_to_mvp.implementation import executor
 from idea_to_mvp.implementation.events import ImplEvent
 from idea_to_mvp.implementation.progress import TaskResult
 from idea_to_mvp.plan import Plan, iteration_of, load_plan
+from idea_to_mvp.roles import resolve_agent_model
 from idea_to_mvp.state import IdeaDiscussionState
 from idea_to_mvp.usage import UsageRecord
 
@@ -62,7 +63,7 @@ def usage_records(results: list[TaskResult], settings: Settings, iteration: int 
         {
             "role": "implementer",
             "provider": "anthropic",
-            "model": settings.implementer_model,
+            "model": resolve_agent_model(settings, "implementer"),
             "input_tokens": 0,
             "output_tokens": 0,
             "cost_usd": result["cost_usd"],

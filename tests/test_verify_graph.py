@@ -36,6 +36,7 @@ class FakeLanes:
         self.verify_rounds: list[dict[str, bool]] = []  # per verification: lane -> passed (default: all pass)
         self.lane_calls: list[tuple[str, float]] = []
         self.fix_calls: list[tuple[list[str], float]] = []
+        self.fix_attempts: list[int] = []
         self.active = 0
         self.max_active = 0
         self.rounds_started = 0
@@ -53,8 +54,9 @@ class FakeLanes:
         self.active -= 1
         return LaneOutcome(lane_report(lane, script.get(lane, True)), cost_usd=self.cost, turns=3)
 
-    async def run_fix(self, workspace: Path, failures: list[str], settings: Any, *, budget_usd: float, emit: Any, **_: Any) -> FixOutcome:
+    async def run_fix(self, workspace: Path, failures: list[str], settings: Any, *, budget_usd: float, emit: Any, attempt: int = 1, **_: Any) -> FixOutcome:
         self.fix_calls.append((failures, budget_usd))
+        self.fix_attempts.append(attempt)
         return FixOutcome(True, "Fixed it.", cost_usd=self.cost, turns=2)
 
 
@@ -113,6 +115,24 @@ async def test_every_fix_attempt_is_its_own_checkpointed_graph_step_until_the_at
     assert verification["passed"] is False and verification["attempts"] == 2
     checkpoints = [s async for s in graph.aget_state_history(config)]
     assert sum(1 for s in checkpoints if s.next == ("fix",)) == 2  # each attempt has its own checkpoint
+
+
+async def test_each_fix_session_is_told_its_attempt_so_later_ones_escalate(fake: FakeLanes) -> None:
+    fake.verify_rounds = [{"tests": False}, {"quality": False}, {"tests": False}]
+    await run_to_the_end("verify-attempts")
+    assert fake.fix_attempts == [1, 2]
+
+
+async def test_usage_names_the_model_each_session_kind_ran_on(fake: FakeLanes, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("IMPLEMENTER_MODEL", "m-task")
+    monkeypatch.setenv("VERIFIER_MODEL", "m-verify")
+    monkeypatch.setenv("ESCALATION_MODEL", "m-hard")
+    clear_settings_cache()
+    fake.verify_rounds = [{"tests": False}, {"quality": False}, {"tests": False}]
+    graph, config, _ = await run_to_the_end("verify-models")
+    usage = (await graph.aget_state(config)).values["usage"]
+    assert {r["model"] for r in usage if r["role"] == "verifier"} == {"m-verify"}
+    assert [r["model"] for r in usage if r["role"] == "fixer"] == ["m-task", "m-hard"]
 
 
 async def test_a_fix_that_works_ends_the_loop_early(fake: FakeLanes) -> None:

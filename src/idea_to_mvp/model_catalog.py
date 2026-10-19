@@ -17,7 +17,7 @@ from datetime import date
 from functools import lru_cache
 from importlib import resources
 from pathlib import Path
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -25,8 +25,10 @@ Provider = Literal["openai", "anthropic", "google"]
 Tier = Literal["fast", "balanced", "frontier"]
 Status = Literal["active", "legacy", "deprecated"]
 FindingKind = Literal["unknown", "deprecated", "outdated", "unavailable"]
-
-AGENT_ROLE = "implementer"  # the agent sessions: not a profile role yet, but part of a typical run
+# The kinds of agent session (Claude Agent SDK), each with its own model: task sessions, the read-mostly
+# verification lanes, and the hard cases (merge resolver, fix attempts after the first).
+AgentRole = Literal["implementer", "verifier", "escalation"]
+AGENT_ROLES: tuple[AgentRole, ...] = get_args(AgentRole)
 _TOKENS_PER_MTOK = 1_000_000
 
 # Current generations reject (Claude Opus 4.7+/5.x, GPT-5.x reasoning) or discourage (Gemini 3.x) custom sampling
@@ -155,7 +157,7 @@ class ModelCatalog(BaseModel):
             for role, model_id in roles.items():
                 if model_id not in self.models:
                     raise ValueError(f"profile {profile!r} gives role {role!r} the unknown model {model_id!r}")
-        known_roles = set(next(iter(self.profiles.values()), {})) | {AGENT_ROLE}
+        known_roles = set(next(iter(self.profiles.values()), {})) | set(AGENT_ROLES)
         stray = set(self.typical_run) - known_roles
         if stray:
             raise ValueError(f"typical_run names roles no profile has: {sorted(stray)}")
@@ -172,22 +174,27 @@ class ModelCatalog(BaseModel):
         """Role -> (provider, model) for a profile; each model's provider comes from its own entry."""
         return {role: (self.models[model_id].provider, model_id) for role, model_id in self.profiles[profile].items()}
 
-    def estimate_run(self, profile: str, agent_model: str | None = None) -> RunEstimate:
-        """The cost of a typical run: the planning roles on `profile`'s models, the agent sessions on `agent_model`."""
+    def estimate_run(self, profile: str, models: Mapping[str, str] | None = None) -> RunEstimate:
+        """The cost of a typical run on `profile`'s models; `models` (role -> model id) replaces some of them.
+
+        A role with no model in either place is left out; one whose model is unknown or unpriced is listed in
+        `unpriced`. Agent sessions (`AGENT_ROLES`) are summed apart from the planning calls.
+        """
+        chosen = {**self.profiles[profile], **(models or {})}
         planning = 0.0
         agents = 0.0
         unpriced: list[str] = []
         for role, shape in self.typical_run.items():
-            if role == AGENT_ROLE and not agent_model:
+            if role not in chosen:
                 continue
-            item = self.find(agent_model or "") if role == AGENT_ROLE else self.models[self.profiles[profile][role]]
+            item = self.find(chosen[role])
             per_call = None
             if item is not None:
                 cached = round(shape.input_tokens * shape.cached_fraction)
                 per_call = item.cost(shape.input_tokens, shape.output_tokens, cached)
             if per_call is None:
                 unpriced.append(role)
-            elif role == AGENT_ROLE:
+            elif role in AGENT_ROLES:
                 agents += per_call * shape.calls
             else:
                 planning += per_call * shape.calls

@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from idea_to_mvp.implementation.guard import GUARDED_TOOLS, bind_workspace
+from idea_to_mvp.model_catalog import AgentRole
+from idea_to_mvp.roles import resolve_agent_model
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from claude_agent_sdk import ClaudeAgentOptions
@@ -159,9 +161,11 @@ def build_agent_options(
     max_budget_usd: float | None = None,
     output_schema: dict[str, Any] | None = None,
     extra_disallowed_tools: Sequence[str] = (),
+    role: AgentRole = "implementer",
 ) -> ClaudeAgentOptions:
     """Options for one agent session in `workspace`: cwd, model, budget, sandbox, guard hook, env, tools.
 
+    `role` is the kind of session and picks its model (`roles.resolve_agent_model`).
     `output_schema` makes the session end with a JSON result of that shape (`ResultMessage.structured_output`);
     `extra_disallowed_tools` adds to the tools no session may use (read-mostly verification lanes).
     """
@@ -182,7 +186,7 @@ def build_agent_options(
             )
     return ClaudeAgentOptions(
         cwd=str(workspace),
-        model=settings.implementer_model,
+        model=resolve_agent_model(settings, role),
         permission_mode=settings.implementer_permission_mode,
         max_turns=max_turns,
         max_budget_usd=settings.implementer_max_task_usd if max_budget_usd is None else max_budget_usd,

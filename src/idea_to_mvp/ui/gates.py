@@ -358,11 +358,24 @@ def _parallel_choices(payload: Mapping[str, Any]) -> tuple[list[str], str | None
     return choices, choices[preferred - 1], width > 1
 
 
+def _models_cell(payload: Mapping[str, Any]) -> str:
+    """The model of each kind of agent session (a checkpoint from before the split has one `model`)."""
+    models = payload.get("models")
+    if not isinstance(models, Mapping):
+        return f"<code>{_e(payload.get('model'))}</code>"
+    kinds = (
+        ("implementer", "tasks"),
+        ("verifier", "verification"),
+        ("escalation", "merge conflicts, later fixes"),
+    )
+    return "<br>".join(f"<code>{_e(models.get(key))}</code> {label}" for key, label in kinds)
+
+
 def _implement_view(payload: dict[str, Any]) -> GateView:
     sandbox = payload.get("sandbox") or {}
     table = (
         "<table class='gate-table'><tbody>"
-        + _row("Model", f"<code>{_e(payload.get('model'))}</code>")
+        + _row("Models", _models_cell(payload))
         + _row("Sandbox", _e(sandbox.get("summary")))
         + _row("Permission mode", f"<code>{_e(payload.get('permission_mode'))}</code>")
         + _row("Tasks", _e(payload.get("task_count", 0)))

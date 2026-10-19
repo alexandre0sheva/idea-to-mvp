@@ -272,6 +272,16 @@ def test_the_implement_gate_summarises_what_the_run_will_do_and_cost(monkeypatch
     assert "Estimated sessions" in html and "3 task sessions" in html and "3 verification" in html
 
 
+def test_the_implement_gate_names_the_model_of_every_session_kind(monkeypatch: pytest.MonkeyPatch, bundle: Path) -> None:
+    env = {"IMPLEMENTER_MODEL": "m-task", "VERIFIER_MODEL": "m-verify", "ESCALATION_MODEL": "m-hard"}
+    payload = implement_payload(monkeypatch, bundle, env)
+    assert payload["models"] == {"implementer": "m-task", "verifier": "m-verify", "escalation": "m-hard"}
+    html = GATES["implement_gate"].render(payload).updates["summary"]["value"]
+    for text in ("m-task", "m-verify", "m-hard", "verification", "merge conflicts"):
+        assert text in html, text
+    assert "m-verify" in payload["question"] and "m-hard" in payload["question"]
+
+
 def test_a_risky_setup_gets_a_red_banner_and_a_safe_one_does_not(monkeypatch: pytest.MonkeyPatch, bundle: Path) -> None:
     risky = implement_payload(monkeypatch, bundle, {"IMPLEMENTER_SANDBOX": "off"})
     banner = GATES["implement_gate"].render(risky).updates["banner"]

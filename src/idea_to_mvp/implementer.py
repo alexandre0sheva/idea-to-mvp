@@ -29,6 +29,7 @@ from idea_to_mvp.implementation.workspace import commit_workspace, prepare_works
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.config import Settings
+    from idea_to_mvp.model_catalog import AgentRole
 
 LOGGER = logging.getLogger(__name__)
 
@@ -104,9 +105,10 @@ async def iter_agent_messages(
     max_budget_usd: float | None = None,
     output_schema: dict[str, Any] | None = None,
     extra_disallowed_tools: Sequence[str] = (),
+    role: AgentRole = "implementer",
     query_fn: Callable[..., AsyncIterator[Any]] | None = None,
 ) -> AsyncIterator[Any]:
-    """Stream the SDK messages of one confined agent session (`query_fn` lets tests inject a fake)."""
+    """Stream the SDK messages of one confined agent session of kind `role` (`query_fn` lets tests inject a fake)."""
     from claude_agent_sdk import query as sdk_query
 
     run_query = query_fn or sdk_query
@@ -118,6 +120,7 @@ async def iter_agent_messages(
         max_budget_usd=max_budget_usd,
         output_schema=output_schema,
         extra_disallowed_tools=extra_disallowed_tools,
+        role=role,
     )
     async for message in run_query(prompt=prompt, options=options):
         yield message

@@ -30,6 +30,7 @@ from idea_to_mvp.plan import Plan, load_plan, parse_requirements
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.config import Settings
+    from idea_to_mvp.model_catalog import AgentRole
 
 LOGGER = logging.getLogger(__name__)
 
@@ -291,6 +292,7 @@ async def _run_session(
     emit: Callable[[ImplEvent], None],
     output_schema: dict[str, Any] | None = None,
     extra_disallowed_tools: Sequence[str] = (),
+    role: AgentRole,
     query_fn: Callable[..., AsyncIterator[Any]] | None = None,
 ) -> _Session:
     from claude_agent_sdk import ResultMessage
@@ -305,6 +307,7 @@ async def _run_session(
             max_budget_usd=budget_usd,
             output_schema=output_schema,
             extra_disallowed_tools=extra_disallowed_tools,
+            role=role,
             query_fn=query_fn,
         ):
             for event in events_from_sdk_message(message, task_id):
@@ -370,12 +373,18 @@ async def run_lane(
             emit=emit,
             output_schema=LaneReport.model_json_schema(),
             extra_disallowed_tools=() if lane == "tests" else WRITE_TOOLS,
+            role="verifier",
             query_fn=query_fn,
         )
         outcome = LaneOutcome(_lane_report_from(lane, session), session.cost_usd, session.turns)
     detail = "passed" if outcome.report.passed else f"failed: {outcome.report.failures[0][:120] if outcome.report.failures else 'see report'}"
     emit(make_event("task_end", task_id=task_id, label=label, detail=detail))
     return outcome
+
+
+def fix_role(attempt: int) -> AgentRole:
+    """The kind of session a fix attempt (1, 2, ...) runs as."""
+    return "implementer" if attempt <= 1 else "escalation"
 
 
 async def run_fix(
@@ -385,9 +394,13 @@ async def run_fix(
     *,
     budget_usd: float,
     emit: Callable[[ImplEvent], None],
+    attempt: int = 1,
     query_fn: Callable[..., AsyncIterator[Any]] | None = None,
 ) -> FixOutcome:
-    """One implementation session that fixes the merged failure list (a failing session is reported, not raised)."""
+    """One implementation session that fixes the merged failure list (a failing session is reported, not raised).
+
+    The first attempt runs on the task sessions' model; later ones escalate, since that model already failed once.
+    """
     task_id, label = "verify:fix", "Fix"
     emit(make_event("task_start", task_id=task_id, label=label, detail=f"{len(failures)} failure(s)"))
     if settings.demo_mode:
@@ -404,6 +417,7 @@ async def run_fix(
             max_turns=settings.implementer_max_task_turns,
             budget_usd=budget_usd,
             emit=emit,
+            role=fix_role(attempt),
             query_fn=query_fn,
         )
         if session.crashed:

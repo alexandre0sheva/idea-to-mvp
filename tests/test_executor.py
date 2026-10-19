@@ -466,6 +466,16 @@ def test_the_resolver_session_gets_the_conflicts_the_task_and_the_test_command(w
     assert options.max_budget_usd == 2.5 and options.max_turns == 17
 
 
+def test_tasks_run_on_the_implementer_model_and_the_resolver_on_the_escalation_model(workspace: Path) -> None:
+    settings = make_settings(implementer_model="m-task", escalation_model="m-hard")
+    plan = make_plan([make_task("T03")])
+    task_query, resolver_query = FakeQuery(workspace), FakeQuery(workspace)
+    resolver_query.task_of = lambda prompt: "T03"  # type: ignore[method-assign]
+    run(run_task(workspace, make_task("T01"), settings, budget=BudgetTracker(25), emit=lambda e: None, query_fn=task_query))
+    run(run_merge_resolver(workspace, plan.tasks[0], ["a"], settings, emit=lambda e: None, budget_usd=1.0, plan=plan, query_fn=resolver_query))
+    assert task_query.calls[0][1].model == "m-task" and resolver_query.calls[0][1].model == "m-hard"
+
+
 def test_a_resolver_that_fails_or_crashes_reports_failure_without_raising(workspace: Path) -> None:
     plan = make_plan([make_task("T03")])
     failing = FakeQuery(workspace)

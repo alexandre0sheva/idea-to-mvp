@@ -9,10 +9,16 @@ import html
 from collections.abc import Mapping
 from typing import Any
 
-from idea_to_mvp.config import Settings
-from idea_to_mvp.model_catalog import get_catalog
+from idea_to_mvp.config import PROFILES, Settings
+from idea_to_mvp.model_catalog import AgentRole, get_catalog
 from idea_to_mvp.model_report import price_label
-from idea_to_mvp.roles import ROLES, resolve_role_model
+from idea_to_mvp.roles import ROLES, resolve_agent_model, resolve_role_model
+
+AGENT_SESSION_LABELS: dict[AgentRole, str] = {
+    "implementer": "task sessions",
+    "verifier": "verification lanes",
+    "escalation": "merge conflicts, later fixes",
+}
 
 PIPELINE_STAGES: list[tuple[str, str]] = [
     ("discussion", "Panel"),
@@ -125,10 +131,13 @@ def model_profile_markdown(settings: Settings) -> str:
         pinned = {spec.provider_setting, spec.model_setting} & settings.model_fields_set
         note = " (overrides the profile)" if pinned else ""
         rows.append(f"| {key} | {provider} | `{model}`{note} | {price_label(catalog.find(model))} |")
-    implementer = settings.implementer_model
-    rows.append(f"| implementer (agent sessions) | anthropic | `{implementer}` | {price_label(catalog.find(implementer))} |")
+    for kind, label in AGENT_SESSION_LABELS.items():
+        model = resolve_agent_model(settings, kind)
+        rows.append(f"| {kind} ({label}) | anthropic | `{model}` | {price_label(catalog.find(model))} |")
+    typical = " · ".join(f"{name} ${catalog.estimate_run(name).total:.2f}" for name in PROFILES)
     return (
         "\n".join(rows)
+        + f"\n\nEstimated cost of a typical run (three-task plan) per profile: {typical}."
         + "\n\nSet `MODEL_PROFILE` (fast, balanced, quality) and the per-role models in `.env` (see `.env.example`). "
         "`idea-to-mvp models` prints the full price list."
     )

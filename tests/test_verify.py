@@ -296,6 +296,16 @@ def test_the_fix_session_gets_the_merged_failure_list_not_the_raw_report(tmp_pat
     assert outcome.success is True and outcome.cost_usd == 0.75 and "Fixed the import." in outcome.summary
 
 
+def test_lanes_run_on_the_verifier_model_and_fixes_escalate_after_the_first_attempt(tmp_path: Path) -> None:
+    settings = make_settings(implementer_model="m-task", verifier_model="m-verify", escalation_model="m-hard")
+    lane = FakeLaneQuery(structured=report("quality").model_dump())
+    asyncio.run(run_lane(tmp_path, "quality", settings, budget_usd=1.0, emit=lambda e: None, query_fn=lane))
+    first, later = FakeLaneQuery(text="ok"), FakeLaneQuery(text="ok")
+    asyncio.run(run_fix(tmp_path, ["x"], settings, budget_usd=1.0, emit=lambda e: None, query_fn=first))
+    asyncio.run(run_fix(tmp_path, ["x"], settings, budget_usd=1.0, emit=lambda e: None, query_fn=later, attempt=2))
+    assert [q.calls[0][1].model for q in (lane, first, later)] == ["m-verify", "m-task", "m-hard"]
+
+
 def test_a_failed_fix_session_is_reported_not_raised(tmp_path: Path) -> None:
     outcome = asyncio.run(
         run_fix(tmp_path, ["x"], make_settings(), budget_usd=1.0, emit=lambda e: None, query_fn=FakeLaneQuery(crash=True))

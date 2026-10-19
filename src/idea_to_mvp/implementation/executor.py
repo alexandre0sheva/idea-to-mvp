@@ -31,6 +31,7 @@ from idea_to_mvp.plan import Plan, PlanTask, execution_waves
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.config import Settings
+    from idea_to_mvp.model_catalog import AgentRole
 
 LOGGER = logging.getLogger(__name__)
 
@@ -178,6 +179,7 @@ async def _run_session(
     budget_usd: float,
     emit: Callable[[ImplEvent], None],
     query_fn: Callable[..., AsyncIterator[Any]] | None,
+    role: AgentRole = "implementer",
 ) -> _Outcome:
     from claude_agent_sdk import ResultMessage
 
@@ -189,6 +191,7 @@ async def _run_session(
             settings=settings,
             max_turns=settings.implementer_max_task_turns,
             max_budget_usd=budget_usd,
+            role=role,
             query_fn=query_fn,
         ):
             for event in events_from_sdk_message(message, task.id):
@@ -328,7 +331,14 @@ async def run_merge_resolver(
         test_hint=f" (`{test_command}`)" if test_command.strip() else "",
     )
     outcome = await _run_session(
-        Path(workspace), task, settings, prompt=prompt, budget_usd=budget_usd, emit=emit, query_fn=query_fn
+        Path(workspace),
+        task,
+        settings,
+        prompt=prompt,
+        budget_usd=budget_usd,
+        emit=emit,
+        query_fn=query_fn,
+        role="escalation",  # a conflict between two finished tasks is a hard case
     )
     return ResolverOutcome(success=outcome.success, summary=outcome.summary, cost_usd=outcome.cost_usd)
 

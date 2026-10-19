@@ -10,7 +10,9 @@ from langgraph.types import interrupt
 from idea_to_mvp.config import get_settings
 from idea_to_mvp.implementation.options import SandboxStatus, sandbox_status
 from idea_to_mvp.implementation.scheduler import dag_width
+from idea_to_mvp.model_catalog import AGENT_ROLES
 from idea_to_mvp.plan import load_plan
+from idea_to_mvp.roles import resolve_agent_model
 from idea_to_mvp.state import (
     ArchChoice,
     IdeaDiscussionState,
@@ -143,13 +145,15 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
     settings = get_settings()
     status = sandbox_status(settings)
     task_count, width, shape = _plan_shape(state, settings.implementer_max_parallel)
+    models = {role: resolve_agent_model(settings, role) for role in AGENT_ROLES}
     question = (
         f"The blueprint pack is ready in `{state.get('project_bundle_dir', '')}`. "
         "Should I start the implementation stage now? "
         f"{shape}Autonomous coding agents "
-        f"(model `{settings.implementer_model}`) will build the project in `{settings.projects_dir}`, then a "
-        "verification agent runs its test suite with up to "
-        f"{settings.max_fix_attempts} fix attempt(s). This spends real Anthropic API tokens "
+        f"(model `{models['implementer']}`) will build the project in `{settings.projects_dir}`, then three "
+        f"verification lanes (model `{models['verifier']}`) check it, with up to "
+        f"{settings.max_fix_attempts} fix attempt(s); merge conflicts and every fix attempt after the first run "
+        f"on `{models['escalation']}`. This spends real Anthropic API tokens "
         f"(whole-run budget cap ${settings.implementer_max_total_usd:.2f}, at most "
         f"${settings.implementer_max_task_usd:.2f} per task). "
         f"Sandbox: {status.summary}. Permission mode: `{settings.implementer_permission_mode}`."
@@ -171,7 +175,7 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
             "sandbox": {"enabled": status.enabled, "mode": settings.implementer_sandbox, "summary": status.summary},
             "permission_mode": settings.implementer_permission_mode,
             "strategy_mode": (state.get("execution_strategy") or {}).get("mode") or "subagents",
-            "model": settings.implementer_model,
+            "models": models,
             "max_total_usd": settings.implementer_max_total_usd,
             "max_task_usd": settings.implementer_max_task_usd,
             "max_fix_attempts": settings.max_fix_attempts,

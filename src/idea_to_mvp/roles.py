@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from idea_to_mvp.config import PROFILES, Provider, Settings
+from idea_to_mvp.model_catalog import AgentRole
 
 SHARED_DISCUSSION_RULES = (
     "You are in a live panel with two other AIs. The human message is the anchor idea, "
@@ -304,3 +305,17 @@ def resolve_role_model(settings: Settings, role_key: str) -> tuple[Provider, str
         return profile[spec.provider_setting.removesuffix("_provider")]
     provider: Provider = getattr(settings, spec.provider_setting)
     return provider, getattr(settings, spec.model_setting)
+
+
+def resolve_agent_model(settings: Settings, role: AgentRole) -> str:
+    """The model an agent session of this kind runs on (`implementer`, `verifier`, or `escalation`).
+
+    Its own `*_MODEL` when `.env` sets it; else `IMPLEMENTER_MODEL` when only that one is set, so an `.env` from
+    before the split keeps running every session on one model; else the model profile's choice.
+    """
+    field = f"{role}_model"
+    if field in settings.model_fields_set:
+        return str(getattr(settings, field))
+    if "implementer_model" in settings.model_fields_set:
+        return settings.implementer_model
+    return PROFILES[settings.model_profile][role][1]

@@ -14,6 +14,7 @@ from idea_to_mvp import cli, model_report
 from idea_to_mvp.config import PROFILES, Settings
 from idea_to_mvp.doctor import collect_checks
 from idea_to_mvp.model_catalog import (
+    AGENT_ROLES,
     ModelCatalog,
     ModelEntry,
     accepts_sampling,
@@ -94,8 +95,8 @@ def test_the_profiles_come_from_the_catalog_with_each_models_own_provider() -> N
 def test_the_typical_run_covers_the_planning_roles_and_the_agent_sessions() -> None:
     catalog = get_catalog()
     profile_roles = {spec.provider_setting.removesuffix("_provider") for spec in ROLES.values()}
-    assert set(catalog.typical_run) <= profile_roles | {"implementer"}
-    assert {"pm", "tech_lead", "skeptic", "moderator", "summarizer", "architect", "implementer"} <= set(
+    assert set(catalog.typical_run) <= profile_roles | set(AGENT_ROLES)
+    assert {"pm", "tech_lead", "skeptic", "moderator", "summarizer", "architect", "implementer", "verifier"} <= set(
         catalog.typical_run
     )
 
@@ -177,12 +178,29 @@ def test_cached_tokens_cost_the_full_price_when_the_catalog_has_no_cached_rate()
 
 def test_the_estimated_run_cost_follows_the_models_a_profile_chooses() -> None:
     catalog = get_catalog()
-    fast, balanced, quality = (
-        catalog.estimate_run(name, "claude-opus-5-5") for name in ("fast", "balanced", "quality")
-    )
-    assert 0 < fast.planning < quality.planning
-    assert 0 < fast.agents == balanced.agents == quality.agents
+    fast, balanced, quality = (catalog.estimate_run(name) for name in ("fast", "balanced", "quality"))
+    assert 0 < fast.planning < balanced.planning <= quality.planning
+    assert 0 < fast.agents < balanced.agents < quality.agents
     assert balanced.total == pytest.approx(balanced.planning + balanced.agents) and not balanced.unpriced
+
+
+def test_a_model_given_for_a_role_replaces_the_profiles_choice_in_the_estimate() -> None:
+    catalog = get_catalog()
+    balanced = catalog.estimate_run("balanced")
+    pinned = catalog.estimate_run("balanced", {"implementer": "claude-opus-5-5"})
+    assert pinned.agents > balanced.agents and pinned.planning == balanced.planning
+    assert catalog.estimate_run("balanced", {"implementer": "homemade"}).unpriced == ["implementer"]
+
+
+def test_agent_sessions_count_as_agents_and_the_rest_as_planning() -> None:
+    data = catalog_data(
+        typical_run={
+            "pm": {"calls": 1, "input_tokens": 1_000_000, "output_tokens": 0},
+            "verifier": {"calls": 1, "input_tokens": 0, "output_tokens": 1_000_000},
+        }
+    )
+    estimate = ModelCatalog.model_validate(data).estimate_run("fast", {"verifier": "m-1"})
+    assert estimate.planning == pytest.approx(2.0) and estimate.agents == pytest.approx(10.0)
 
 
 def test_an_unpriced_model_is_listed_and_left_out_of_the_estimate() -> None:
@@ -215,7 +233,7 @@ def test_the_catalog_decides_before_the_name_pattern_does() -> None:
     assert accepts_sampling("gpt-5-custom", catalog) and not accepts_sampling("claude-opus-5-9", catalog)
 
 
-@pytest.mark.parametrize("model", ["claude-opus-4-8", "claude-fable-5-1", "gemini-3-flash-preview", "gpt-6.9-x"])
+@pytest.mark.parametrize("model", ["claude-opus-4-8", "claude-fable-5", "gemini-3-flash-preview", "gpt-6.9-x"])
 def test_an_unlisted_model_falls_back_to_the_name_pattern_for_current_generations(model: str) -> None:
     assert get_catalog().find(model) is None and not accepts_sampling(model)
 
@@ -368,7 +386,9 @@ def test_the_models_report_shows_every_role_for_every_profile_with_prices_and_co
         assert role in text
     for name in ("fast", "balanced", "quality", "claude-sonnet-5-5", "gpt-6-luna", "gemini-3.8-flash"):
         assert name in text
-    assert "$" in text and "typical run" in text.lower() and "implementer" in text.lower()
+    assert "$" in text and "typical run" in text.lower()
+    for kind in ("implementer", "verifier", "escalation"):
+        assert kind in text
 
 
 def test_the_report_marks_models_that_are_not_in_the_catalog_as_unpriced() -> None:
@@ -492,3 +512,38 @@ def test_the_settings_accordion_shows_each_models_price(monkeypatch) -> None:
     text = model_profile_markdown(Settings(_env_file=None))
     assert "$2.00 / $10.00" in text  # gpt-6.1-sol, per MTok in / out
     assert "unpriced" in model_profile_markdown(Settings(_env_file=None, implementer_model="homemade"))
+
+
+def test_the_settings_accordion_shows_every_agent_session_kind_and_each_profiles_typical_run(monkeypatch) -> None:
+    for key in ("IMPLEMENTER_MODEL", "VERIFIER_MODEL", "ESCALATION_MODEL"):
+        monkeypatch.delenv(key, raising=False)
+    text = model_profile_markdown(Settings(_env_file=None))
+    for kind in ("implementer", "verifier", "escalation"):
+        assert kind in text
+    catalog = get_catalog()
+    for name in PROFILES:
+        assert f"{name} ${catalog.estimate_run(name).total:.2f}" in text
+
+
+# ------------------------------------------------------- docs agree with the catalog
+
+
+def test_the_architecture_docs_model_choices_table_matches_the_balanced_profile() -> None:
+    doc = (ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
+    section = doc.split("### Model choices", 1)[1].split("\n## ", 1)[0].split("\n### ", 1)[0]
+    rows = re.findall(r"^\| `([a-z_]+)`[^|]*\| `([^`]+)` \|[^|]*\| ([^|]+) \|$", section, flags=re.MULTILINE)
+    catalog = get_catalog()
+    assert {role for role, _, _ in rows} == set(PROFILES["balanced"])
+    for role, model, price in rows:
+        assert PROFILES["balanced"][role][1] == model, role
+        assert price.strip() == model_report.price_label(catalog.find(model)), role
+    checked = max(item.checked for item in catalog.models.values())
+    assert f"checked {checked}" in section
+
+
+def test_the_readme_quotes_each_profiles_typical_run_cost_from_the_catalog() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    catalog = get_catalog()
+    for name in PROFILES:
+        estimate = catalog.estimate_run(name)
+        assert re.search(rf"^\| `{name}`[^|]*\|.*\| \${estimate.total:.2f} \|$", readme, flags=re.MULTILINE), name
