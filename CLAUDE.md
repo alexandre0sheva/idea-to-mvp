@@ -28,6 +28,10 @@ uv run pytest --cov=idea_to_mvp                        # what CI runs: fails bel
 
 Gradio + LangGraph app: idea → panel discussion → summary → gates → architecture → strategy → blueprint pack → implementation (Claude Agent SDK) → verification. The pipeline, module map, state contract, and conventions live in [docs/architecture.md](docs/architecture.md) — read it before changing graph topology, state, or prompts, and update it (only it) when they change. Every setting is documented in `.env.example`.
 
+## Active plan
+
+`docs/plans/2026-10-19-v0.4.0-plan.md` is the v0.4.0 plan. "Implement task N" means its `#### Task N` section: follow the plan's *How to implement a task* and *Rules for every task*, update its status table, and keep every change local (no commit, push, tag, or PR) unless the user asks for one in that conversation.
+
 ## Conventions
 
 - Source is the `idea_to_mvp` package in `src/`; imports are absolute (no dual `try/except ImportError` imports).
