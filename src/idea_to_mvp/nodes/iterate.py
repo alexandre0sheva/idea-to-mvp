@@ -25,7 +25,6 @@ from idea_to_mvp import llm
 from idea_to_mvp.config import get_settings
 from idea_to_mvp.implementation.progress import TaskResult, load_progress, save_result
 from idea_to_mvp.implementation.workspace import commit_workspace
-from idea_to_mvp.nodes.implement import route_after_workspace
 from idea_to_mvp.plan import (
     ChangePlan,
     Plan,
@@ -105,11 +104,12 @@ def route_after_iterate_gate(state: IdeaDiscussionState) -> Literal["change_plan
     return "__end__"
 
 
-def route_after_change_planner(state: IdeaDiscussionState) -> Literal["implementer", "implement_plan", "__end__"]:
-    """A request the product already satisfies ends the run; anything else is built like the first version."""
+def route_after_change_planner(state: IdeaDiscussionState) -> Literal["acceptance_author", "__end__"]:
+    """A request the product already satisfies ends the run; anything else is built like the first version
+    (the acceptance author first writes the new version's held-out suite)."""
     if state.get("no_change"):
         return "__end__"
-    return route_after_workspace(state)
+    return "acceptance_author"
 
 
 # ------------------------------------------------------------------ planner

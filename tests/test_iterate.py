@@ -333,7 +333,7 @@ def test_a_no_change_run_ends_instead_of_building(workspace: Path) -> None:
     done = planner_state(workspace)
     done["no_change"] = {"request": FEEDBACK, "reason": SATISFIED}
     assert route_after_change_planner(done) == "__end__"
-    assert route_after_change_planner(planner_state(workspace)) in {"implementer", "implement_plan"}
+    assert route_after_change_planner(planner_state(workspace)) == "acceptance_author"  # then the engines
 
 
 # ------------------------------------------------------------------ the gate

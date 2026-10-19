@@ -263,3 +263,66 @@ def test_a_tests_lane_without_a_report_says_it_is_the_agents_word(tmp_path: Path
 def test_the_other_lanes_show_no_test_counts(tmp_path: Path) -> None:
     html = render_dashboard(state(tmp_path, lanes=[lane("tests"), lane("quality"), lane("requirements")]))
     assert html.count("agent-reported") == 1
+
+
+# ------------------------------------------------------------------- test integrity
+
+
+def integrity_finding(status: str = "open", **fields: Any) -> dict[str, Any]:
+    return {
+        "id": "v1:fix-1:skip_added:tests/test_core.py:", "session": "fix-1", "iteration": 1, "kind": "skip_added",
+        "path": "tests/test_core.py", "block": "", "before": 0, "status": status, "reason": "", "stale": "",
+        "detail": "fix-1 added 1 skip / xfail / only marker(s) to tests/test_core.py.", **fields,
+    }  # fmt: skip
+
+
+def integrity_card(html: str) -> str:
+    match = re.search(r"<section class='lane-card integrity \w+'.*?</section>", html, flags=re.DOTALL)
+    return match.group(0) if match else ""
+
+
+def test_an_open_integrity_finding_is_a_blocked_card(tmp_path: Path) -> None:
+    findings = {"a": integrity_finding()}
+    html = render_dashboard(state(tmp_path, passed=False, integrity_findings=findings, verification={"passed": False, "attempts": 2, "report": "r", "lanes": [], "integrity": "block"}))
+    card = integrity_card(html)
+    assert "BLOCKED" in card and "1 open" in card and "tests/test_core.py" in card and "lane-card integrity failed" in card
+
+
+def test_a_justified_change_shows_the_agents_reason_and_says_whose_words_they_are(tmp_path: Path) -> None:
+    findings = {"a": integrity_finding("justified", reason="<b>R3</b> changed")}
+    card = integrity_card(render_dashboard(state(tmp_path, integrity_findings=findings, verification={"passed": True, "attempts": 1, "report": "r", "lanes": [], "integrity": "block"})))
+    assert "CLEAR" in card and "justified by the agent" in card and "&lt;b&gt;R3&lt;/b&gt; changed" in card
+    assert "quality/TEST_CHANGES.md" in card and "review them" in card
+
+
+def test_warn_mode_calls_an_open_finding_a_warning(tmp_path: Path) -> None:
+    card = integrity_card(render_dashboard(state(tmp_path, integrity_findings={"a": integrity_finding()}, verification={"passed": True, "attempts": 0, "report": "r", "lanes": [], "integrity": "warn"})))
+    assert "WARNING" in card
+
+
+def test_a_clean_check_is_one_line_and_an_unchecked_run_says_nothing(tmp_path: Path) -> None:
+    checked = render_dashboard(state(tmp_path, verification={"passed": True, "attempts": 0, "report": "r", "lanes": [], "integrity": "block"}))
+    assert "no session deleted, renamed, skipped, or weakened a test" in checked and not integrity_card(checked)
+    unchecked = render_dashboard(state(tmp_path, integrity_findings={"a": integrity_finding()}))  # a verdict from before the guard
+    assert "Test integrity" not in unchecked
+    off = render_dashboard(state(tmp_path, verification={"passed": True, "attempts": 0, "report": "r", "lanes": [], "integrity": "off"}))
+    assert "Test integrity" not in off
+
+
+# ------------------------------------------------------------------- held-out acceptance tests
+
+
+def test_the_acceptance_lane_has_a_card_and_each_requirement_its_acceptance_verdict(tmp_path: Path) -> None:
+    evidence = {"tests": 3, "passed": 2, "failed": 1, "errors": 0, "skipped": 0, "requirements": {"R1": "passed", "R2": "failed"}, "suite": "/out/acceptance/ws/v1"}
+    lanes = [lane("tests"), lane("quality"), lane("requirements"), lane("acceptance", False, ["a::test_R2_x: R2 broke"], evidence=evidence)]
+    html = render_dashboard(state(tmp_path, lanes=lanes, passed=False))
+    assert cards(html)["acceptance"] == "failed"
+    assert "2 passed, 1 failed, 0 skipped (held-out acceptance tests" in html and "/out/acceptance/ws/v1" in html
+    assert "<th>Acceptance</th>" in html
+    assert re.search(r"data-req='R1'>.*?<td class='req-acceptance passed'>passed</td>", html)
+    assert re.search(r"data-req='R2'>.*?<td class='req-acceptance failed'>failed</td>", html)
+    assert re.search(r"data-req='R3'>.*?<td class='req-acceptance no-test'>no test</td>", html)
+
+
+def test_without_an_acceptance_lane_the_table_has_no_acceptance_column(tmp_path: Path) -> None:
+    assert "Acceptance" not in render_dashboard(state(tmp_path))

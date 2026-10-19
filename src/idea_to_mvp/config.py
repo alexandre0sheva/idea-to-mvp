@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     skeptic_max_tokens: int = 1200
     summary_max_tokens: int = 2000
     plan_max_tokens: int = 6000  # the structured plan is far longer than one prose document
+    acceptance_max_tokens: int = 8000  # the held-out acceptance suite: several test files in one structured answer
     default_rounds: int = 3
     # Extra passes the blueprint critic may trigger: blocker-flagged documents are regenerated with the
     # issues appended. 0 = review and report only.
@@ -133,6 +134,14 @@ class Settings(BaseSettings):
     verifier_max_turns: int = 40  # per verification lane
     # Fix-and-reverify rounds a failed verification gets before the delivery report.
     max_fix_attempts: int = 2
+    # What happens when a session deletes, renames, skips, or weakens a test (implementation/integrity.py):
+    # `block` fails the verdict until the test is restored or the change is justified in
+    # quality/TEST_CHANGES.md, `warn` only reports it, `off` does not check.
+    test_integrity: Literal["block", "warn", "off"] = "block"
+    # Held-out acceptance tests (implementation/acceptance.py): written from the PRD and the plan's public contracts
+    # before each version is built, kept outside the workspace, and run by a fourth verification lane. Unset: on,
+    # except in demo mode.
+    acceptance_tests: Literal["on", "off"] | None = None
     # How many versions a project may go through: after the first delivery the user can request changes, and
     # each round builds the next version (v0.2, ...) in the same workspace. 1 = no iteration gate at all.
     max_iterations: int = Field(default=5, ge=1)
@@ -148,6 +157,11 @@ class Settings(BaseSettings):
     @classmethod
     def _expand_output_dir(cls, value: Path) -> Path:
         return value.expanduser()
+
+    @property
+    def acceptance_enabled(self) -> bool:
+        """Whether versions get a held-out acceptance suite (ACCEPTANCE_TESTS, else on outside demo mode)."""
+        return self.acceptance_tests == "on" if self.acceptance_tests is not None else not self.demo_mode
 
     @property
     def checkpoint_path(self) -> Path:

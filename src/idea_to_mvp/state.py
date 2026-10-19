@@ -7,6 +7,7 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph.message import add_messages
 
 from idea_to_mvp.config import PanelMode
+from idea_to_mvp.implementation.integrity import IntegrityFinding
 from idea_to_mvp.implementation.progress import TaskResult
 from idea_to_mvp.roles import SPEAKER_ORDER
 from idea_to_mvp.schemas import ProjectPreferences
@@ -81,6 +82,7 @@ class VerificationResult(TypedDict):
     attempts: int  # fix attempts made so far
     report: str
     lanes: list[dict[str, Any]]  # one LaneReport dump per lane (tests, quality, requirements)
+    integrity: NotRequired[str]  # the TEST_INTEGRITY mode the verdict was given under (block / warn / off)
 
 
 class IdeaDiscussionState(TypedDict):
@@ -111,6 +113,11 @@ class IdeaDiscussionState(TypedDict):
     task_results: Annotated[dict[str, TaskResult], merge_dicts]  # plan task id -> its implementation result
     lane_reports: Annotated[dict[str, dict[str, Any]], merge_dicts]  # lane -> LaneReport dump, filled in parallel
     verification: VerificationResult
+    # What sessions did to the tests (`implementation/integrity.py`), by finding id, across every version.
+    integrity_findings: Annotated[dict[str, IntegrityFinding], merge_dicts]
+    integrity_test_count: int | None  # tests the last test report listed: a later drop is a finding
+    # The held-out acceptance suite of the version being built: {iteration, dir, files, covers, note}; {} when off.
+    acceptance: dict[str, Any]
     delivery_report: str
     delivery_zip: str  # the latest delivery bundle (a zip of the project)
     iteration: int  # the version being built: 1 = the first delivery (v0.1), 2 = v0.2, ...
@@ -165,6 +172,9 @@ def make_initial_state(
         "task_results": {},
         "lane_reports": {},
         "verification": {"passed": False, "attempts": 0, "report": "", "lanes": []},
+        "integrity_findings": {},
+        "integrity_test_count": None,
+        "acceptance": {},
         "delivery_report": "",
         "delivery_zip": "",
         "iteration": 1,

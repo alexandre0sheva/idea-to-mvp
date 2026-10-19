@@ -1,8 +1,10 @@
-"""Verification lanes: three read-mostly agent sessions that each end in a structured `LaneReport`.
+"""Verification lanes: read-mostly agent sessions that each end in a structured `LaneReport`.
 
 - **tests**: install dependencies and run the project's test suite (may write coverage artefacts).
 - **quality**: lint / type checks, obvious security problems, and a smoke probe of the documented run command.
 - **requirements**: map every P0 requirement of the PRD to at least one test and report the uncovered ones.
+- **acceptance** (when the version has a held-out suite, `implementation/acceptance.py`): run the acceptance
+  tests the implementers never saw in a throwaway copy, judged by their JUnit report alone.
 
 The lanes run concurrently as `Send` branches of the graph (`nodes/verify.py`). A lane's answer is validated
 against `LaneReport` (the SDK is asked for JSON of that schema); a reply that is missing or invalid fails
@@ -16,8 +18,9 @@ import asyncio
 import json
 import logging
 import re
+import shutil
 from collections.abc import AsyncIterator, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
@@ -25,13 +28,21 @@ from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import SkipJsonSchema
 
 from idea_to_mvp import implementer
+from idea_to_mvp.implementation import acceptance as held_out
 from idea_to_mvp.implementation.events import ImplEvent, events_from_sdk_message, make_event
+from idea_to_mvp.implementation.integrity import IntegrityFinding, SessionWatch
 from idea_to_mvp.implementation.ledger import SessionOutcome
 from idea_to_mvp.implementation.options import SandboxUnavailableError
-from idea_to_mvp.implementation.reports import apply_evidence, clear_reports, read_evidence
+from idea_to_mvp.implementation.reports import (
+    CaseResult,
+    apply_evidence,
+    clear_reports,
+    read_evidence,
+)
 from idea_to_mvp.implementation.trajectory import SessionLog, model_label
 from idea_to_mvp.plan import Plan, load_plan, parse_requirements
-from idea_to_mvp.prompts_common import ANSWER_FREE, EVIDENCE_BOUNDARY, RUBRIC_ORDER
+from idea_to_mvp.prompts_common import ANSWER_FREE, EVIDENCE_BOUNDARY, RUBRIC_ORDER, TEST_INTEGRITY
+from idea_to_mvp.text_utils import read_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.config import Settings
@@ -39,8 +50,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 LOGGER = logging.getLogger(__name__)
 
-LaneName = Literal["tests", "quality", "requirements"]
-LANES: tuple[LaneName, ...] = ("tests", "quality", "requirements")
+LaneName = Literal["tests", "quality", "requirements", "acceptance"]
+LANES: tuple[LaneName, ...] = ("tests", "quality", "requirements")  # every round; "acceptance" only with a suite
+ACCEPTANCE: LaneName = "acceptance"
 WRITE_TOOLS = ("Edit", "MultiEdit", "Write")
 
 _SUMMARY_LIMIT = 2000
@@ -79,13 +91,14 @@ class FixOutcome:
     summary: str
     cost_usd: float = 0.0
     turns: int = 0
+    integrity: list[IntegrityFinding] = field(default_factory=list)  # what the session did to the tests
 
 
 # ---------------------------------------------------------------------- prompts
 
 _LANE_INTRO = (
-    "You are the `{lane}` verification lane for this project. Two other lanes (tests, quality, requirements) "
-    "verify it at the same time. Do NOT fix anything and do not change the project's source; only inspect "
+    "You are the `{lane}` verification lane for this project. Other verification lanes check it at the same "
+    "time. Do NOT fix anything and do not change the project's source; only inspect "
     "and report.\n"
 )
 
@@ -186,9 +199,13 @@ FIX_PROMPT = (
     "{failures}\n\n"
     "Diagnose and fix them, keeping changes minimal and consistent with `ARCHITECTURE.md` and the contracts in "
     "`plan.md`. A failure tagged `[requirements]` means a requirement has no test: write the missing test. "
-    "Re-run the affected checks to confirm the fix. Do not run `git commit`; the orchestrator commits. "
+    "A failure tagged `[integrity]` means an earlier session deleted, renamed, skipped, or weakened a test: "
+    "restore the test, or, only if the change was right, justify it in `quality/TEST_CHANGES.md` as the failure "
+    "says. Re-run the affected checks to confirm the fix. Do not run `git commit`; the orchestrator commits. "
     "Finish with a short summary of what you changed.\n\n"
     + ANSWER_FREE
+    + "\n"
+    + TEST_INTEGRITY
     + "\n"
     + EVIDENCE_BOUNDARY
 )
@@ -260,10 +277,11 @@ def _missing(lane: str) -> LaneReport:
     )
 
 
-def combine_lanes(reports: Sequence[LaneReport]) -> Combined:
-    """One verdict from the lanes: passed only if all three lanes reported and passed."""
+def combine_lanes(reports: Sequence[LaneReport], lanes: Sequence[LaneName] = LANES) -> Combined:
+    """One verdict from the lanes: passed only if every expected lane reported and passed (a report of a lane
+    that was not expected this round, such as an acceptance lane left over from an earlier version, is ignored)."""
     by_lane = {report.lane: report for report in reports}
-    ordered = [by_lane.get(lane) or _missing(lane) for lane in LANES]
+    ordered = [by_lane.get(lane) or _missing(lane) for lane in lanes]
     blocks = []
     for lane_report in ordered:
         lines = [f"### {lane_report.lane.capitalize()} lane: {'PASSED' if lane_report.passed else 'FAILED'}", "", lane_report.summary.strip()]
@@ -358,11 +376,7 @@ async def _run_session(
     return session
 
 
-def _read(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return ""
+_read = read_text
 
 
 def _finish_log(log: SessionLog, session: _Session) -> None:
@@ -372,7 +386,7 @@ def _finish_log(log: SessionLog, session: _Session) -> None:
     log.finish(outcome=outcome, cost_usd=session.cost_usd, turns=session.turns, session_id=session.session_id, note=note)
 
 
-def _log_name(iteration: int, name: str) -> str:
+def log_name(iteration: int, name: str) -> str:
     """Trajectory label of a verification session; later versions are prefixed so their files stay apart."""
     return f"v{iteration}-{name}" if iteration > 1 else name
 
@@ -413,20 +427,26 @@ async def run_lane(
     plan: Plan | None = None,
     iteration: int = 1,
     attempt: int = 1,
+    acceptance_dir: Path | None = None,
     query_fn: Callable[..., AsyncIterator[Any]] | None = None,
 ) -> LaneOutcome:
     """Run one verification lane in `workspace` and return its validated report (never raises for a bad lane).
 
     `attempt` is the verification round (1 = before any fix) and `iteration` the version being built; they
-    name the lane's trajectory and ledger row.
+    name the lane's trajectory and ledger row. The acceptance lane runs the suite saved in `acceptance_dir`.
     """
     workspace = Path(workspace)
+    if lane == ACCEPTANCE:
+        return await _run_acceptance(
+            workspace, settings, budget_usd=budget_usd, emit=emit, folder=acceptance_dir, plan=plan,
+            iteration=iteration, attempt=attempt, query_fn=query_fn,
+        )  # fmt: skip
     task_id, label = f"verify:{lane}", f"{lane.capitalize()} lane"
     emit(make_event("task_start", task_id=task_id, label=label))
     log = SessionLog(
         workspace,
         kind="lane",
-        label=_log_name(iteration, f"lane-{lane}-{attempt}"),
+        label=log_name(iteration, f"lane-{lane}-{attempt}"),
         iteration=iteration,
         attempt=attempt,
         model=model_label(settings, "verifier"),
@@ -465,6 +485,122 @@ async def run_lane(
     return outcome
 
 
+def build_acceptance_prompt(plan: Plan | None, command: str) -> str:
+    install = (plan.commands.install or "").strip() if plan is not None else ""
+    steps = held_out.LANE_STEPS.format(
+        install=f" with `{install}`" if install else " if the project has any",
+        command=command,
+        report=held_out.ACCEPTANCE_REPORT,
+    )
+    return _LANE_INTRO.format(lane=ACCEPTANCE) + "\n" + steps + "\n" + EVIDENCE_BOUNDARY + _REPORT_FORMAT.format(lane=ACCEPTANCE)
+
+
+def _acceptance_report(failures: list[str], summary: str, commands: list[dict[str, Any]] | None = None, evidence: dict[str, Any] | None = None) -> LaneReport:
+    return LaneReport(
+        lane=ACCEPTANCE, passed=not failures, commands_run=commands or [], failures=failures, summary=summary, evidence=evidence
+    )
+
+
+async def _run_acceptance(
+    workspace: Path,
+    settings: Settings,
+    *,
+    budget_usd: float,
+    emit: Callable[[ImplEvent], None],
+    folder: Path | None,
+    plan: Plan | None,
+    iteration: int,
+    attempt: int,
+    query_fn: Callable[..., AsyncIterator[Any]] | None,
+) -> LaneOutcome:
+    """The acceptance lane: the held-out suite run in a throwaway copy, judged by its JUnit report alone.
+
+    Nothing the session says reaches the report (it has read the tests, and its words would carry them to a fix
+    session): the failures are the failing tests' names and assertion messages, the summary is the
+    orchestrator's. Its trajectory is kept beside the suite, outside the workspace.
+    """
+    task_id, label = "verify:acceptance", "Acceptance lane"
+    emit(make_event("task_start", task_id=task_id, label=label))
+    suite = held_out.load_suite(folder)
+    if folder is None or suite is None or not suite.files:
+        report = _acceptance_report(["No acceptance tests were written for this version, so none could run."], "No held-out suite.")
+        emit(make_event("task_end", task_id=task_id, label=label, detail="failed: no acceptance tests"))
+        return LaneOutcome(report)
+    plan = plan or load_plan(_read(workspace / "plan.json"))
+    log = SessionLog(
+        workspace,
+        kind="lane",
+        label=log_name(iteration, f"lane-{ACCEPTANCE}-{attempt}"),
+        iteration=iteration,
+        attempt=attempt,
+        model=model_label(settings, "verifier"),
+        trajectory_dir=Path(folder).parent / held_out.TRAJECTORY_DIR,
+    )
+    try:
+        scratch = await asyncio.to_thread(held_out.make_scratch, workspace, Path(folder), f"v{iteration}-{attempt}")
+    except (OSError, shutil.Error) as error:  # a full disk, a file that cannot be read: a failed lane, not a crash
+        LOGGER.warning("Could not copy %s for the acceptance lane: %s", workspace, error)
+        reason = f"The acceptance lane could not copy the project to run the suite ({type(error).__name__})."
+        report = _acceptance_report([reason], "The held-out suite could not run.")
+        emit(make_event("task_end", task_id=task_id, label=label, detail="failed: could not copy the project"))
+        return LaneOutcome(report)
+    outcome = LaneOutcome(_acceptance_report([], ""))
+    notes: list[str] = []
+    try:
+        if settings.demo_mode:
+            from idea_to_mvp.demo.implementer import demo_run_acceptance
+
+            code = await asyncio.to_thread(demo_run_acceptance, scratch, suite.command)
+            commands = [{"command": suite.command, "exit_code": code}]
+            log.event(make_event("text", task_id=task_id, label="agent", detail=f"Ran the acceptance suite (exit {code})."))
+            log.finish(outcome="success", cost_usd=0.0, turns=0, session_id=None)
+        else:
+            session = await _run_session(
+                scratch,
+                settings,
+                prompt=build_acceptance_prompt(plan, suite.command),
+                task_id=task_id,
+                max_turns=settings.verifier_max_turns,
+                budget_usd=budget_usd,
+                emit=emit,
+                output_schema=LaneReport.model_json_schema(),
+                extra_disallowed_tools=WRITE_TOOLS,
+                role="verifier",
+                query_fn=query_fn,
+                log=log,
+            )
+            _finish_log(log, session)
+            outcome.cost_usd, outcome.turns = session.cost_usd, session.turns
+            commands = parse_lane_report(ACCEPTANCE, session.structured, session.text).commands_run if not session.crashed else []
+            if session.crashed or session.is_error:
+                notes.append("The acceptance session did not finish normally.")
+        cases: list[CaseResult] = []
+        evidence = read_evidence(scratch, cases=cases)  # one pass gives the counts and the cases
+    finally:
+        await asyncio.to_thread(held_out.remove_scratch, workspace, scratch)
+    failures = held_out.acceptance_failures(evidence, cases)
+    requirements = held_out.requirement_status(cases)
+    passed_requirements = sum(1 for status in requirements.values() if status == "passed")
+    summary = (
+        f"{evidence.passed} of {evidence.tests} held-out acceptance test(s) passed; "
+        f"{passed_requirements} of {len(requirements)} requirement(s) they check passed."
+    )
+    recorded = {**evidence.model_dump(), "failures": failures, "requirements": requirements, "suite": str(folder)}
+    outcome.report = _acceptance_report([*notes, *failures] if failures else [], summary, commands, recorded)
+    detail = "passed" if outcome.report.passed else f"failed: {outcome.report.failures[0][:120]}"
+    emit(make_event("task_end", task_id=task_id, label=label, detail=detail))
+    return outcome
+
+
+def build_fix_prompt(failures: list[str]) -> str:
+    """The fix prompt; failures from the held-out acceptance tests add a note on what they are (only then, so a
+    fix session without them is not told that such tests exist)."""
+    prompt = FIX_PROMPT.format(failures="\n".join(f"- {failure}" for failure in failures) or "- (none listed)")
+    if any(failure.startswith(f"[{ACCEPTANCE}]") for failure in failures):
+        prompt += "\n" + held_out.FIX_NOTE
+    return prompt
+
+
 def fix_role(attempt: int) -> AgentRole:
     """The kind of session a fix attempt (1, 2, ...) runs as."""
     return "implementer" if attempt <= 1 else "escalation"
@@ -484,16 +620,20 @@ async def run_fix(
     """One implementation session that fixes the merged failure list (a failing session is reported, not raised).
 
     The first attempt runs on the task sessions' model; later ones escalate, since that model already failed once.
+    The test files are compared before and after the session (`integrity.SessionWatch`), as for task sessions.
     """
     task_id, label = "verify:fix", "Fix"
     emit(make_event("task_start", task_id=task_id, label=label, detail=f"{len(failures)} failure(s)"))
     log = SessionLog(
         workspace,
         kind="fix",
-        label=_log_name(iteration, f"fix-{attempt}"),
+        label=log_name(iteration, f"fix-{attempt}"),
         iteration=iteration,
         attempt=attempt,
         model=model_label(settings, fix_role(attempt)),
+    )
+    watch = await asyncio.to_thread(
+        SessionWatch, Path(workspace), settings, session=log_name(iteration, f"fix-{attempt}"), iteration=iteration
     )
     if settings.demo_mode:
         from idea_to_mvp.demo.implementer import demo_fix
@@ -506,7 +646,7 @@ async def run_fix(
         session = await _run_session(
             Path(workspace),
             settings,
-            prompt=FIX_PROMPT.format(failures="\n".join(f"- {failure}" for failure in failures) or "- (none listed)"),
+            prompt=build_fix_prompt(failures),
             task_id=task_id,
             max_turns=settings.implementer_max_task_turns,
             budget_usd=budget_usd,
@@ -526,5 +666,6 @@ async def run_fix(
             cost_usd=session.cost_usd,
             turns=session.turns,
         )
+    outcome.integrity = await asyncio.to_thread(watch.findings, session=log.label)
     emit(make_event("task_end", task_id=task_id, label=label, detail="done" if outcome.success else f"failed: {outcome.summary.splitlines()[0][:120]}"))
     return outcome

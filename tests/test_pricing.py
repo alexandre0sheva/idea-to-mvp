@@ -193,3 +193,14 @@ def test_the_range_serialises_for_the_checkpoint() -> None:
 def test_no_plan_is_estimated_as_one_session() -> None:
     s = settings(implementer_model=SONNET, verifier_model=SONNET)
     assert estimate_run_cost(s, task_count=0, history=[]).tasks == 1
+
+
+def test_the_acceptance_lane_adds_one_lane_to_every_verification_round() -> None:
+    base = {"implementer_model": SONNET, "verifier_model": SONNET, "escalation_model": SONNET, "max_fix_attempts": 0}
+    shape = get_catalog().typical_run["verifier"]
+    entry = get_catalog().find(SONNET)
+    assert entry
+    lane = entry.cost(shape.input_tokens, shape.output_tokens, round(shape.input_tokens * shape.cached_fraction))
+    off = estimate_run_cost(settings(acceptance_tests="off", **base), task_count=3, history=[])
+    on = estimate_run_cost(settings(acceptance_tests="on", **base), task_count=3, history=[])
+    assert (on.low or 0) - (off.low or 0) == pytest.approx(lane)

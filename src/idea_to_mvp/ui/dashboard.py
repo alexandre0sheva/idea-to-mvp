@@ -1,7 +1,7 @@
 """The delivery dashboard: one card that says how the run went and what to do with the result.
 
-A verdict card per verification lane, how each PRD requirement fared, what the run cost, and how to run the
-project. `render_dashboard` reads the graph state plus the workspace's `plan.json`, `PRD.md`, and `README.md`;
+A verdict card per verification lane, what the test-integrity guard flagged, how each PRD requirement fared,
+what the run cost, and how to run the project. `render_dashboard` reads the graph state plus the workspace's `plan.json`, `PRD.md`, and `README.md`;
 everything it prints from an agent or from those files is escaped.
 """
 
@@ -13,12 +13,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from idea_to_mvp.implementation.integrity import CHANGES_FILE
 from idea_to_mvp.implementation.progress import TaskResult, load_progress
 from idea_to_mvp.plan import Plan, load_plan, parse_requirements
 from idea_to_mvp.ui.components import compact_count, format_elapsed
 from idea_to_mvp.usage import summarize_usage
 
-_LANE_ORDER = ("tests", "quality", "requirements")
+_LANE_ORDER = ("tests", "quality", "requirements", "acceptance")
 _RUN_HEADING = re.compile(r"^(#{1,4})\s*(?:run|running|quick\s*start|usage|getting\s*started)\b.*$", re.IGNORECASE)
 _HEADING = re.compile(r"^(#{1,6})\s")
 _REQUIREMENT_ID = re.compile(r"\bR\d+\b")
@@ -78,6 +79,8 @@ def run_instructions(workspace: Path, plan: Plan | None = None) -> list[tuple[st
 def _evidence_line(lane: Mapping[str, Any]) -> str:
     """The tests lane's counts as the orchestrator read them from the test report (else a note that the lane's
     verdict is the agent's word). Empty for the other lanes."""
+    if lane.get("lane") == "acceptance":
+        return _acceptance_line(lane.get("evidence"))
     if lane.get("lane") != "tests":
         return ""
     evidence = lane.get("evidence")
@@ -92,6 +95,19 @@ def _evidence_line(lane: Mapping[str, Any]) -> str:
     if isinstance(coverage, int | float):
         parts.append(f"{coverage:.0f}% coverage")
     return f"<p class='lane-evidence'>{_e(', '.join(parts))} (from the test report)</p>"
+
+
+def _acceptance_line(evidence: Any) -> str:
+    """The held-out suite's counts, and where it is kept (the user may read it; the agents never did)."""
+    if not isinstance(evidence, Mapping):
+        return ""
+    counts = (
+        f"{int(evidence.get('passed') or 0)} passed, "
+        f"{int(evidence.get('failed') or 0) + int(evidence.get('errors') or 0)} failed, "
+        f"{int(evidence.get('skipped') or 0)} skipped"
+    )
+    where = f" Suite: <code>{_e(evidence.get('suite'))}</code>" if evidence.get("suite") else ""
+    return f"<p class='lane-evidence'>{_e(counts)} (held-out acceptance tests, from their report).{where}</p>"
 
 
 def _lane_card(lane: Mapping[str, Any]) -> str:
@@ -115,10 +131,50 @@ def _lane_card(lane: Mapping[str, Any]) -> str:
     )
 
 
+# ------------------------------------------------------------ test integrity
+
+_INTEGRITY_STATUS = {"open": "open", "restored": "restored", "justified": "justified by the agent"}
+
+
+def _integrity_card(findings: Mapping[str, Any], mode: str, iteration: int) -> str:
+    """What the test-integrity guard flagged and what became of it ('' when it was off or did not run)."""
+    if mode not in ("block", "warn"):
+        return ""
+    entries = [finding for finding in findings.values() if isinstance(finding, Mapping)]
+    if not entries:
+        return "<p class='dashboard-note integrity-note'>Test integrity: no session deleted, renamed, skipped, or weakened a test.</p>"
+    open_count = sum(1 for finding in entries if finding.get("status") == "open")
+    badge = ("BLOCKED" if mode == "block" else "WARNING") if open_count else "CLEAR"
+    items = []
+    for finding in entries:
+        status = str(finding.get("status") or "open")
+        version = f"v0.{int(finding.get('iteration') or 1)} · " if iteration > 1 else ""
+        why = f"<br><span class='integrity-reason'>Why: {_e(finding.get('reason'))}</span>" if status == "justified" else ""
+        items.append(
+            f"<li class='integrity-{_e(status)}'><strong>{_e(_INTEGRITY_STATUS.get(status, status))}</strong> · "
+            f"{_e(version)}{_e(finding.get('detail'))}{why}</li>"
+        )
+    justified = any(finding.get("status") == "justified" for finding in entries)
+    note = (
+        f"<p class='lane-label'>Justifications are the agents' own words, from <code>{_e(CHANGES_FILE)}</code>: review them.</p>"
+        if justified
+        else ""
+    )
+    return (
+        f"<section class='lane-card integrity {'failed' if open_count else 'passed'}' data-integrity='{_e(badge.lower())}'>"
+        f"<header><strong>Test integrity</strong> <span class='badge {'failed' if open_count else 'passed'}'>{badge}</span></header>"
+        f"<p>Tests that agent sessions deleted, renamed, skipped, or weakened ({open_count} open).</p>"
+        f"<ul class='integrity-findings'>{''.join(items)}</ul>{note}</section>"
+    )
+
+
 # ------------------------------------------------------------- requirements
 
 
-def _requirement_rows(prd: str, plan: Plan | None, results: Mapping[str, TaskResult], flagged: set[str]) -> str:
+def _requirement_rows(
+    prd: str, plan: Plan | None, results: Mapping[str, TaskResult], flagged: set[str], acceptance: Mapping[str, str] | None = None
+) -> str:
+    """One row per PRD requirement; with an acceptance lane, also how its held-out tests did (`acceptance`)."""
     requirements = parse_requirements(prd)
     if not requirements:
         return ""
@@ -139,13 +195,18 @@ def _requirement_rows(prd: str, plan: Plan | None, results: Mapping[str, TaskRes
             state = "delivered"
         else:
             state = "planned"
+        held_out = ""
+        if acceptance is not None:
+            verdict = str(acceptance.get(rid) or "no test")
+            held_out = f"<td class='req-acceptance {_e(verdict.replace(' ', '-'))}'>{_e(verdict)}</td>"
         rows.append(
             f"<tr class='req-row {state}' data-req='{_e(rid)}'><th>{_e(rid)}</th><td>{_e(requirements[rid] or '—')}</td>"
-            f"<td>{_e(', '.join(tasks) or '—')}</td><td>{state}</td></tr>"
+            f"<td>{_e(', '.join(tasks) or '—')}</td><td class='req-status'>{state}</td>{held_out}</tr>"
         )
+    acceptance_head = "<th>Acceptance</th>" if acceptance is not None else ""
     return (
-        "<table class='req-table'><thead><tr><th>Requirement</th><th>Priority</th><th>Tasks</th><th>Status</th></tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody></table>"
+        "<table class='req-table'><thead><tr><th>Requirement</th><th>Priority</th><th>Tasks</th><th>Status</th>"
+        f"{acceptance_head}</tr></thead><tbody>{''.join(rows)}</tbody></table>"
     )
 
 
@@ -199,12 +260,20 @@ def render_dashboard(state: Mapping[str, Any], *, elapsed: Mapping[str, float] |
         lane_html = f"<div class='lane-grid'>{''.join(_lane_card(lane) for lane in lanes)}</div>"
     else:
         lane_html = f"<p class='dashboard-note'>{_e(verification.get('report') or 'No verification report.')}</p>"
+    lane_html += _integrity_card(state.get("integrity_findings") or {}, str(verification.get("integrity") or ""), iteration)
 
     flagged: set[str] = set()
     for lane in lanes:
         if lane.get("lane") == "requirements" and not lane.get("passed"):
             flagged.update(_REQUIREMENT_ID.findall(" ".join(str(f) for f in lane.get("failures") or [])))
-    table = _requirement_rows(_read(workspace / "PRD.md") if workspace else "", plan, results, flagged)
+    acceptance = next(
+        (lane.get("evidence") for lane in lanes if lane.get("lane") == "acceptance" and isinstance(lane.get("evidence"), Mapping)),
+        None,
+    )
+    held_out = acceptance.get("requirements") if isinstance(acceptance, Mapping) else None
+    table = _requirement_rows(
+        _read(workspace / "PRD.md") if workspace else "", plan, results, flagged, held_out if isinstance(held_out, Mapping) else None
+    )
     requirements_html = f"<h4>Requirements</h4>{table}" if table else ""
 
     summary = summarize_usage(state.get("usage") or [])

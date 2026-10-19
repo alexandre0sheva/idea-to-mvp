@@ -18,25 +18,35 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, NamedTuple
 from xml.etree import ElementTree
 
 from pydantic import BaseModel
 
 from idea_to_mvp.plan import REPORTS_DIR
+from idea_to_mvp.text_utils import clip
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.implementation.verify import LaneReport
 
 LOGGER = logging.getLogger(__name__)
 
-__all__ = ["REPORTS_DIR", "ReportedTests", "apply_evidence", "clear_reports", "evidence_failures", "read_evidence"]
+__all__ = [
+    "REPORTS_DIR",
+    "CaseResult",
+    "ReportedTests",
+    "apply_evidence",
+    "clear_reports",
+    "evidence_failures",
+    "read_evidence",
+]
 
 MAX_REPORT_BYTES = 20_000_000  # a larger file is refused instead of parsed
 MAX_REPORT_FILES = 50
 _LISTED_FAILURES = 10
 _MESSAGE_LIMIT = 200
 _JUNIT_ROOTS = {"testsuites", "testsuite"}
+MAX_CASES = 2000
 
 
 class ReportedTests(BaseModel):
@@ -58,11 +68,6 @@ def clear_reports(workspace: Path) -> Path:
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True, exist_ok=True)
     return folder
-
-
-def _clip(text: str, limit: int = _MESSAGE_LIMIT) -> str:
-    one_line = " ".join((text or "").split())
-    return one_line if len(one_line) <= limit else one_line[: limit - 1] + "…"
 
 
 def _root_of(path: Path) -> ElementTree.Element | str:
@@ -88,8 +93,19 @@ def _case_name(case: ElementTree.Element) -> str:
     return f"{suite}::{name}" if suite else name
 
 
-def _count_junit(root: ElementTree.Element, into: ReportedTests) -> None:
+def _case_result(case: ElementTree.Element) -> CaseResult:
+    failure, error = case.find("failure"), case.find("error")
+    node = failure if failure is not None else error
+    if node is not None:
+        detail = node.get("message") or node.get("type") or "failed"  # never the body: a traceback quotes the test
+        return CaseResult(_case_name(case), "failed", clip(detail, _MESSAGE_LIMIT))
+    return CaseResult(_case_name(case), "skipped" if case.find("skipped") is not None else "passed", "")
+
+
+def _count_junit(root: ElementTree.Element, into: ReportedTests, cases: list[CaseResult] | None = None) -> None:
     for case in root.iter("testcase"):
+        if cases is not None and len(cases) < MAX_CASES:
+            cases.append(_case_result(case))
         into.tests += 1
         failure, error = case.find("failure"), case.find("error")
         node = failure if failure is not None else error
@@ -100,11 +116,20 @@ def _count_junit(root: ElementTree.Element, into: ReportedTests) -> None:
                 into.errors += 1
             if len(into.failures) < _LISTED_FAILURES:
                 detail = node.get("message") or node.text or node.get("type") or "failed"
-                into.failures.append(f"{_case_name(case)}: {_clip(detail)}")
+                into.failures.append(f"{_case_name(case)}: {clip(detail, _MESSAGE_LIMIT)}")
         elif case.find("skipped") is not None:
             into.skipped += 1
         else:
             into.passed += 1
+
+
+class CaseResult(NamedTuple):
+    """One test case of a JUnit report. `message` is the failure's `message` attribute (its type when there is
+    none), never the failure body: the body is a traceback, which quotes the test's code."""
+
+    name: str  # "<classname>::<name>"
+    status: Literal["passed", "failed", "skipped"]  # an error counts as failed
+    message: str
 
 
 def _cobertura_percent(root: ElementTree.Element) -> float | None:
@@ -124,9 +149,10 @@ def _coverage_json_percent(path: Path) -> float | None:
         return None
 
 
-def read_evidence(workspace: Path) -> ReportedTests:
+def read_evidence(workspace: Path, *, cases: list[CaseResult] | None = None) -> ReportedTests:
     """Parse every report in the workspace's reports folder: JUnit XML files are added up, a Cobertura
-    `coverage.xml` or a coverage.py `coverage.json` gives the coverage. Never raises."""
+    `coverage.xml` or a coverage.py `coverage.json` gives the coverage. With `cases`, each test case is also
+    appended to it (at most MAX_CASES), from the same single pass. Never raises."""
     folder = Path(workspace) / REPORTS_DIR
     evidence = ReportedTests()
     junit_files = 0
@@ -137,7 +163,7 @@ def read_evidence(workspace: Path) -> ReportedTests:
         if isinstance(root, str):
             problems.append(root)
         elif root.tag in _JUNIT_ROOTS:
-            _count_junit(root, evidence)
+            _count_junit(root, evidence, cases)
             junit_files += 1
         elif root.tag == "coverage":
             evidence.coverage_percent = _cobertura_percent(root)

@@ -12,13 +12,14 @@ import asyncio
 import logging
 import threading
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from idea_to_mvp import implementer
 from idea_to_mvp.implementation import merge
 from idea_to_mvp.implementation.events import ImplEvent, events_from_sdk_message, make_event
+from idea_to_mvp.implementation.integrity import IntegrityFinding, SessionWatch
 from idea_to_mvp.implementation.ledger import SessionOutcome
 from idea_to_mvp.implementation.options import SandboxUnavailableError
 from idea_to_mvp.implementation.progress import (
@@ -30,7 +31,7 @@ from idea_to_mvp.implementation.progress import (
 from idea_to_mvp.implementation.trajectory import SessionLog, model_label
 from idea_to_mvp.implementation.workspace import commit_workspace, head_commit
 from idea_to_mvp.plan import Plan, PlanTask, execution_waves, iteration_of
-from idea_to_mvp.prompts_common import ANSWER_FREE, EVIDENCE_BOUNDARY
+from idea_to_mvp.prompts_common import ANSWER_FREE, EVIDENCE_BOUNDARY, TEST_INTEGRITY
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.config import Settings
@@ -72,7 +73,7 @@ Read `AGENTS.md`, `PRD.md`, `ARCHITECTURE.md`, and `plan.md` first (`plan.md` li
 - Do not run `git commit` or change git configuration; the orchestrator commits when you finish.
 - Finish with a short summary of what you built and anything the next tasks must know.
 
-""" + ANSWER_FREE
+""" + ANSWER_FREE + "\n" + TEST_INTEGRITY
 
 
 WORKTREE_NOTE = """\
@@ -103,7 +104,7 @@ incompatible. Then run the project's test command{test_hint} and fix anything th
 - Do not run `git commit`, `git merge`, or `git merge --abort`; the orchestrator completes the merge when you finish.
 - Finish with one short paragraph on how you resolved it.
 
-""" + EVIDENCE_BOUNDARY
+""" + TEST_INTEGRITY + "\n" + EVIDENCE_BOUNDARY
 
 
 class BudgetTracker:
@@ -248,6 +249,13 @@ async def _run_demo_session(workspace: Path, task: PlanTask, emit: Callable[[Imp
     return _Outcome(success=True, summary=demo_task(workspace, task, emit), turns=3)
 
 
+async def _session_findings(watch: SessionWatch | None, label: str, *, keep: bool) -> list[IntegrityFinding]:
+    """What a session did to the tests. A failed session in a worktree is thrown away with it (`keep=False`)."""
+    if watch is None or not keep:
+        return []
+    return await asyncio.to_thread(watch.findings, session=label)
+
+
 async def run_task(
     workspace: Path,
     task: PlanTask,
@@ -280,6 +288,7 @@ async def run_task(
     emit(make_event("task_start", task_id=task.id, label=task.title, detail=detail))
 
     remaining = budget.remaining()
+    cwd = work_dir or workspace
     # The trajectory and the ledger row live in the main workspace even when the session runs in a worktree,
     # which is removed once the task is merged.
     log = SessionLog(
@@ -290,14 +299,17 @@ async def run_task(
         iteration=iteration_of(task.id),
         model=model_label(settings, "implementer"),
     )
+    watch = None
+    if remaining > 0:  # the test files as the session finds them
+        watch = await asyncio.to_thread(SessionWatch, cwd, settings, session=task.id, iteration=iteration_of(task.id))
     if remaining <= 0:
         outcome = _Outcome(success=False, summary="Not started: the whole-run budget is used up.")
     elif settings.demo_mode:
-        outcome = await _run_demo_session(work_dir or workspace, task, log.tee(emit))
+        outcome = await _run_demo_session(cwd, task, log.tee(emit))
         _finish_log(log, outcome)
     else:
         outcome = await _run_session(
-            work_dir or workspace,
+            cwd,
             task,
             settings,
             prompt=build_task_prompt(task, plan, progress, in_worktree=work_dir is not None),
@@ -308,6 +320,10 @@ async def run_task(
         )
         _finish_log(log, outcome)
     budget.charge(outcome.cost_usd)
+    findings = await _session_findings(watch, log.label, keep=outcome.success or work_dir is None)
+    if work_dir is None and previous is not None:
+        # A failed attempt's changes stay in the workspace (only a worktree is thrown away), so are its findings.
+        findings = [*previous.get("integrity", []), *findings]  # type: ignore[list-item]
 
     commit = None
     if outcome.success and work_dir is not None:
@@ -323,6 +339,8 @@ async def run_task(
         "session_id": outcome.session_id,
         "commit": commit,
     }
+    if findings:
+        result["integrity"] = [dict(finding) for finding in findings]
     if persist:
         save_result(workspace, result)
     if announce_end:
@@ -336,6 +354,7 @@ class ResolverOutcome:
     success: bool
     summary: str
     cost_usd: float = 0.0
+    integrity: list[IntegrityFinding] = field(default_factory=list)  # what the resolver did to the tests
 
 
 async def run_merge_resolver(
@@ -352,7 +371,9 @@ async def run_merge_resolver(
     """One bounded agent session that resolves the conflict markers of a merge in progress in `workspace`.
 
     The orchestrator judges the result (no markers left, tests are the agent's job) and completes or aborts
-    the merge; a crashing or failing session is reported as a failed resolution, never raised.
+    the merge; a crashing or failing session is reported as a failed resolution, never raised. The test files
+    are compared before and after the session; the conflicted ones may lose assertions (a side had to win),
+    but no test file may disappear or gain skip markers.
     """
     if settings.demo_mode:
         return ResolverOutcome(success=True, summary="Demo mode: nothing to resolve.")
@@ -373,6 +394,9 @@ async def run_merge_resolver(
         iteration=iteration_of(task.id),
         model=model_label(settings, "escalation"),
     )
+    watch = await asyncio.to_thread(
+        SessionWatch, Path(workspace), settings, session=f"{task.id}-resolver", iteration=iteration_of(task.id)
+    )
     outcome = await _run_session(
         Path(workspace),
         task,
@@ -385,7 +409,8 @@ async def run_merge_resolver(
         log=log,
     )
     _finish_log(log, outcome)
-    return ResolverOutcome(success=outcome.success, summary=outcome.summary, cost_usd=outcome.cost_usd)
+    findings = await asyncio.to_thread(watch.findings, session=log.label, exempt=set(files))
+    return ResolverOutcome(success=outcome.success, summary=outcome.summary, cost_usd=outcome.cost_usd, integrity=findings)
 
 
 def plan_is_runnable(plan: Plan | None) -> bool:

@@ -6,18 +6,25 @@ from plan_helpers import PRD, make_plan
 
 from idea_to_mvp.blueprints import bundle_file_plan, prompt_for
 from idea_to_mvp.implementation.executor import RESOLVER_PROMPT, TASK_PROMPT
-from idea_to_mvp.implementation.verify import FIX_PROMPT, LANES, build_lane_prompt
+from idea_to_mvp.implementation.verify import (
+    FIX_PROMPT,
+    LANES,
+    build_acceptance_prompt,
+    build_lane_prompt,
+)
 from idea_to_mvp.prompts_common import (
     ANSWER_FREE,
     EVIDENCE_BOUNDARY,
     NO_CHANGE_REVISION,
     RUBRIC_CRITERIA,
     RUBRIC_ORDER,
+    TEST_INTEGRITY,
 )
 from idea_to_mvp.roles import ROLES
 
 JUDGE_PROMPTS = {
     **{f"{lane} lane": build_lane_prompt(lane, make_plan(), PRD) for lane in LANES},
+    "acceptance lane": build_acceptance_prompt(make_plan(), "python -m pytest acceptance"),
     "fix": FIX_PROMPT,
     "merge resolver": RESOLVER_PROMPT,
     "change planner": ROLES["change_planner"].system_prompt,
@@ -83,3 +90,13 @@ def test_a_revision_may_change_nothing_when_no_issue_holds() -> None:
 def test_the_change_planner_may_answer_with_no_tasks_and_a_reason() -> None:
     prompt = ROLES["change_planner"].system_prompt
     assert "`tasks: []`" in prompt and "`reason`" in prompt and "already" in prompt
+
+
+@pytest.mark.parametrize("prompt", [TASK_PROMPT, FIX_PROMPT, RESOLVER_PROMPT], ids=["task", "fix", "resolver"])
+def test_every_session_that_changes_code_is_told_not_to_weaken_the_tests(prompt: str) -> None:
+    assert TEST_INTEGRITY in prompt
+    assert "quality/TEST_CHANGES.md" in TEST_INTEGRITY and "test-count" in TEST_INTEGRITY
+
+
+def test_the_fix_prompt_says_what_an_integrity_failure_asks_for() -> None:
+    assert "`[integrity]`" in FIX_PROMPT and "restore the test" in FIX_PROMPT

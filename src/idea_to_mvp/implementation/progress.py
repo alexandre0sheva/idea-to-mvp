@@ -10,8 +10,9 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
+from idea_to_mvp.implementation.integrity import valid_finding
 from idea_to_mvp.plan import iteration_of
 
 PROGRESS_DIR = ".idea-to-mvp"
@@ -26,6 +27,8 @@ class TaskResult(TypedDict):
     turns: int
     session_id: str | None
     commit: str | None
+    # What the session did to the tests (`integrity.IntegrityFinding` dumps), so a resumed run still knows it.
+    integrity: NotRequired[list[dict[str, Any]]]
 
 
 def progress_path(workspace: Path) -> Path:
@@ -51,8 +54,9 @@ def load_progress(workspace: Path) -> dict[str, TaskResult]:
         return {}
     if not isinstance(raw, dict) or not all(_valid(entry) for entry in raw.values()):
         return {}
-    return {
-        str(task_id): {
+    progress: dict[str, TaskResult] = {}
+    for task_id, entry in raw.items():
+        result: TaskResult = {
             "task_id": entry["task_id"],
             "status": entry["status"],
             "summary": entry["summary"],
@@ -61,8 +65,12 @@ def load_progress(workspace: Path) -> dict[str, TaskResult]:
             "session_id": entry.get("session_id"),
             "commit": entry.get("commit"),
         }
-        for task_id, entry in raw.items()
-    }
+        # An agent's shell can write this file: only well-formed findings are taken back.
+        findings = [finding for finding in entry.get("integrity") or [] if valid_finding(finding)]
+        if findings:
+            result["integrity"] = findings
+        progress[str(task_id)] = result
+    return progress
 
 
 def save_result(workspace: Path, result: TaskResult) -> None:

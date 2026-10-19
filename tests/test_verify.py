@@ -469,3 +469,21 @@ def test_the_demo_tests_lane_reports_real_counts_from_the_demo_projects_junit_fi
     outcome = asyncio.run(run_lane(tmp_path, "tests", make_settings(demo_mode=True), budget_usd=1.0, emit=lambda e: None))
     assert outcome.report.passed is True
     assert outcome.report.evidence is not None and outcome.report.evidence["tests"] == 3 and outcome.report.evidence["failed"] == 0
+
+
+
+def test_the_fix_session_reports_what_it_did_to_the_tests(tmp_path: Path) -> None:
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_a.py").write_text("def test_a():\n    assert 1\n")
+
+    class DeletingQuery(FakeLaneQuery):
+        async def __call__(self, *, prompt: str, options: Any) -> AsyncIterator[Any]:
+            (tmp_path / "tests" / "test_a.py").unlink()
+            async for message in super().__call__(prompt=prompt, options=options):
+                yield message
+
+    outcome = asyncio.run(
+        run_fix(tmp_path, ["x"], make_settings(), budget_usd=1.0, emit=lambda e: None, query_fn=DeletingQuery(text="ok"), attempt=2, iteration=3)
+    )
+    [finding] = outcome.integrity
+    assert (finding["session"], finding["iteration"], finding["kind"]) == ("v3-fix-2", 3, "deleted")

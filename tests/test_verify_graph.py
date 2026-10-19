@@ -11,9 +11,16 @@ from langgraph.types import Command, Send
 from idea_to_mvp.config import clear_settings_cache
 from idea_to_mvp.graph import build_graph, run_config
 from idea_to_mvp.implementation import verify as lanes
+from idea_to_mvp.implementation.integrity import SessionWatch
 from idea_to_mvp.implementation.verify import LANES, FixOutcome, LaneOutcome, LaneReport
 from idea_to_mvp.nodes.report import delivery_report_node
-from idea_to_mvp.nodes.verify import fix_node, route_after_verdict, route_after_verify, verify_node
+from idea_to_mvp.nodes.verify import (
+    fix_node,
+    route_after_verdict,
+    route_after_verify,
+    verdict_node,
+    verify_node,
+)
 from idea_to_mvp.state import make_initial_state
 
 IDEA = "A habit tracker for climbing gyms"
@@ -41,6 +48,7 @@ class FakeLanes:
         self.max_active = 0
         self.rounds_started = 0
         self.cost = 0.5
+        self.fix_effects: list[Any] = []  # per fix attempt: what the session does to the workspace
         monkeypatch.setattr(lanes, "run_lane", self.run_lane)
         monkeypatch.setattr(lanes, "run_fix", self.run_fix)
 
@@ -57,7 +65,10 @@ class FakeLanes:
     async def run_fix(self, workspace: Path, failures: list[str], settings: Any, *, budget_usd: float, emit: Any, attempt: int = 1, **_: Any) -> FixOutcome:
         self.fix_calls.append((failures, budget_usd))
         self.fix_attempts.append(attempt)
-        return FixOutcome(True, "Fixed it.", cost_usd=self.cost, turns=2)
+        watch = SessionWatch(Path(workspace), settings, session=f"fix-{attempt}", iteration=1)  # as the real run_fix does
+        if attempt <= len(self.fix_effects) and self.fix_effects[attempt - 1] is not None:
+            self.fix_effects[attempt - 1](Path(workspace))
+        return FixOutcome(True, "Fixed it.", cost_usd=self.cost, turns=2, integrity=watch.findings())
 
 
 @pytest.fixture(autouse=True)
@@ -221,3 +232,102 @@ def test_the_delivery_report_shows_a_verdict_per_lane() -> None:
     report = delivery_report_node(state)["delivery_report"]  # type: ignore[arg-type]
     assert "tests ✅" in report and "quality ❌" in report and "requirements ❌" in report
     assert "R4 (P0): no test" in report and "2 fix attempt(s)" in report
+
+
+# ------------------------------------------------------------ test integrity
+
+
+def skip_a_test(workspace: Path) -> None:
+    path = workspace / "tests" / "test_core.py"
+    text = path.read_text()
+    path.write_text(text.replace("    def test_describe_mentions_the_idea", "    @unittest.skip('flaky')\n    def test_describe_mentions_the_idea"))
+
+
+def justify_the_skip(workspace: Path) -> None:
+    (workspace / "quality").mkdir(exist_ok=True)
+    (workspace / "quality" / "TEST_CHANGES.md").write_text("- tests/test_core.py: the idea text is not shown yet, see R3\n")
+
+
+async def test_a_fix_that_skips_a_test_blocks_the_verdict_until_the_change_is_justified(fake: FakeLanes) -> None:
+    fake.verify_rounds = [{"tests": False}, {}, {}]  # the lanes pass from the second round on
+    fake.fix_effects = [skip_a_test, justify_the_skip]
+    graph, config, _ = await run_to_the_end("integrity-block")
+    values = (await graph.aget_state(config)).values
+    assert len(fake.fix_calls) == 2
+    second_failures, _ = fake.fix_calls[1]
+    assert [f for f in second_failures if f.startswith("[integrity]")] and all(f.startswith("[integrity]") for f in second_failures)
+    assert "tests/test_core.py" in second_failures[0] and "fix-1" in second_failures[0]
+    [finding] = values["integrity_findings"].values()
+    assert (finding["session"], finding["kind"], finding["status"]) == ("fix-1", "skip_added", "justified")
+    assert finding["reason"] == "the idea text is not shown yet, see R3"
+    verification = values["verification"]
+    assert verification["passed"] is True and verification["integrity"] == "block"
+    assert "Test integrity: CLEAR" in verification["report"]
+
+
+async def test_with_warn_a_skipped_test_is_reported_but_does_not_block(fake: FakeLanes, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEST_INTEGRITY", "warn")
+    clear_settings_cache()
+    fake.verify_rounds = [{"tests": False}, {}]
+    fake.fix_effects = [skip_a_test]
+    graph, config, _ = await run_to_the_end("integrity-warn")
+    values = (await graph.aget_state(config)).values
+    assert len(fake.fix_calls) == 1 and values["verification"]["passed"] is True
+    assert "WARNING (1 open" in values["verification"]["report"]
+
+
+async def test_with_the_guard_off_nothing_is_checked(fake: FakeLanes, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEST_INTEGRITY", "off")
+    clear_settings_cache()
+    fake.verify_rounds = [{"tests": False}, {}]
+    fake.fix_effects = [skip_a_test]
+    graph, config, _ = await run_to_the_end("integrity-off")
+    values = (await graph.aget_state(config)).values
+    assert values["verification"]["passed"] is True and values["integrity_findings"] == {}
+    assert "Test integrity" not in values["verification"]["report"]
+
+
+def report_listing(count: int) -> dict[str, Any]:
+    report = lane_report("tests").model_copy(update={"evidence": {"tests": count, "passed": count, "problem": ""}})
+    return report.model_dump()
+
+
+def test_a_drop_in_the_reported_test_count_blocks_the_verdict_and_becomes_the_new_baseline(tmp_path: Path) -> None:
+    reports = {"tests": report_listing(9), "quality": lane_report("quality").model_dump(), "requirements": lane_report("requirements").model_dump()}
+    state = state_with_spend(tmp_path, 1.0, lane_reports=reports, integrity_test_count=12, verification={"passed": False, "attempts": 1, "report": "", "lanes": []})
+    update = verdict_node(state)  # type: ignore[arg-type]
+    [finding] = update["integrity_findings"].values()
+    assert (finding["kind"], finding["session"], finding["before"]) == ("count_dropped", "lane-tests-2", 12)
+    assert update["verification"]["passed"] is False and update["integrity_test_count"] == 9
+    assert "BLOCKED (1 open)" in update["verification"]["report"]
+    again = verdict_node({**state, "integrity_test_count": 9, "integrity_findings": update["integrity_findings"]})  # type: ignore[arg-type]
+    assert "integrity_findings" not in again and again["verification"]["passed"] is False  # still open, no new drop
+    restored = verdict_node({**state, "lane_reports": {**reports, "tests": report_listing(12)}, "integrity_findings": update["integrity_findings"]})  # type: ignore[arg-type]
+    assert restored["integrity_findings"][finding["id"]]["status"] == "restored" and restored["verification"]["passed"] is True
+
+
+def test_a_round_without_a_test_report_keeps_the_baseline(tmp_path: Path) -> None:
+    reports = {lane: lane_report(lane).model_dump() for lane in LANES}
+    update = verdict_node(state_with_spend(tmp_path, 1.0, lane_reports=reports, integrity_test_count=12))  # type: ignore[arg-type]
+    assert "integrity_test_count" not in update and "integrity_findings" not in update
+    assert update["verification"]["passed"] is True
+
+
+def test_a_round_skipped_for_budget_still_reports_what_sessions_did_to_the_tests(tmp_path: Path) -> None:
+    finding = {
+        "id": "v1:T02:deleted:tests/test_a.py:", "session": "T02", "iteration": 1, "kind": "deleted", "path": "tests/test_a.py",
+        "block": "", "before": 2, "detail": "T02 deleted the test file tests/test_a.py (2 assertion(s)).", "status": "open",
+        "reason": "", "stale": "",
+    }  # fmt: skip
+    update = verify_node(state_with_spend(tmp_path, 25.0, integrity_findings={finding["id"]: finding}))  # type: ignore[arg-type]
+    assert update["verification"]["integrity"] == "block"
+    assert "Test integrity: BLOCKED" in update["verification"]["report"] and "tests/test_a.py" in update["verification"]["report"]
+
+
+def test_an_old_test_count_justification_in_the_workspace_does_not_clear_a_new_drop(tmp_path: Path) -> None:
+    (tmp_path / "quality").mkdir()
+    (tmp_path / "quality" / "TEST_CHANGES.md").write_text("- test-count: duplicates were merged in v0.1\n")
+    reports = {"tests": report_listing(9), "quality": lane_report("quality").model_dump(), "requirements": lane_report("requirements").model_dump()}
+    update = verdict_node(state_with_spend(tmp_path, 1.0, lane_reports=reports, integrity_test_count=12))  # type: ignore[arg-type]
+    [finding] = update["integrity_findings"].values()
+    assert finding["status"] == "open" and update["verification"]["passed"] is False

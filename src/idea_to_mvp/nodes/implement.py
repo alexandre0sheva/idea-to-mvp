@@ -11,7 +11,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from langgraph.config import get_stream_writer
 
@@ -19,6 +19,7 @@ from idea_to_mvp import implementer
 from idea_to_mvp.config import Settings, get_settings
 from idea_to_mvp.implementation import executor
 from idea_to_mvp.implementation.events import ImplEvent
+from idea_to_mvp.implementation.integrity import IntegrityFinding
 from idea_to_mvp.implementation.ledger import load_ledger
 from idea_to_mvp.implementation.progress import TaskResult
 from idea_to_mvp.plan import Plan, iteration_of, load_plan
@@ -95,6 +96,17 @@ def usage_records(
     return records
 
 
+def integrity_findings(results: list[TaskResult], iteration: int) -> dict[str, IntegrityFinding]:
+    """What this version's task and resolver sessions did to the tests, by finding id (the engines return
+    every task's result, and earlier versions' findings are already in state)."""
+    return {
+        finding["id"]: cast(IntegrityFinding, finding)
+        for result in results
+        if iteration_of(result["task_id"]) == iteration
+        for finding in result.get("integrity", [])
+    }
+
+
 def effective_parallel(state: IdeaDiscussionState, settings: Settings) -> int:
     """How many tasks may run at once: what the user picked at the implement gate, else the setting."""
     chosen = int((state.get("implement_decision") or {}).get("parallel") or 0)
@@ -137,6 +149,7 @@ async def implementer_node(state: IdeaDiscussionState) -> dict[str, Any]:
             "implementation_log": executor.render_task_log(plan, results),
             "task_results": {result["task_id"]: result for result in results},
             "usage": usage_records(results, settings, iteration, workspace),
+            "integrity_findings": integrity_findings(results, iteration),
             "stage": "verification",
         }
 

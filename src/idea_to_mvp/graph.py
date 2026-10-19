@@ -14,6 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from idea_to_mvp.config import Settings, get_settings
+from idea_to_mvp.nodes.acceptance import acceptance_author_node
 from idea_to_mvp.nodes.architecture import architect_node
 from idea_to_mvp.nodes.blueprint_graph import build_blueprint_subgraph
 from idea_to_mvp.nodes.gates import (
@@ -70,10 +71,11 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
     builder.add_node("plan_bundle", build_blueprint_subgraph())  # subgraph: its document nodes retry
     builder.add_node("implement_gate", implement_gate_node)
     builder.add_node("prepare_workspace", prepare_workspace_node)
+    builder.add_node("acceptance_author", acceptance_author_node, retry_policy=LLM_RETRY)  # a no-op when off
     builder.add_node("implementer", implementer_node)
     builder.add_node("implement_plan", build_implement_subgraph())  # parallel worktrees; its nodes carry their own policy
     builder.add_node("verify", verify_node)
-    builder.add_node("verify_lane", verify_lane_node)  # three lanes, fanned out with Send
+    builder.add_node("verify_lane", verify_lane_node)  # three lanes (four with acceptance), fanned out with Send
     builder.add_node("verdict", verdict_node)
     builder.add_node("fix", fix_node)
     builder.add_node("delivery_report", delivery_report_node)
@@ -99,8 +101,9 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
         route_after_implement_gate,
         {"prepare_workspace": "prepare_workspace", "__end__": END},
     )
+    builder.add_edge("prepare_workspace", "acceptance_author")  # the held-out suite is written before T01
     builder.add_conditional_edges(
-        "prepare_workspace",
+        "acceptance_author",
         route_after_workspace,
         {"implementer": "implementer", "implement_plan": "implement_plan"},
     )
@@ -129,7 +132,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
     builder.add_conditional_edges(
         "change_planner",
         route_after_change_planner,
-        {"implementer": "implementer", "implement_plan": "implement_plan", "__end__": END},
+        {"acceptance_author": "acceptance_author", "__end__": END},
     )
 
     return builder.compile(checkpointer=checkpointer)

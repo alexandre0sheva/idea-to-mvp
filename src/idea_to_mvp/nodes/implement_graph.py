@@ -46,7 +46,13 @@ from idea_to_mvp.implementation.progress import (
 )
 from idea_to_mvp.implementation.scheduler import blocked_tasks, next_ready
 from idea_to_mvp.implementation.workspace import commit_workspace
-from idea_to_mvp.nodes.implement import effective_parallel, emitter, runnable_plan, usage_records
+from idea_to_mvp.nodes.implement import (
+    effective_parallel,
+    emitter,
+    integrity_findings,
+    runnable_plan,
+    usage_records,
+)
 from idea_to_mvp.plan import Plan, PlanTask, execution_waves
 from idea_to_mvp.state import IdeaDiscussionState
 
@@ -224,7 +230,8 @@ async def merge_wave_node(state: IdeaDiscussionState) -> dict[str, Any]:
         emit(make_event("task_end", task_id=result["task_id"], label=tasks[result["task_id"]].title, detail=detail))
 
     async def resolve(task: PlanTask, result: TaskResult, files: list[str]) -> tuple[str, str | None]:
-        """Try to resolve a conflicted merge: (failure reason or '', merge commit)."""
+        """Try to resolve a conflicted merge: (failure reason or '', merge commit). What the resolver did to
+        the tests is added to the task's integrity findings."""
         budget_usd = min(cap, settings.implementer_max_total_usd - _spent(workspace, iteration, sum(unrecorded.values())))
         if budget_usd <= 0:
             return "merge conflict, and no whole-run budget is left for a resolver", None
@@ -233,6 +240,8 @@ async def merge_wave_node(state: IdeaDiscussionState) -> dict[str, Any]:
         )
         result["cost_usd"] += resolver.cost_usd
         unrecorded[task.id] = unrecorded.get(task.id, 0.0) + resolver.cost_usd
+        if resolver.integrity:
+            result["integrity"] = [*result.get("integrity", []), *(dict(finding) for finding in resolver.integrity)]
         if not resolver.success:
             reason = resolver.summary.splitlines()[0][:160] if resolver.summary else "no reason given"
             return f"merge conflict could not be resolved: {reason}", None
@@ -255,6 +264,7 @@ async def merge_wave_node(state: IdeaDiscussionState) -> dict[str, Any]:
                 if failure:
                     await merge.abort_merge(workspace)
                     result = {**result, "status": "failed", "summary": f"{failure}. {result['summary']}".strip(), "commit": None}
+                    result.pop("integrity", None)  # nothing of the task's branch landed
                 else:
                     note = f"(Merge conflicts in {', '.join(files)} were resolved by an agent.)"
                     result = {**result, "summary": f"{result['summary']} {note}", "commit": commit}
@@ -283,6 +293,7 @@ def finish_node(state: IdeaDiscussionState) -> dict[str, Any]:
         "implementation_log": executor.render_task_log(plan, results),
         "task_results": {result["task_id"]: result for result in results},
         "usage": usage_records(results, settings, int(state.get("iteration") or 1), workspace),
+        "integrity_findings": integrity_findings(results, int(state.get("iteration") or 1)),
         "stage": "verification",
     }
 

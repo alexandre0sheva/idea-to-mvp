@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from idea_to_mvp import blueprints
 from idea_to_mvp.blueprint_review import CritiqueReport
 from idea_to_mvp.evals import CriterionScore, JudgeScores
+from idea_to_mvp.implementation.acceptance import ACCEPTANCE_REPORT, AcceptanceFile, AcceptanceSuite
 from idea_to_mvp.plan import (
     DEFAULT_WORKSTREAM,
     ChangePlan,
@@ -423,6 +424,29 @@ def change_plan(messages: list[BaseMessage]) -> ChangePlan:
     )
 
 
+DEMO_ACCEPTANCE_TESTS = '''import unittest
+
+from demo_app.core import IDEA, add_entry, describe
+
+
+class AcceptanceTests(unittest.TestCase):
+    def test_R1_the_core_journey_names_the_idea(self):
+        self.assertIn(IDEA, describe(), "R1: the product must say what it is for")
+
+    def test_R2_entries_are_kept_in_the_order_they_were_added(self):
+        self.assertEqual(add_entry(add_entry([], "first"), "second"), ["first", "second"], "R2: progress must keep every entry")
+'''
+
+
+def acceptance_suite(messages: list[BaseMessage]) -> AcceptanceSuite:
+    """Black-box checks of the demo project's public functions, run with the demo's own report runner."""
+    return AcceptanceSuite(
+        files=[AcceptanceFile(path="__init__.py", content=""), AcceptanceFile(path="test_acceptance.py", content=DEMO_ACCEPTANCE_TESTS)],
+        command=f"python tests/run_with_report.py {ACCEPTANCE_REPORT} acceptance",
+        covers=["R1", "R2"],
+    )
+
+
 def critique(messages: list[BaseMessage]) -> CritiqueReport:
     return CritiqueReport(approved=True, issues=[])
 
@@ -498,6 +522,7 @@ STRUCTURED: dict[type[BaseModel], Callable[[list[BaseMessage]], Any]] = {
     ModeratorDecision: moderator_decision,
     Plan: plan,
     ChangePlan: change_plan,
+    AcceptanceSuite: acceptance_suite,
     CritiqueReport: critique,
     QuestionSet: question_set,
     ArchitectureProposal: architecture_proposal,

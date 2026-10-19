@@ -10,6 +10,8 @@ sessions can all build their prompts from it.
   looking for what verification will check. Deliberately silent about what is being kept from it.
 - `RUBRIC_ORDER`: the order in which the blueprint critic and the requirements lane weigh what they find.
 - `NO_CHANGE_REVISION`: keeping what exists is a valid answer to a revision.
+- `TEST_INTEGRITY`: the agents that change the code may not weaken its tests, and say so when a test was wrong
+  (the orchestrator checks it: `implementation/integrity.py`).
 """
 
 from __future__ import annotations
@@ -60,4 +62,13 @@ NO_CHANGE_REVISION = """\
 If an issue does not hold (the document already satisfies it, or it asks for something the PRD does not
 require), change nothing for it. If none of the issues holds, return the previous version unchanged. Keeping
 what exists is a valid answer; do not invent edits to look responsive.
+"""
+
+TEST_INTEGRITY = """\
+## Tests are not yours to weaken
+Never delete, rename, or skip a test, mark it `xfail` or `.only`, or remove its assertions to get a green run: fix
+the code instead. The orchestrator compares the test files before and after your session. If an existing test is
+genuinely wrong (it contradicts `PRD.md` or a contract in `plan.md`), change it and add a list item
+`- <test file path>: <why>` to `quality/TEST_CHANGES.md` (`- test-count: <why>` when tests were removed on
+purpose); the user reads that file.
 """

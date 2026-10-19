@@ -606,3 +606,101 @@ def test_the_ledger_equals_the_agent_spend_that_usage_reports(workspace: Path) -
     results = run(run_plan(workspace, plan, settings, emit=lambda e: None, query_fn=query))
     check = check_ledger(workspace, usage_records(results, settings))
     assert check.ok and check.ledger_usd == 1.0, check.message
+
+
+# ------------------------------------------------------------------ test integrity
+
+
+TEST_FILE = "def test_app():\n    assert 1 + 1 == 2\n    assert 2 * 2 == 4\n"
+
+
+def with_tests(workspace: Path, *names: str) -> None:
+    (workspace / "tests").mkdir(exist_ok=True)
+    for name in names or ("test_app.py",):
+        (workspace / "tests" / name).write_text(TEST_FILE)
+    subprocess.run(["git", "add", "-A"], cwd=workspace, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "tests"], cwd=workspace, check=True)
+
+
+class WeakeningQuery(FakeQuery):
+    """A session that also does something to the tests in its working directory."""
+
+    def __init__(self, workspace: Path, change: Any, **kwargs: Any) -> None:
+        super().__init__(workspace, **kwargs)
+        self.change = change
+
+    async def __call__(self, *, prompt: str, options: Any) -> AsyncIterator[Any]:
+        self.change(Path(str(options.cwd)))
+        async for message in super().__call__(prompt=prompt, options=options):
+            yield message
+
+
+def delete_test(cwd: Path) -> None:
+    (cwd / "tests" / "test_app.py").unlink()
+
+
+def test_a_task_that_deletes_a_test_carries_the_finding_and_keeps_it_across_a_restart(workspace: Path) -> None:
+    with_tests(workspace)
+    query = WeakeningQuery(workspace, delete_test)
+    result = run(run_task(workspace, make_task("T02"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    [finding] = result["integrity"]
+    assert (finding["session"], finding["kind"], finding["path"], finding["before"]) == ("T02", "deleted", "tests/test_app.py", 2)
+    assert load_progress(workspace)["T02"]["integrity"] == result["integrity"]
+
+
+def test_a_task_that_leaves_the_tests_alone_has_no_findings(workspace: Path) -> None:
+    with_tests(workspace)
+    result = run(run_task(workspace, make_task("T02"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=FakeQuery(workspace)))
+    assert "integrity" not in result
+
+
+def test_with_the_guard_off_nothing_is_flagged(workspace: Path) -> None:
+    with_tests(workspace)
+    query = WeakeningQuery(workspace, delete_test)
+    settings = make_settings(test_integrity="off")
+    result = run(run_task(workspace, make_task("T02"), settings, budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    assert "integrity" not in result
+
+
+def test_a_failed_worktree_session_is_thrown_away_with_its_findings(workspace: Path) -> None:
+    with_tests(workspace)
+    work_dir = run(merge.create_worktree(workspace, "T02"))
+    query = WeakeningQuery(workspace, delete_test)
+    query.fail = {"T02"}
+    result = run(
+        run_task(workspace, make_task("T02"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, work_dir=work_dir, query_fn=query)
+    )
+    assert result["status"] == "failed" and "integrity" not in result
+
+
+def test_a_retried_task_keeps_the_findings_of_its_failed_attempt_in_the_workspace(workspace: Path) -> None:
+    with_tests(workspace)
+    failing = WeakeningQuery(workspace, delete_test)
+    failing.fail = {"T02"}
+    run(run_task(workspace, make_task("T02"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=failing))
+    retried = run(run_task(workspace, make_task("T02"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=FakeQuery(workspace)))
+    assert retried["status"] == "done" and [f["kind"] for f in retried["integrity"]] == ["deleted"]
+
+
+def test_the_resolver_may_pick_a_side_in_a_conflicted_test_but_not_delete_another(workspace: Path) -> None:
+    with_tests(workspace, "test_a.py", "test_b.py")
+
+    def resolve_badly(cwd: Path) -> None:
+        (cwd / "tests" / "test_a.py").write_text(TEST_FILE.replace("    assert 2 * 2 == 4\n", ""))
+        (cwd / "tests" / "test_b.py").unlink()
+
+    plan = make_plan([make_task("T03")])
+    query = WeakeningQuery(workspace, resolve_badly)
+    query.task_of = lambda prompt: "T03"  # type: ignore[method-assign]
+    outcome = run(
+        run_merge_resolver(workspace, plan.tasks[0], ["tests/test_a.py"], make_settings(), emit=lambda e: None, budget_usd=1.0, plan=plan, query_fn=query)
+    )
+    assert [(f["session"], f["kind"], f["path"]) for f in outcome.integrity] == [("T03-resolver", "deleted", "tests/test_b.py")]
+
+
+def test_a_tampered_progress_file_cannot_smuggle_malformed_findings_into_the_run(workspace: Path) -> None:
+    save_result(workspace, {"task_id": "T01", "status": "done", "summary": "s", "cost_usd": 0.0, "turns": 1, "session_id": None, "commit": None})
+    path = workspace / ".idea-to-mvp" / "progress.json"
+    raw = path.read_text().replace('"commit": null', '"commit": null, "integrity": [{"id": "x"}]')
+    path.write_text(raw)
+    assert "integrity" not in load_progress(workspace)["T01"]

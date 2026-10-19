@@ -115,8 +115,12 @@ class SessionLog:
         iteration: int = 1,
         attempt: int | None = None,
         model: str = "",
+        trajectory_dir: Path | None = None,
     ) -> None:
         self._workspace = Path(workspace)
+        # A session whose trajectory agents must not read (the acceptance lane's shows the held-out tests) keeps it
+        # elsewhere; its ledger row is still the workspace's, so the spend adds up.
+        self._folder = Path(trajectory_dir) if trajectory_dir is not None else self._workspace / LEDGER_DIR / TRAJECTORY_DIR
         self._base = _safe_label(label)
         self._kind: SessionKind = kind
         self._task_id = task_id
@@ -142,7 +146,7 @@ class SessionLog:
     def _open(self) -> Path:
         if self._path is not None:
             return self._path
-        folder = self._workspace / LEDGER_DIR / TRAJECTORY_DIR
+        folder = self._folder
         folder.mkdir(parents=True, exist_ok=True)
         header = (
             f"# Trajectory: {self._base} ({self._kind})\n\n"
@@ -237,7 +241,9 @@ class SessionLog:
             "turns": int(turns),
             "outcome": outcome,
             "session_id": session_id,
-            "trajectory": path.relative_to(self._workspace).as_posix(),
+            # Agents may read the ledger: a trajectory kept outside the workspace (the acceptance lane's, next to the
+            # held-out suite) is not named in it.
+            "trajectory": path.relative_to(self._workspace).as_posix() if path.is_relative_to(self._workspace) else "",
             "started_at": self._started,
             "ended_at": max(time.time(), self._started),
         }

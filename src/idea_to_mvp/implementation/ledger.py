@@ -42,7 +42,7 @@ class LedgerRow(TypedDict):
     turns: int
     outcome: SessionOutcome
     session_id: str | None
-    trajectory: str  # path relative to the workspace
+    trajectory: str  # path relative to the workspace ('' for one kept outside it: the acceptance lane's)
     started_at: float
     ended_at: float
 

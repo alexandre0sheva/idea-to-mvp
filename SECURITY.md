@@ -67,6 +67,30 @@ red warning when the sandbox is off or unavailable or the permission mode is `by
   folder is emptied before every tests lane, XML with a DOCTYPE or entity declaration and files over 20 MB are
   refused, and reading a report never runs agent code. A plan from before `test_report` existed has no such
   check, and the dashboard says its result is agent-reported.
+- **Held-out acceptance tests are hidden, not secret.** The acceptance suite is written before any code, from the
+  PRD and the plan's public contracts, and kept in `OUTPUT_DIR/acceptance/<workspace>/`, outside every workspace,
+  so the file tools of task, resolver, and fix sessions (confined to their workspace by the guard) cannot open it,
+  and fix sessions are given only failing test names and assertion messages. A shell command can still read
+  outside the workspace where the guard's denylist does not catch it (a path built at run time inside `python -c`, an
+  encoded string),
+  and the folder's location follows a fixed pattern, so a determined agent can find the tests (the ledger does not
+  name it). The lane that runs them works in a
+  throwaway copy beside the workspace (no `.git`, no orchestrator files) inside the same OS sandbox as every
+  session, and its trajectory, which shows the tests, is stored with the suite. Like the tests lane, its verdict
+  is the JUnit report the suite's command writes, so project code that the tests import can forge it.
+- **The test-integrity guard is a tripwire, not proof.** After every task, merge-resolver, and fix session the
+  orchestrator compares the test files with their state before the session (a file read in the orchestrator, no
+  project code runs) and, with `TEST_INTEGRITY=block` (default), fails the verdict until the change is undone or
+  justified in `quality/TEST_CHANGES.md`. It catches the shortcuts: a deleted or renamed test file, new skip / xfail
+  / `.only` markers in the common frameworks (pytest, unittest, Jest / Vitest / Mocha, Go, Rust, JUnit, xUnit,
+  RSpec), assertion lines removed from a named test whose other lines did not change, and a drop in the test count
+  of the test report. It does not catch an assertion made trivially true (`assert True`, an expected value changed
+  to match the bug), a test rewritten to check less, skips through a mechanism it does not know (a custom decorator,
+  a runner config that excludes files, a conditional `return`), test code that never calls the code it claims to
+  test, or tests outside the files it recognises as tests. A justification is the agent's own word (and must be
+  written after the change it justifies): the dashboard shows it so you can judge it. The findings are kept in the orchestrator's checkpoint, out of the agents' reach,
+  except that a resumed run re-reads the findings of tasks finished before the stop from `progress.json`, which an
+  agent's shell could edit.
 - **Model API keys stay in the orchestrator process**, and `OUTPUT_DIR/sessions.db` holds every session's
   ideas and transcript; neither is reachable by agents through the sandbox's credential list.
 - **Residual git risk:** an agent could plant a `.gitattributes` file or other in-tree content aimed at

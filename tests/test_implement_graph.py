@@ -83,6 +83,7 @@ class FakeTasks:
         self.cost = 0.0
         self.fail: set[str] = set()
         self.files: dict[str, dict[str, str]] = {}  # task id -> {path: content}; default: src/<id>.py
+        self.findings: dict[str, list[dict[str, Any]]] = {}  # task id -> what its session did to the tests
         self.calls: list[dict[str, Any]] = []
 
     async def run_task(self, workspace: Path, task: Any, settings: Any, *, budget: Any, emit: Any, **kwargs: Any) -> TaskResult:
@@ -101,7 +102,7 @@ class FakeTasks:
                 (work_dir / name).write_text(content)
             commit = await asyncio.to_thread(merge.commit_worktree, workspace, work_dir, task.id, f"{task.id}: {task.title}")
         budget.charge(self.cost)
-        return {
+        result: TaskResult = {
             "task_id": task.id,
             "status": "done" if ok else "failed",
             "summary": f"Built {task.id}." if ok else f"{task.id} went wrong.",
@@ -110,6 +111,9 @@ class FakeTasks:
             "session_id": None,
             "commit": commit,
         }
+        if task.id in self.findings:
+            result["integrity"] = self.findings[task.id]
+        return result
 
 
 @pytest.fixture()
@@ -374,3 +378,47 @@ async def test_a_resumed_run_skips_merged_tasks_and_discards_half_finished_workt
     assert [c["task"] for c in tasks.calls] == ["T03", "T04"]  # T01 and T02 were not run again
     assert statuses(final) == {"T01": "done", "T02": "done", "T03": "done", "T04": "done"}
     assert not (workspace / "half-done.txt").exists() and not (workspace.parent / ".worktrees").exists()
+
+
+# ------------------------------------------------------------------ test integrity
+
+
+def finding(session: str, path: str) -> dict[str, Any]:
+    return {
+        "id": f"v1:{session}:deleted:{path}:", "session": session, "iteration": 1, "kind": "deleted", "path": path,
+        "block": "", "before": 2, "detail": f"{session} deleted the test file {path}.", "status": "open", "reason": "", "stale": "",
+    }  # fmt: skip
+
+
+async def test_what_merged_sessions_did_to_the_tests_reaches_the_state(
+    tasks: FakeTasks, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conflicting_files(tasks)
+    tasks.findings = {"T02": [finding("T02", "tests/test_left.py")]}
+
+    async def resolver(workspace: Path, task: Any, files: list[str], settings: Any, **kwargs: Any) -> Any:
+        (workspace / "README.md").write_text("line one\nLEFT and RIGHT\nline three\n")
+        return executor.ResolverOutcome(
+            success=True, summary="kept both", integrity=[finding("T03-resolver", "tests/test_right.py")]  # type: ignore[list-item]
+        )
+
+    monkeypatch.setattr(executor, "run_merge_resolver", resolver)
+    final, _ = await run_graph(workspace_for(two_branch_plan(), tmp_path))
+    assert sorted(final["integrity_findings"]) == ["v1:T02:deleted:tests/test_left.py:", "v1:T03-resolver:deleted:tests/test_right.py:"]
+
+
+async def test_a_merge_that_is_aborted_drops_the_findings_of_the_work_it_threw_away(
+    tasks: FakeTasks, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conflicting_files(tasks)
+    tasks.findings = {"T03": [finding("T03", "tests/test_right.py")]}
+
+    async def giving_up(workspace: Path, task: Any, files: list[str], settings: Any, **kwargs: Any) -> Any:
+        return executor.ResolverOutcome(success=False, summary="too tangled", integrity=[finding("T03-resolver", "tests/x.py")])  # type: ignore[list-item]
+
+    monkeypatch.setattr(executor, "run_merge_resolver", giving_up)
+    workspace = workspace_for(two_branch_plan(), tmp_path)
+    final, _ = await run_graph(workspace)
+    assert final["task_results"]["T03"]["status"] == "failed"
+    assert final.get("integrity_findings") in (None, {})
+    assert "integrity" not in load_progress(workspace)["T03"]

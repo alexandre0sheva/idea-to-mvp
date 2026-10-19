@@ -23,7 +23,7 @@ VERIFY_TIMEOUT_SECONDS = 60
 
 # A real, dependency-free test runner for the demo project: it runs the unittest suite and leaves the JUnit
 # XML report the orchestrator reads, as `pytest --junitxml` would for a real project.
-REPORT_RUNNER = '''"""Run the unittest suite and write a JUnit XML report: python tests/run_with_report.py REPORT.xml"""
+REPORT_RUNNER = '''"""Run a unittest suite and write a JUnit XML report: python tests/run_with_report.py REPORT.xml [START_DIR]"""
 
 import sys
 import unittest
@@ -56,8 +56,8 @@ class Recorder(unittest.TextTestResult):
         self._add(test, "skipped", reason)
 
 
-def main(report_path):
-    suite = unittest.defaultTestLoader.discover("tests", top_level_dir=".")
+def main(report_path, start="tests"):
+    suite = unittest.defaultTestLoader.discover(start, top_level_dir=".")
     result = unittest.TextTestRunner(stream=sys.stderr, resultclass=Recorder).run(suite)
     root = ET.Element("testsuites")
     group = ET.SubElement(root, "testsuite", name="unittest", tests=str(len(result.cases)))
@@ -72,7 +72,7 @@ def main(report_path):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else ".idea-to-mvp/reports/junit.xml"))
+    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else ".idea-to-mvp/reports/junit.xml", *sys.argv[2:3]))
 '''
 
 
@@ -226,6 +226,16 @@ def demo_verify_lane(workspace: Path, lane: str) -> LaneReport:
         failures=uncovered,
         summary=f"{len(required) - len(uncovered)} of {len(required)} required requirements are assigned to a task with tests.",
     )
+
+
+def demo_run_acceptance(scratch: Path, command: str) -> int:
+    """Run the demo's acceptance command in the throwaway copy (the demo suite is our own fixture, the project our
+    own stand-in, so this runs on the host like the other demo lanes). Returns the exit code."""
+    parts = command.split()
+    if parts and parts[0] == "python":
+        parts[0] = sys.executable
+    code, _ = _run(parts, Path(scratch))
+    return code
 
 
 def demo_fix(report: str) -> str:

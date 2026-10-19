@@ -62,6 +62,7 @@ async def test_demo_mode_runs_whole_pipeline_offline(demo_service, demo_env: Pat
     values = (await graph.aget_state({"configurable": {"thread_id": thread}})).values
     assert values["stage"] == "done"
     assert values["verification"]["passed"] is True
+    assert values["verification"]["integrity"] == "block" and values["integrity_findings"] == {}  # the guard ran, found nothing
 
     workspace = Path(values["workspace_dir"])
     assert workspace.is_dir() and workspace.is_relative_to(demo_env / "projects")
@@ -80,6 +81,7 @@ async def test_demo_mode_runs_whole_pipeline_offline(demo_service, demo_env: Pat
 
     final_chat = chat_text(outputs[-1])
     assert "Delivery report" in final_chat
+    assert "no session deleted, renamed, skipped, or weakened a test" in final_chat
     # the finished run is fully reconstructible from the checkpoint alone
     assert "Architecture choice: Option A" in final_chat and "Start implementation" in final_chat
 

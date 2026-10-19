@@ -213,7 +213,8 @@ def estimate_run_cost(settings: Settings, task_count: int, history: list[float] 
         per_task, band, basis = float(median(history)), HISTORY_BAND, "history"
     else:
         per_task, band, basis, samples = task_session, CATALOG_BAND, "catalog", 0
-    verification = lane * catalog.typical_run["verifier"].calls  # three lanes in one round
+    lanes = catalog.typical_run["verifier"].calls + (1 if settings.acceptance_enabled else 0)  # + the acceptance lane
+    verification = lane * lanes  # one verification round
     low = tasks * per_task * band[0] + verification
     high = tasks * per_task * band[1] + verification
     for attempt in range(1, fixes + 1):  # the first fix runs on the task model, later ones escalate

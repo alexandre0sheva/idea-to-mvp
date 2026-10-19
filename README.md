@@ -55,7 +55,7 @@ The implementation stage needs `ANTHROPIC_API_KEY` (it drives the Claude Agent S
 
 ![The implementation board with task cards, cost meter, and live log](docs/assets/implementation-board.png)
 
-**A delivery you can run.** Three verification lanes (tests, quality, requirement coverage), a requirement-by-requirement table, how to run the project, a zip, a `v0.1` git tag, and a form to ask for v0.2.
+**A delivery you can run.** Verification lanes for tests, quality, requirement coverage, and held-out acceptance tests the building agents never saw, a requirement-by-requirement table, how to run the project, a zip, a `v0.1` git tag, and a form to ask for v0.2.
 
 ![The delivery dashboard: verdict per lane, requirements table, cost and time](docs/assets/delivery-dashboard.png)
 
@@ -66,7 +66,7 @@ Idea ─ (optional web research) ─→ Panel ─→ Summary + 5 MVP questions
   🔒 you answer  ─→ Architect: two options
   🔒 you choose  ─→ Strategy ─→ Blueprint pack (PRD, architecture, plan, subagents), reviewed by a critic
   🔒 you approve the blueprint and the spend
-  ─→ Implementation (parallel tasks) ─→ Verification (3 lanes, fix loop) ─→ Delivery report
+  ─→ Implementation (parallel tasks) ─→ Verification (4 lanes, fix loop) ─→ Delivery report
   🔁 ask for changes ─→ v0.2, same machinery
 ```
 

@@ -36,6 +36,9 @@ IGNORED_DIRS = (
     ".ruff_cache",
     ".mypy_cache",
 )
+# Build output and orchestrator records: recreated by a build, never worth reading or copying (the test-integrity
+# snapshots and the acceptance lane's throwaway copy leave them out, on top of IGNORED_DIRS).
+GENERATED_DIRS = (".idea-to-mvp", "build", "target", ".tox", ".next", ".nuxt")
 GITIGNORE_ENTRIES = (
     "node_modules/",
     ".venv/",

@@ -214,10 +214,14 @@ CSS = """
 .lane-card p { margin: 0.3rem 0; }
 .lane-label { color: var(--text-muted); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; }
 .lane-card ul { margin: 0.1rem 0 0.3rem 1.1rem; padding: 0; font-size: 0.85rem; }
+.lane-card code { overflow-wrap: anywhere; }  /* long paths (the acceptance suite's folder) wrap inside the card */
 .req-table { width: 100%; border-collapse: collapse; margin: 0.3rem 0 0.6rem 0; color: var(--text); }
 .req-table th, .req-table td { padding: 0.25rem 0.5rem; text-align: left; border-bottom: 1px solid var(--card-border); }
-.req-row.delivered td:last-child { color: var(--ok); font-weight: 600; }
-.req-row.uncovered td:last-child, .req-row.untested td:last-child, .req-row.incomplete td:last-child { color: var(--danger); font-weight: 600; }
+.req-row.delivered td.req-status { color: var(--ok); font-weight: 600; }
+.req-row.uncovered td.req-status, .req-row.untested td.req-status, .req-row.incomplete td.req-status { color: var(--danger); font-weight: 600; }
+.req-row td.req-acceptance.passed { color: var(--ok); font-weight: 600; }
+.req-row td.req-acceptance.failed { color: var(--danger); font-weight: 600; }
+.req-row td.req-acceptance.skipped, .req-row td.req-acceptance.no-test { color: var(--text-muted); font-weight: 400; }
 .stat-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0; }
 .stat { display: flex; flex-direction: column; padding: 0.4rem 0.8rem; border-radius: 10px; border: 1px solid var(--card-border); background: var(--card-bg); }
 .stat-label { color: var(--text-muted); font-size: 0.75rem; }
