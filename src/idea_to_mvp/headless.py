@@ -26,6 +26,7 @@ from idea_to_mvp.graph import ThreadView, read_thread, run_config
 from idea_to_mvp.implementation.events import EVENT_KINDS
 from idea_to_mvp.nodes.gates import AUTOPILOT_NOTE, recommended_option, suggested_answers
 from idea_to_mvp.resilience import error_hint
+from idea_to_mvp.schemas import ProjectPreferences
 from idea_to_mvp.sessions import SessionInfo, SessionRegistry
 from idea_to_mvp.state import make_initial_state
 from idea_to_mvp.usage import summarize_usage
@@ -350,10 +351,12 @@ async def run_idea(
     settings: Settings,
     progress: Progress,
     thread_id: str | None = None,
+    preferences: ProjectPreferences | None = None,
 ) -> RunSummary:
-    """A new session for `idea`, run as far as the flags allow."""
+    """A new session for `idea` (with the project `preferences` the user stated up front), run as far as the flags
+    allow."""
     thread_id = thread_id or str(uuid.uuid4())
-    state = make_initial_state(idea, settings.default_rounds, panel_mode=settings.panel_mode)
+    state = make_initial_state(idea, settings.default_rounds, panel_mode=settings.panel_mode, preferences=preferences)
     registry.record(thread_id, {}, None, title=idea)
     progress(f"session {thread_id}")
     return await drive(graph, registry, thread_id, state, options, settings=settings, progress=progress, title=idea)

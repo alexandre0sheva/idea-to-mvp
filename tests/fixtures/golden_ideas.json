@@ -13,5 +13,30 @@
     "id": "recipe-planner",
     "idea": "A weekly meal planner that turns the recipes you like into a shopping list grouped by supermarket aisle.",
     "preferences": {"platform": "mobile", "must_avoid": "Any paid API"}
+  },
+  {
+    "id": "csv-cleaner",
+    "idea": "A command-line tool that cleans messy CSV files: trims whitespace, normalizes dates, drops duplicate rows, and writes a report of everything it changed.",
+    "preferences": {"platform": "cli", "stack_hints": "Python", "must_avoid": "Network access"}
+  },
+  {
+    "id": "link-shortener",
+    "idea": "A small URL shortener service with an HTTP API: create a short link, redirect to the target, and count clicks per link.",
+    "preferences": {"platform": "api", "stack_hints": "Python + FastAPI + SQLite"}
+  },
+  {
+    "id": "standup-notes",
+    "idea": "A REST API for a team's daily standup notes: post what you did, what is next, and blockers; list a day's notes grouped by person.",
+    "preferences": {"platform": "api", "stack_hints": "Node + Express + TypeScript"}
+  },
+  {
+    "id": "habit-board",
+    "idea": "A single-page habit board: tick off daily habits on a weekly grid, see streaks, and keep everything in the browser with no account.",
+    "preferences": {"platform": "web", "stack_hints": "React + Vite", "must_avoid": "A backend"}
+  },
+  {
+    "id": "reading-notes",
+    "idea": "A reading notes site: save highlights from books with page numbers, tag them, search across all notes, and publish a book's notes as a page.",
+    "preferences": {"platform": "web", "stack_hints": "Next.js"}
   }
 ]

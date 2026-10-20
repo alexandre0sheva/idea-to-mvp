@@ -1,5 +1,5 @@
 """Command-line entry point: `idea-to-mvp` starts the UI, `run` / `resume` / `sessions` drive the pipeline
-headless, `doctor` checks the setup, `models` shows the model catalog."""
+headless, `bench` scores it on the golden ideas, `doctor` checks the setup, `models` shows the model catalog."""
 
 from __future__ import annotations
 
@@ -101,11 +101,41 @@ def _build_parser() -> argparse.ArgumentParser:
     sessions = commands.add_parser("sessions", help="list the saved sessions, newest first")
     sessions.add_argument("--limit", type=_positive_int, default=50, help="how many to list (default 50)")
     sessions.add_argument("--json", action="store_true", help="print the list as JSON")
+    _add_bench(commands)
     return parser
 
 
+def _add_bench(commands: Any) -> None:
+    bench = commands.add_parser(
+        "bench",
+        help="run the golden ideas end to end and score the result (--compare puts runs side by side)",
+        description="Run the golden ideas headless (autopilot, --implement) and record per idea: delivered, lanes "
+        "passed, acceptance pass rate, integrity flags, fix attempts, cost, wall time. A run is a folder "
+        "<OUTPUT_DIR>/bench/<name>/ with its own output root and a settings snapshot: calling again with the same "
+        "name keeps the scored ideas, retries the unscored ones, and refuses other settings. Spends money "
+        "unless DEMO_MODE=true: --live needs --max-total-usd.",
+        epilog="exit codes: 0 every idea verified, 2 a delivery failed verification, 3 some ideas unscored "
+        "(call again to retry them), 1 error",
+    )
+    bench.add_argument("--name", help="the run's folder name (required unless --compare or --dry-run)")
+    bench.add_argument("--live", action="store_true", help="use the real providers and agent sessions (spends money)")
+    bench.add_argument("--dry-run", action="store_true", help="print the settings and the estimated cost; run nothing")
+    bench.add_argument("--ideas", metavar="ID,ID", help="only these golden ideas (default: all)")
+    bench.add_argument("--ideas-file", type=Path, metavar="FILE", help="a golden ideas file (default: tests/fixtures/golden_ideas.json)")
+    bench.add_argument("--root", type=Path, metavar="DIR", help="where runs are kept (default: <OUTPUT_DIR>/bench)")
+    bench.add_argument("--profile", metavar="NAME", help="MODEL_PROFILE for this run: fast, balanced, or quality")
+    bench.add_argument("--harness-tuning", metavar="MODE", help="HARNESS_TUNING for this run: off or pilot")
+    bench.add_argument("--library", metavar="MODE", help="EXPERIENCE_LIBRARY for this run: on or off (its folder is the run's own)")
+    bench.add_argument("--set", action="append", metavar="KEY=VALUE", help="any other setting for this run, e.g. MAX_FIX_ATTEMPTS=1 (repeatable)")
+    bench.add_argument("--max-usd-per-idea", type=_positive_float, metavar="N", help="agent budget of one idea (IMPLEMENTER_MAX_TOTAL_USD)")
+    bench.add_argument("--max-total-usd", type=_positive_float, metavar="N", help="cap on everything the run spends; ideas it cannot afford stay unscored")
+    bench.add_argument("--compare", nargs="+", metavar="RUN", help="print these runs (names or folders) side by side on the ideas all of them scored")
+    bench.add_argument("--json", action="store_true", help="print the result as JSON")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
 
     if args.command == "doctor":
         from idea_to_mvp.config import get_settings
@@ -121,6 +151,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command in ("run", "resume"):
         return _run(args)
+
+    if args.command == "bench":
+        if not (args.name or args.compare or args.dry_run):
+            parser.error("bench needs --name (the run's folder), or --compare, or --dry-run")
+        from idea_to_mvp.bench import run_command
+
+        return run_command(args)
 
     if args.command == "sessions":
         return _sessions(args)

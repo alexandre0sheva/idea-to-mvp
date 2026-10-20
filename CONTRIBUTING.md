@@ -16,6 +16,7 @@ uv run idea-to-mvp                 # real providers (needs keys in .env)
 DEMO_MODE=true uv run idea-to-mvp  # offline: canned outputs, no keys, no spend
 uv run idea-to-mvp doctor          # verify keys and models before a real run
 uv run idea-to-mvp models          # model catalog: profiles, prices, cost of a typical run (--check: live, opt-in)
+DEMO_MODE=true uv run idea-to-mvp bench --name smoke   # the golden ideas end to end, offline (see "Benchmark")
 ```
 
 Use demo mode to exercise UI and graph changes end to end. When you add an LLM call, structured schema, or agent session, add its fixture in `src/idea_to_mvp/demo/` so demo mode and `tests/test_e2e_demo.py` keep covering the whole pipeline.
@@ -41,6 +42,18 @@ CI also fails on a stale `uv.lock` (`uv lock --check`), on a graph diagram that 
 The starter templates (`src/idea_to_mvp/templates/`) are installed and checked for real by `uv run pytest -m scaffold tests/test_templates.py` (needs node 22.12+, npm, Python 3, and network; the `starter-templates` CI job runs it, the default run leaves it out).
 
 Tests that call real provider APIs carry `@pytest.mark.live`, are skipped by default, and need keys: `uv run pytest -m live`. The opt-in blueprint quality eval, which spends tokens and is never run by CI, is `uv run python scripts/eval_blueprint.py --live --idea climbing-log` (add `DEMO_MODE=true` to try it offline).
+
+## Benchmark
+
+`idea-to-mvp bench --name <run>` runs the golden ideas (`tests/fixtures/golden_ideas.json`) headless with autopilot and `--implement` and scores each one: delivered and verified, lanes passed, acceptance pass rate, integrity flags, fix attempts, cost, and wall time. It spends money unless `DEMO_MODE=true`, so a real run needs `--live --max-total-usd N` (preview the cost with `--dry-run` first), and it is never part of CI beyond the offline smoke test in `tests/test_bench.py`.
+
+```bash
+uv run idea-to-mvp bench --name balanced --live --max-total-usd 40 --max-usd-per-idea 6
+uv run idea-to-mvp bench --name fast --live --max-total-usd 40 --max-usd-per-idea 6 --profile fast
+uv run idea-to-mvp bench --compare balanced fast     # only the ideas both runs scored
+```
+
+A run is a folder under `OUTPUT_DIR/bench/` with its own output root and a settings snapshot: call the same `--name` again to retry the ideas that could not run (they are *unscored*, not zero), but it refuses to continue under other settings, so compare configurations with different names (`--profile`, `--harness-tuning`, `--library`, `--set KEY=VALUE`). Add an idea to the golden file to put it under the bench, the eval script, and the golden pack tests.
 
 Dependencies live only in `pyproject.toml`; after changing them run `uv lock` and commit `uv.lock` (CI uses `uv sync --locked`).
 
