@@ -83,6 +83,9 @@ class VerificationResult(TypedDict):
     report: str
     lanes: list[dict[str, Any]]  # one LaneReport dump per lane (tests, quality, requirements)
     integrity: NotRequired[str]  # the TEST_INTEGRITY mode the verdict was given under (block / warn / off)
+    # Why the loop stopped for a cause no change to the project can fix (a blocked domain, a missing credential).
+    environment: NotRequired[str]
+    history: NotRequired[list[dict[str, Any]]]  # one `fixes.FixAttempt` per fix attempt of this version
 
 
 class IdeaDiscussionState(TypedDict):

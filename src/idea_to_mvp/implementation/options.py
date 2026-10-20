@@ -9,8 +9,11 @@ Four layers, none of which is enough alone (SECURITY.md has the threat model):
 3. **Environment scrub**: provider keys and other secrets in the orchestrator's environment are blanked for
    the agent process. The SDK merges `ClaudeAgentOptions.env` *over* the inherited environment, so a secret
    can only be removed by overriding it with an empty string.
-4. **Settings isolation**: `setting_sources=[]`. By default the CLI would load the user's
-   `~/.claude/settings.json` and the workspace's `.claude/settings.json`, which agents can write.
+4. **Settings isolation**: never the user's `~/.claude/settings.json`. Task, fix, and resolver sessions load the
+   *project* source (`setting_sources=["project"]`) for the pack's `CLAUDE.md` and skills, after the orchestrator
+   has restored the fixed `.claude/settings.json` (no hooks, no permissions; agents can write the workspace).
+   Verification lanes load nothing (`[]`): they judge the work, so text an agent may have rewritten must not
+   become their instructions.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from idea_to_mvp.harness_pack import ensure_project_settings
 from idea_to_mvp.implementation.guard import GUARDED_TOOLS, bind_workspace
 from idea_to_mvp.model_catalog import AgentRole
 from idea_to_mvp.roles import resolve_agent_model
@@ -168,6 +172,7 @@ def build_agent_options(
     `role` is the kind of session and picks its model (`roles.resolve_agent_model`).
     `output_schema` makes the session end with a JSON result of that shape (`ResultMessage.structured_output`);
     `extra_disallowed_tools` adds to the tools no session may use (read-mostly verification lanes).
+    Every session but a verifier's loads the workspace's project harness, so its settings file is restored first.
     """
     from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
 
@@ -184,6 +189,9 @@ def build_agent_options(
                 "agents will be unable to run tests. Set IMPLEMENTER_PERMISSION_MODE=bypassPermissions to accept "
                 "the risk, or enable the sandbox."
             )
+    project_harness = role != "verifier"
+    if project_harness:
+        ensure_project_settings(Path(workspace))
     return ClaudeAgentOptions(
         cwd=str(workspace),
         model=resolve_agent_model(settings, role),
@@ -191,7 +199,8 @@ def build_agent_options(
         max_turns=max_turns,
         max_budget_usd=settings.implementer_max_task_usd if max_budget_usd is None else max_budget_usd,
         agents=agents or None,
-        setting_sources=[],
+        setting_sources=["project"] if project_harness else [],
+        skills="all" if project_harness else None,
         disallowed_tools=[*_DISALLOWED_TOOLS, *extra_disallowed_tools],
         output_format={"type": "json_schema", "schema": output_schema} if output_schema else None,
         env=scrubbed_env(),

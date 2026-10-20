@@ -3,8 +3,9 @@ import json
 from plan_helpers import make_plan
 
 from idea_to_mvp.blueprints import MAX_UPSTREAM_CHARS, bundle_file_plan, prompt_for, write_bundle
+from idea_to_mvp.harness_pack import HarnessSpec, read_harness, validate_harness
 from idea_to_mvp.plan import Plan, render_plan_markdown, validate_plan
-from idea_to_mvp.roles import PLAN_WRITER_SYSTEM
+from idea_to_mvp.roles import HARNESS_WRITER_SYSTEM, PLAN_WRITER_SYSTEM
 
 STRATEGY = {
     "mode": "agent_team",
@@ -33,6 +34,7 @@ def test_bundle_file_plan_lists_all_documents() -> None:
         "plan.md",
         ".claude/agents/backend-api.md",
         ".claude/agents/web-ui.md",
+        "harness.json",  # the harness writer's answer, rendered into the harness files
     ]
 
 
@@ -41,7 +43,7 @@ def test_documents_are_assigned_to_three_dependency_waves() -> None:
     assert {p: s.wave for p, s in specs.items() if s.wave == 1} == {"PRD.md": 1, "ARCHITECTURE.md": 1}
     wave_two = {"README.md", "AGENTS.md", "contracts/AGENTS.md", "application/AGENTS.md", "quality/AGENTS.md", "plan.md"}
     assert {p for p, s in specs.items() if s.wave == 2} == wave_two
-    assert {p for p, s in specs.items() if s.wave == 3} == {".claude/agents/backend-api.md", ".claude/agents/web-ui.md"}
+    assert {p for p, s in specs.items() if s.wave == 3} == {".claude/agents/backend-api.md", ".claude/agents/web-ui.md", "harness.json"}
 
 
 def test_plan_needs_the_prd_and_architecture_and_subagents_need_the_plan() -> None:
@@ -51,9 +53,12 @@ def test_plan_needs_the_prd_and_architecture_and_subagents_need_the_plan() -> No
         assert "plan.md" in specs[path].needs
 
 
-def test_the_plan_is_the_one_structured_document() -> None:
+def test_the_plan_and_the_harness_are_the_structured_documents_and_only_the_harness_is_not_revisable() -> None:
     specs = _specs()
-    assert [p for p, s in specs.items() if s.structured] == ["plan.md"]
+    assert [p for p, s in specs.items() if s.structured] == ["plan.md", "harness.json"]
+    assert [p for p, s in specs.items() if not s.revisable] == ["harness.json"]
+    assert specs["harness.json"].system_prompt == HARNESS_WRITER_SYSTEM
+    assert set(specs["harness.json"].needs) == {"ARCHITECTURE.md", "plan.md", "plan.json"}
     assert specs["plan.md"].system_prompt == PLAN_WRITER_SYSTEM
     fallback_plan_text = specs["plan.md"].fallback
     assert "## Contract Registry" in fallback_plan_text and "### T01." in fallback_plan_text
@@ -61,9 +66,10 @@ def test_the_plan_is_the_one_structured_document() -> None:
 
 def test_every_document_only_needs_documents_from_an_earlier_wave() -> None:
     specs = _specs()
+    wave_of = {path: spec.wave for path, spec in specs.items()} | {"plan.json": specs["plan.md"].wave}
     for spec in specs.values():
         for needed in spec.needs:
-            assert specs[needed].wave < spec.wave, f"{spec.relative_path} needs {needed}"
+            assert wave_of[needed] < spec.wave, f"{spec.relative_path} needs {needed}"
         assert not spec.needs or spec.wave > 1
 
 
@@ -127,7 +133,11 @@ def test_write_bundle_writes_all_files(tmp_path) -> None:
     assert strategy_data["mode"] == "agent_team"
     expected = [s.relative_path for s in bundle_file_plan(STRATEGY)]
     expected.insert(expected.index("plan.md") + 1, "plan.json")
+    harness = ["CLAUDE.md", "scripts/check.sh", ".claude/settings.json", ".claude/skills/check/SKILL.md"]
+    expected[expected.index("harness.json") : expected.index("harness.json") + 1] = harness  # an unreadable answer: the fallback
     assert created == [*expected, "STRATEGY.json"]
+    agents = (bundle_dir / "AGENTS.md").read_text()
+    assert agents.startswith("GENERATED AGENTS.md") and "## Guardrails" in agents
     assert str(bundle_dir) in summary and "a-todo-app-for-plumbers" in bundle_dir.name
 
 
@@ -151,9 +161,11 @@ def test_empty_or_missing_documents_fall_back_and_strategy_json_is_always_writte
     assert created[-1] == "STRATEGY.json"
 
 
-def test_write_bundle_without_a_strategy_writes_the_eight_base_documents(tmp_path) -> None:
+def test_write_bundle_without_a_strategy_writes_the_eight_base_documents_and_the_harness(tmp_path) -> None:
     bundle_dir, created, _ = write_bundle(root=tmp_path, user_idea="idea", docs={}, strategy=None)
-    assert len(created) == 8 + 1 + 1 and not (bundle_dir / ".claude").exists()  # + plan.json, STRATEGY.json
+    base = {"README.md", "PRD.md", "ARCHITECTURE.md", "AGENTS.md", "contracts/AGENTS.md", "application/AGENTS.md", "quality/AGENTS.md", "plan.md", "plan.json", "STRATEGY.json"}
+    assert base <= set(created) and {"CLAUDE.md", "scripts/check.sh", ".claude/settings.json"} <= set(created) - base
+    assert not (bundle_dir / ".claude" / "agents").exists() and validate_harness(read_harness(bundle_dir)) == []
     assert json.loads((bundle_dir / "STRATEGY.json").read_text()) == {}
 
 
@@ -194,3 +206,27 @@ def test_no_review_document_when_there_is_nothing_to_report(tmp_path) -> None:
     bundle_dir, created, summary = write_bundle(root=tmp_path, user_idea="idea", docs={}, strategy=STRATEGY)
     assert not (bundle_dir / "REVIEW.md").exists() and "REVIEW.md" not in created
     assert "review note" not in summary
+
+
+# -------------------------------------------------------------------- harness
+
+
+def test_the_harness_is_rendered_from_the_writers_answer_for_the_final_plan(tmp_path) -> None:
+    from idea_to_mvp.demo.fixtures import harness_spec
+
+    plan = make_plan()
+    docs = {"plan.json": plan.model_dump_json(), "harness.json": harness_spec([]).model_dump_json()}
+    bundle_dir, created, summary = write_bundle(root=tmp_path, user_idea="idea", docs=docs, strategy=STRATEGY)
+    files = read_harness(bundle_dir)
+    assert validate_harness(files) == [] and ".claude/skills/add-a-feature/SKILL.md" in created
+    assert "harness.json" not in created and not (bundle_dir / "harness.json").exists()
+    assert "`pip install -e .`" in files["CLAUDE.md"] and "pip install -e ." in files["scripts/check.sh"]
+    assert (bundle_dir / "scripts" / "check.sh").stat().st_mode & 0o111 and "CLAUDE.md" in summary
+
+
+def test_a_harness_that_no_longer_fits_the_final_plan_is_replaced_by_the_fallback(tmp_path) -> None:
+    stale = HarnessSpec(skills=[], tool_guidance=[], guardrails=[])  # no skill: invalid whatever the plan
+    docs = {"plan.json": make_plan().model_dump_json(), "harness.json": stale.model_dump_json()}
+    bundle_dir, _, _ = write_bundle(root=tmp_path, user_idea="idea", docs=docs, strategy=STRATEGY)
+    assert (bundle_dir / ".claude/skills/check/SKILL.md").is_file()
+    assert validate_harness(read_harness(bundle_dir)) == []

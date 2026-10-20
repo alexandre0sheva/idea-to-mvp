@@ -17,6 +17,7 @@ from idea_to_mvp.blueprints import SUBAGENT_SYSTEM, bundle_file_plan
 from idea_to_mvp.config import clear_settings_cache
 from idea_to_mvp.demo.fixtures import respond_structured
 from idea_to_mvp.graph import build_graph, pending_interrupt, run_config
+from idea_to_mvp.harness_pack import HARNESS_SPEC_PATH, HarnessSpec, read_harness, validate_harness
 from idea_to_mvp.nodes.blueprint_graph import build_blueprint_subgraph
 from idea_to_mvp.plan import Plan, validate_plan
 from idea_to_mvp.state import make_initial_state
@@ -86,6 +87,7 @@ class Recorder:
         self.critic_calls = 0
         self.critic_prompts: list[str] = []
         self.critic_fails = False
+        self.harness_prompts: list[str] = []
 
     def first(self, label: str) -> str:
         return self.prompts[label][0]
@@ -144,6 +146,10 @@ class Recorder:
                 return fallback() if self.plan_fails else scripted
             finally:
                 self._exit(2)
+        if schema is HarnessSpec:
+            with self.lock:
+                self.harness_prompts.append(prompt)
+            return respond_structured(schema, messages)
         if schema is CritiqueReport:
             with self.lock:
                 self.critic_calls += 1
@@ -234,7 +240,7 @@ def test_each_wave_requests_all_of_its_documents_concurrently(rec: Recorder) -> 
     rec.barriers = {wave: threading.Barrier(size, timeout=5) for wave, size in WAVE_SIZES.items()}
     result = run_blueprint()  # a sequential implementation would time the barriers out
     assert all(not barrier.broken for barrier in rec.barriers.values())
-    assert {"plan.json", "plan.md"} <= set(result["blueprint_docs"]) and len(result["blueprint_docs"]) == 11
+    assert {"plan.json", "plan.md", HARNESS_SPEC_PATH} <= set(result["blueprint_docs"]) and len(result["blueprint_docs"]) == 12
 
 
 def test_a_wave_starts_only_after_the_previous_wave_finished(rec: Recorder) -> None:
@@ -253,12 +259,32 @@ def test_run_config_caps_parallel_generation(rec: Recorder, limit: int, expected
     assert rec.max_active == expected_peak
 
 
-def test_without_workstreams_the_third_wave_is_skipped_and_the_bundle_is_still_written(rec: Recorder) -> None:
+def test_without_workstreams_the_third_wave_writes_only_the_harness_and_the_bundle_is_still_written(rec: Recorder) -> None:
     empty_strategy = {"mode": "", "reasoning": "", "workstreams": []}
     rec.plans = [make_plan([make_task("T01", workstream="core-product", requirement_ids=["R1"])])]
     result = run_blueprint(blueprint_state(empty_strategy))
-    assert sorted(rec.prompts) == sorted(s.relative_path for s in bundle_file_plan(empty_strategy))
-    assert result["project_bundle_files"][-1] == "STRATEGY.json" and len(result["project_bundle_files"]) == 10
+    written = [s.relative_path for s in bundle_file_plan(empty_strategy) if s.relative_path != HARNESS_SPEC_PATH]
+    assert sorted(rec.prompts) == sorted(written) and len(rec.harness_prompts) == 1
+    files = result["project_bundle_files"]
+    assert files[-1] == "STRATEGY.json" and {"CLAUDE.md", "scripts/check.sh", ".claude/settings.json"} <= set(files)
+    assert not any(path.startswith(".claude/agents/") for path in files)
+
+
+def test_the_harness_is_written_in_the_third_wave_from_the_plan_and_rendered_into_the_pack(rec: Recorder, tmp_path) -> None:
+    result = run_blueprint()
+    (prompt,) = rec.harness_prompts
+    assert "Upstream document: plan.md" in prompt and "### T02. Task T02" in prompt and '"contracts":' not in prompt
+    files = result["project_bundle_files"]
+    assert HARNESS_SPEC_PATH not in files and not (bundle_of(tmp_path) / HARNESS_SPEC_PATH).exists()
+    assert validate_harness(read_harness(bundle_of(tmp_path))) == []
+    assert "## Guardrails" in (bundle_of(tmp_path) / "AGENTS.md").read_text()
+
+
+def test_a_blocker_on_a_skill_is_reported_not_revised(rec: Recorder, tmp_path) -> None:
+    rec.critic = lambda _n: CritiqueReport(approved=False, issues=[blocker(HARNESS_SPEC_PATH)])
+    run_blueprint()
+    assert rec.critic_calls == 1 and len(rec.harness_prompts) == 1  # the validator guards it, not the revise loop
+    assert HARNESS_SPEC_PATH in (bundle_of(tmp_path) / "REVIEW.md").read_text()
 
 
 # ------------------------------------------------------------------ the plan
@@ -434,7 +460,7 @@ def test_the_blueprint_is_one_parent_node_whose_llm_nodes_carry_the_retry_policy
     parent = build_graph().builder.nodes
     assert not parent["plan_bundle"].retry_policy  # the inner nodes retry instead
     inner = build_blueprint_subgraph().builder.nodes
-    for name in ("doc_1", "doc_2", "doc_3", "plan_writer", "review", "rewrite_doc", "rewrite_plan"):
+    for name in ("doc_1", "doc_2", "doc_3", "plan_writer", "harness_writer", "review", "rewrite_doc", "rewrite_plan"):
         assert inner[name].retry_policy, name
     for name in ("write", "revise", "wave_1"):
         assert not inner[name].retry_policy, name

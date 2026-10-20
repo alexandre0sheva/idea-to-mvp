@@ -35,6 +35,11 @@ GUARDED_TOOLS = "Bash|" + "|".join(_PATH_TOOLS)  # the hook matcher
 
 # Directories the orchestrator owns: agents may read them but never write them.
 _PROTECTED_DIRS = (".git", ".idea-to-mvp")
+# Claude Code settings a later session loads (project settings, MCP servers): an agent that could write them
+# could give the next session a hook or a permission. The orchestrator restores `.claude/settings.json` before
+# every session that loads it (`harness_pack.ensure_project_settings`); this refuses the direct writes.
+_SETTINGS_FILE = re.compile(r"settings(\.[\w-]+)?\.json")
+_SETTINGS_REASON = "the Claude Code settings (.claude/settings*.json, .mcp.json) are managed by the orchestrator"
 _TEMP_ROOTS = ("/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp", "/var/folders", "/private/var/folders")
 # Read-mostly system locations shell commands legitimately name (interpreters, certificates, devices).
 _SYSTEM_ROOTS = (
@@ -74,6 +79,7 @@ _WHOLE_COMMAND_RULES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"/proc/[^/\s]+/environ", "reading another process's environment is not allowed"),
         (_SENSITIVE_LOCATIONS.pattern, "credential locations are off limits"),
         (r"(^|[\s/])\.git/(config|hooks)\b", "the git configuration and hooks are managed by the orchestrator"),
+        (r"\.claude/settings[\w.-]*\.json|(?<![\w.-])\.mcp\.json\b", _SETTINGS_REASON),
         (
             r"\bcore\.(sshcommand|fsmonitor|hookspath|askpass|pager|editor)\s*=",
             "git settings that execute programs are not allowed",
@@ -149,10 +155,20 @@ def _check_path_tool(tool_name: str, tool_input: Mapping[str, Any], workspace: P
         if not _inside(real, root):
             return False, f"{tool_name} path {raw!r} is outside the workspace"
         if writes:
+            parts = Path(os.path.relpath(real, root)).parts
             for protected in _PROTECTED_DIRS:
-                if protected in Path(os.path.relpath(real, root)).parts:
+                if protected in parts:
                     return False, f"{tool_name} may not modify {protected} (the orchestrator manages it)"
+            if _is_settings_file(parts):
+                return False, f"{tool_name} may not modify {raw!r}: {_SETTINGS_REASON}"
     return True, ""
+
+
+def _is_settings_file(parts: tuple[str, ...]) -> bool:
+    if not parts:
+        return False
+    name = parts[-1]
+    return name == ".mcp.json" or (len(parts) >= 2 and parts[-2] == ".claude" and _SETTINGS_FILE.fullmatch(name) is not None)
 
 
 # ---------------------------------------------------------------------- bash

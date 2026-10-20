@@ -367,6 +367,20 @@ def test_a_plan_edit_updates_plan_json_and_rewrites_plan_md_canonically(bundle: 
     assert plan is not None and plan.tasks[2].title == "Renamed task"
 
 
+def test_a_plan_edit_that_changes_the_commands_refreshes_the_check_script_and_claude_md(bundle: Path) -> None:
+    from idea_to_mvp import harness_pack
+
+    plan = load_plan((bundle / "plan.json").read_text())
+    assert plan is not None
+    for path, content in harness_pack.render_harness(harness_pack.fallback_harness(plan), plan, "# Guide\n").items():
+        (bundle / path).parent.mkdir(parents=True, exist_ok=True)
+        (bundle / path).write_text(content)
+    text = (bundle / "plan.md").read_text().replace("- Test: `pytest`", "- Test: `pytest -q --maxfail=1`", 1)
+    assert save_blueprint_file(bundle, "plan.md", text).ok
+    assert "pytest -q --maxfail=1" in (bundle / "scripts" / "check.sh").read_text()
+    assert "`pytest -q --maxfail=1`" in (bundle / "CLAUDE.md").read_text()
+
+
 def test_a_plan_edited_into_a_cycle_is_rejected_with_the_issue_and_nothing_is_written(bundle: Path) -> None:
     before = {name: (bundle / name).read_text() for name in ("plan.md", "plan.json")}
     text = before["plan.md"].replace("### T01. Task T01\n- Goal: Deliver a slice.\n- Workstream: backend-api.\n- Depends on: none.", "### T01. Task T01\n- Goal: Deliver a slice.\n- Workstream: backend-api.\n- Depends on: T02.", 1)

@@ -206,3 +206,24 @@ def diff_stat(workspace: Path, commit: str) -> str:
     if done is None or done.returncode != 0:
         return ""
     return done.stdout.strip()[:_DIFF_STAT_LIMIT]
+
+
+DIFF_LIMIT = 200_000
+
+
+def diff_since(workspace: Path, commit: str, limit: int = DIFF_LIMIT) -> str:
+    """The unified diff from `commit` to the workspace's current commit (what a session changed once the
+    orchestrator has committed it), cut at `limit` characters. '' when `commit` is not a plain hex id, or git
+    is not usable. Hardened like `diff_stat`: no external diff or text conversion programs."""
+    workspace = Path(workspace)
+    git_dir = workspace / ".git"
+    if not _COMMIT_ID.match(commit or "") or git_dir.is_symlink() or not git_dir.is_dir():
+        return ""
+    harden_git_dir(git_dir)
+    done = run_git(workspace, "diff", "--no-ext-diff", "--no-textconv", "--no-color", commit, "HEAD")
+    if done is None or done.returncode != 0:
+        return ""
+    text = done.stdout
+    if len(text) > limit:
+        return f"{text[:limit]}\n… [truncated {len(text) - limit} characters of the diff]\n"
+    return text

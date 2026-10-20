@@ -22,6 +22,7 @@ from typing import Any
 
 import gradio as gr
 
+from idea_to_mvp.harness_pack import refresh_commands
 from idea_to_mvp.plan import (
     Plan,
     PlanParseError,
@@ -286,7 +287,8 @@ def save_blueprint_file(bundle_dir: str | Path, name: str, text: str) -> SaveRes
 
     Anything is refused when empty. A `PRD.md` edit is checked against the current plan (requirements the
     plan cites must still exist); a `plan.md` edit is read back into a plan and checked (cycles, unknown
-    ids, ...), then `plan.json` (the source of truth) and a canonical `plan.md` are written. Only problems the
+    ids, ...), then `plan.json` (the source of truth) and a canonical `plan.md` are written, and the harness files
+    built from its commands (`scripts/check.sh`, the commands in `CLAUDE.md`) follow. Only problems the
     edit *introduces* block it: a pack that already had review notes can still be improved. Nothing is
     written when there are issues.
     """
@@ -311,6 +313,7 @@ def save_blueprint_file(bundle_dir: str | Path, name: str, text: str) -> SaveRes
         canonical = render_plan_markdown(plan)
         (bundle / "plan.json").write_text(plan.model_dump_json(indent=2), encoding="utf-8")
         (bundle / "plan.md").write_text(canonical, encoding="utf-8")
+        refresh_commands(bundle, plan)  # the check script and CLAUDE.md follow the plan's commands
         return SaveResult(True, [], canonical)
 
     if name == "PRD.md" and current is not None:

@@ -1,11 +1,13 @@
 """build_agent_options: the one place that decides how an implementation agent is confined."""
 
+import json
 import logging
 from pathlib import Path
 
 import pytest
 
 from idea_to_mvp.config import Settings
+from idea_to_mvp.harness_pack import PROJECT_SETTINGS
 from idea_to_mvp.implementation import options as opts
 from idea_to_mvp.implementation.options import (
     SandboxUnavailableError,
@@ -82,7 +84,8 @@ def test_options_carry_cwd_model_budget_turns_and_isolation(workspace: Path) -> 
     assert Path(str(options.cwd)) == workspace
     assert options.model == "claude-x" and options.max_turns == 7 and options.max_budget_usd == 3.5
     assert options.permission_mode == "acceptEdits"  # the new, safer default
-    assert options.setting_sources == []  # never load user/project settings an agent could have written
+    assert options.setting_sources == ["project"]  # the pack's CLAUDE.md and skills; never the user's settings
+    assert options.skills == "all"
     assert {"WebFetch", "WebSearch"} <= set(options.disallowed_tools)
 
 
@@ -94,6 +97,26 @@ def test_each_session_kind_runs_on_its_own_model(workspace: Path) -> None:
     }
     assert models == {"implementer": "m-task", "verifier": "m-verify", "escalation": "m-hard"}
     assert build_agent_options(workspace=workspace, settings=settings, max_turns=3).model == "m-task"
+
+
+def test_task_sessions_load_the_project_harness_and_verification_lanes_do_not(workspace: Path) -> None:
+    settings = settings_with()
+    for role in ("implementer", "escalation"):
+        options = build_agent_options(workspace=workspace, settings=settings, max_turns=3, role=role)
+        assert options.setting_sources == ["project"] and options.skills == "all", role
+    lane = build_agent_options(workspace=workspace, settings=settings, max_turns=3, role="verifier")
+    # a lane judges the work: CLAUDE.md and skills an agent may have rewritten must not become its instructions
+    assert lane.setting_sources == [] and lane.skills is None
+
+
+def test_the_project_settings_are_restored_before_a_session_that_loads_them(workspace: Path) -> None:
+    settings_file = workspace / ".claude" / "settings.json"
+    settings_file.parent.mkdir()
+    settings_file.write_text(json.dumps({"hooks": {"Stop": []}, "permissions": {"allow": ["Bash(*)"]}}))
+    build_agent_options(workspace=workspace, settings=settings_with(), max_turns=3, role="verifier")
+    assert "hooks" in settings_file.read_text()  # a lane does not load them, so it does not touch them
+    build_agent_options(workspace=workspace, settings=settings_with(), max_turns=3)
+    assert json.loads(settings_file.read_text()) == PROJECT_SETTINGS
 
 
 def test_the_budget_and_agents_can_be_overridden_per_call(workspace: Path) -> None:

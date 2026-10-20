@@ -155,16 +155,23 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
     estimate = estimate_run_cost(
         settings, task_count, task_cost_history(settings.projects_dir, models["implementer"])
     ).to_dict()
+    lanes = "four" if settings.acceptance_enabled else "three"
+    acceptance = (
+        "Before the first task, one planning call writes held-out acceptance tests from the PRD; the fourth lane "
+        "runs them. "
+        if settings.acceptance_enabled
+        else ""
+    )
     question = (
         f"The blueprint pack is ready in `{state.get('project_bundle_dir', '')}`. "
         "Should I start the implementation stage now? "
         f"{shape}Autonomous coding agents "
-        f"(model `{models['implementer']}`) will build the project in `{settings.projects_dir}`, then three "
+        f"(model `{models['implementer']}`) will build the project in `{settings.projects_dir}`, then {lanes} "
         f"verification lanes (model `{models['verifier']}`) check it, with up to "
         f"{settings.max_fix_attempts} fix attempt(s); merge conflicts and every fix attempt after the first run "
         f"on `{models['escalation']}`. This spends real Anthropic API tokens "
         f"(whole-run budget cap ${settings.implementer_max_total_usd:.2f}, at most "
-        f"${settings.implementer_max_task_usd:.2f} per task). "
+        f"${settings.implementer_max_task_usd:.2f} per task). {acceptance}"
         f"Sandbox: {status.summary}. Permission mode: `{settings.implementer_permission_mode}`."
     )
     review_notes = [

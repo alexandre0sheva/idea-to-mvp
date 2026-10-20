@@ -2,21 +2,24 @@
 
 ```
 START → wave_1 ─Send×n→ doc_1 → wave_2 ─Send×n→ doc_2 ┐
-         PRD, ARCHITECTURE        README, AGENTS×4      ├→ wave_3 ─Send×n→ doc_3 → review ─┬→ write → END
-                                  plan ─────→ plan_writer ┘   .claude/agents/*          ↑     │ blocker, revisions left
-                                                                                        │     ↓
-                                                   rewrite_doc / rewrite_plan ←─Send─ revise
+         PRD, ARCHITECTURE        README, AGENTS×4      ├→ wave_3 ─Send×n→ doc_3 ──────────┐
+                                  plan ─────→ plan_writer ┘   .claude/agents/*             ├→ review ─┬→ write → END
+                                                         harness ──→ harness_writer ──────┘    ↑     │ blocker, revisions left
+                                                                                               │     ↓
+                                                          rewrite_doc / rewrite_plan ←─Send─ revise
 ```
 
 Each `wave_n` node is a no-op that only exists to fan out: its conditional edge sends one task per
 document of that wave, and the static edge out of the workers fires once all of them are done. Every
 document is written from the shared context plus the upstream documents it `needs`
 (`blueprints.BundleFileSpec`), so the plan sees the real PRD and the subagents see the real plan. The
-plan is typed data (`plan_writer`, validated and repaired once). `review` is an evaluator-optimizer
+plan is typed data (`plan_writer`, validated and repaired once), and so is the agent harness
+(`harness_writer`: skills, tool guidance, guardrails, checked by `harness_pack.validate_harness`, repaired
+once, else the fallback harness). `review` is an evaluator-optimizer
 step: the deterministic plan validation plus a critic model check the documents against each other;
 while blockers name documents and `MAX_BLUEPRINT_REVISIONS` allows, `revise` regenerates only those
-documents with the issues appended and the pack is reviewed again. An empty wave (no workstreams means
-no wave 3) is skipped.
+documents with the issues appended and the pack is reviewed again (the harness is not among them: its
+validator, not the critic, guards it). An empty wave is skipped.
 """
 
 from __future__ import annotations
@@ -32,10 +35,12 @@ from langgraph.types import Send
 
 from idea_to_mvp.blueprint_review import format_issues, issues_for, revision_targets
 from idea_to_mvp.blueprints import PLAN_JSON_PATH, WAVES, BundleFileSpec, bundle_file_plan
+from idea_to_mvp.harness_pack import HARNESS_SPEC_PATH
 from idea_to_mvp.nodes.blueprint import (
     DocInput,
     blueprint_context,
     generate_doc_node,
+    generate_harness_node,
     generate_plan_node,
     review_issues_of,
     review_node,
@@ -70,6 +75,8 @@ def _next_step(wave: int) -> str:
 
 
 def _worker_for(spec: BundleFileSpec, doc_node: str, plan_node: str) -> str:
+    if spec.relative_path == HARNESS_SPEC_PATH:
+        return "harness_writer"
     return plan_node if spec.structured else doc_node
 
 
@@ -115,7 +122,7 @@ def route_after_review(state: IdeaDiscussionState) -> Literal["revise", "write"]
 def route_revisions(state: IdeaDiscussionState) -> list[Send]:
     """One rewrite task per document a blocker names, each with its issues and its previous version."""
     strategy = state.get("execution_strategy") or None
-    specs = {s.relative_path: s for s in bundle_file_plan(strategy)}
+    specs = {s.relative_path: s for s in bundle_file_plan(strategy) if s.revisable}
     issues = review_issues_of(state.get("blueprint_review"))
     docs = state.get("blueprint_docs") or {}
     context_block = blueprint_context(state)
@@ -136,6 +143,10 @@ def route_revisions(state: IdeaDiscussionState) -> list[Send]:
     return sends
 
 
+# The typed-data workers of a wave, beside its text-document worker.
+_STRUCTURED_WORKERS = {2: ("plan_writer",), 3: ("harness_writer",)}
+
+
 def _fan_out(state: IdeaDiscussionState) -> dict[str, Any]:
     return {}
 
@@ -147,6 +158,7 @@ def build_blueprint_subgraph() -> CompiledStateGraph:
         builder.add_node(f"wave_{wave}", _fan_out)
         builder.add_node(f"doc_{wave}", generate_doc_node, input_schema=DocInput, retry_policy=LLM_RETRY)
     builder.add_node("plan_writer", generate_plan_node, input_schema=DocInput, retry_policy=LLM_RETRY)
+    builder.add_node("harness_writer", generate_harness_node, input_schema=DocInput, retry_policy=LLM_RETRY)
     builder.add_node("review", review_node, retry_policy=LLM_RETRY)
     builder.add_node("revise", revise_node)
     builder.add_node("rewrite_doc", generate_doc_node, input_schema=DocInput, retry_policy=LLM_RETRY)
@@ -155,7 +167,7 @@ def build_blueprint_subgraph() -> CompiledStateGraph:
 
     builder.add_edge(START, "wave_1")
     for wave in WAVES:
-        workers = [f"doc_{wave}", "plan_writer"] if wave == 2 else [f"doc_{wave}"]
+        workers = [f"doc_{wave}", *_STRUCTURED_WORKERS.get(wave, ())]
         builder.add_conditional_edges(f"wave_{wave}", _wave_router(wave), [*workers, _next_step(wave)])
         for worker in workers:  # separate edges: the step after fires once per superstep, whichever ran
             builder.add_edge(worker, _next_step(wave))

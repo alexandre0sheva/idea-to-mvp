@@ -47,6 +47,7 @@ You are implementing task {task_id} of this project: {title}.
 This is a fresh session. Earlier tasks are already in the workspace; build on them and never rewrite them.
 
 Read `AGENTS.md`, `PRD.md`, `ARCHITECTURE.md`, and `plan.md` first (`plan.md` lists every task; you own only the one below).
+Project skills in `.claude/skills/` describe this stack's recurring procedures; use one when its trigger applies.
 
 ## Task {task_id}: {title}
 - Goal: {goal}
@@ -70,6 +71,8 @@ Read `AGENTS.md`, `PRD.md`, `ARCHITECTURE.md`, and `plan.md` first (`plan.md` li
 - Implement only this task. Do not start other tasks or change their contracts.
 - Every acceptance criterion needs a test, and the project's full test suite must stay green.
 - If the project's dependencies are not installed, run the install command first.
+- If the project has `scripts/check.sh`, run `bash scripts/check.sh` before you finish: it installs, lints, and
+  runs the tests the way verification does.
 - Do not run `git commit` or change git configuration; the orchestrator commits when you finish.
 - Finish with a short summary of what you built and anything the next tasks must know.
 

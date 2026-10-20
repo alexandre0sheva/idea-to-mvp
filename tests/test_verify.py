@@ -16,6 +16,7 @@ from idea_to_mvp.implementation.events import ImplEvent
 from idea_to_mvp.implementation.verify import (
     LANES,
     LaneReport,
+    build_fix_prompt,
     build_lane_prompt,
     combine_lanes,
     failure_list,
@@ -408,6 +409,24 @@ def test_the_tests_lane_prompt_names_the_report_command_and_forbids_a_hand_writt
     assert REPORT_COMMAND not in build_lane_prompt("quality", make_plan(commands=_commands_with(REPORT_COMMAND)), PRD)
 
 
+def test_with_a_check_script_the_tests_lane_runs_its_install_and_test_steps_and_the_quality_lane_its_lint() -> None:
+    plan = make_plan(commands=_commands_with(REPORT_COMMAND))
+    tests = build_lane_prompt("tests", plan, PRD, check_script=True)
+    assert "`bash scripts/check.sh install test`" in tests and REPORT_COMMAND in tests and "by hand" in tests
+    quality = build_lane_prompt("quality", plan, PRD, check_script=True)
+    assert "`bash scripts/check.sh lint`" in quality and "install test" not in quality
+    assert "scripts/check.sh" not in build_lane_prompt("tests", plan, PRD)  # a project from an older pack has none
+
+
+def test_a_lane_session_is_told_about_the_check_script_only_when_the_workspace_has_one(tmp_path: Path) -> None:
+    query = FakeLaneQuery(structured=report("tests").model_dump())
+    run_one("tests", query, tmp_path)
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "check.sh").write_text("#!/usr/bin/env bash\n")
+    run_one("tests", query, tmp_path)
+    assert "scripts/check.sh" not in query.calls[0][0] and "bash scripts/check.sh install test" in query.calls[1][0]
+
+
 def _commands_with(test_report: str | None) -> Any:
     from idea_to_mvp.plan import ProjectCommands
 
@@ -487,3 +506,52 @@ def test_the_fix_session_reports_what_it_did_to_the_tests(tmp_path: Path) -> Non
     )
     [finding] = outcome.integrity
     assert (finding["session"], finding["iteration"], finding["kind"]) == ("v3-fix-2", 3, "deleted")
+
+
+# ------------------------------------------------------------ contrastive fix loop
+
+
+def test_the_fix_prompt_asks_for_notes_and_allows_an_environment_answer() -> None:
+    prompt = build_fix_prompt(["[tests] test_a failed"])
+    assert "<notes>" in prompt and "verdict -> hypothesis -> evidence" in prompt and "<environment>" in prompt
+    assert "Earlier fix attempts" not in prompt  # the first attempt has nothing to read
+
+
+def test_a_later_attempt_is_pointed_at_the_folders_of_the_earlier_ones(tmp_path: Path) -> None:
+    from idea_to_mvp.implementation import fixes
+
+    fixes.write_attempt(tmp_path, iteration=1, attempt=1, failures=["x"], diff="", trajectory=None)
+    prompt = build_fix_prompt(["[tests] test_a failed"], workspace=tmp_path, attempt=2)
+    assert ".idea-to-mvp/fix/attempt-1/" in prompt and "diff.patch" in prompt
+    assert "[tests] test_a failed" in prompt  # the failures are still listed, the history is not pasted
+    assert "Earlier fix attempts" not in build_fix_prompt(["x"], workspace=tmp_path, attempt=1)
+
+
+def test_failures_the_environment_causes_are_set_apart_in_the_fix_prompt() -> None:
+    prompt = build_fix_prompt(["[tests] test_a failed", "[quality] ENVIRONMENT: pypi.org is blocked"])
+    assert "cannot be fixed by changing the project" in prompt and "pypi.org is blocked" in prompt
+    assert "cannot be fixed by changing the project" not in build_fix_prompt(["[tests] test_a failed"])
+
+
+def test_every_lane_may_mark_a_failure_the_project_cannot_fix() -> None:
+    for lane in LANES:
+        assert "ENVIRONMENT:" in build_lane_prompt(lane, make_plan(), PRD)
+
+
+def test_the_fix_outcome_carries_its_notes_its_trajectory_and_its_kind(tmp_path: Path) -> None:
+    text = "Changed the parser.\n<notes>\nnew -> the parser drops the year -> report: test_leap fails\n</notes>"
+    outcome = asyncio.run(run_fix(tmp_path, ["x"], make_settings(), budget_usd=1.0, emit=lambda e: None, query_fn=FakeLaneQuery(text=text)))
+    assert outcome.kind == "code" and outcome.environment == ""
+    assert [(n.verdict, n.hypothesis) for n in outcome.notes] == [("new", "the parser drops the year")]
+    assert outcome.trajectory == ".idea-to-mvp/trajectories/fix-1.md"
+
+
+def test_a_fix_session_that_reports_an_environment_problem_ends_as_an_environment_outcome(tmp_path: Path) -> None:
+    text = "<environment>The sandbox has no docker, so the integration tests cannot start.</environment>"
+    outcome = asyncio.run(run_fix(tmp_path, ["x"], make_settings(), budget_usd=1.0, emit=lambda e: None, query_fn=FakeLaneQuery(text=text)))
+    assert outcome.kind == "environment" and "no docker" in outcome.environment and outcome.success is True
+
+
+def test_the_demo_fix_session_still_answers_with_notes(tmp_path: Path) -> None:
+    outcome = asyncio.run(run_fix(tmp_path, ["x"], make_settings(demo_mode=True), budget_usd=1.0, emit=lambda e: None))
+    assert outcome.kind == "code" and outcome.notes and outcome.notes[0].verdict == "new"

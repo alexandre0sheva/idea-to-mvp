@@ -113,3 +113,10 @@ def test_the_gate_reports_the_plans_size_and_how_much_of_it_can_run_in_parallel(
     assert captured["task_count"] == 0
     assert "can run in parallel" not in captured["question"] and "one at a time" not in captured["question"]
     clear_settings_cache()
+
+
+def test_the_gate_counts_the_acceptance_lane_and_its_author_call_when_acceptance_tests_are_on(monkeypatch, tmp_path) -> None:
+    on = gate_payload(monkeypatch, tmp_path, ACCEPTANCE_TESTS="on")["question"]
+    assert "then four verification lanes" in on and "held-out acceptance tests" in on
+    off = gate_payload(monkeypatch, tmp_path, ACCEPTANCE_TESTS="off")["question"]
+    assert "then three verification lanes" in off and "acceptance" not in off

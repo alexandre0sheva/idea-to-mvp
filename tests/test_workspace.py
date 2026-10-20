@@ -260,3 +260,27 @@ def test_diff_stat_refuses_anything_that_is_not_a_plain_commit_id(tmp_path: Path
     plain = tmp_path / "plain"
     plain.mkdir()
     assert diff_stat(plain, "abcd1234") == ""
+
+
+# ------------------------------------------------------------------ diff since
+
+
+def test_the_diff_since_a_commit_holds_what_changed_after_it_including_new_files(bundle: Path, tmp_path: Path) -> None:
+    workspace = prepare_workspace(bundle, tmp_path / "projects")
+    before = ws.head_commit(workspace)
+    assert before
+    (workspace / "plan.md").write_text("# plan\nmore")
+    (workspace / "new.py").write_text("x = 1\n")
+    commit_workspace(workspace, "fix attempt 1")
+    diff = ws.diff_since(workspace, before)
+    assert "diff --git a/plan.md b/plan.md" in diff and "+more" in diff and "diff --git a/new.py b/new.py" in diff
+
+
+def test_a_diff_since_a_commit_that_is_not_a_plain_id_is_refused_and_a_big_diff_is_cut(bundle: Path, tmp_path: Path) -> None:
+    workspace = prepare_workspace(bundle, tmp_path / "projects")
+    before = ws.head_commit(workspace)
+    assert ws.diff_since(workspace, "--output=/tmp/x") == "" and ws.diff_since(workspace, "") == ""
+    (workspace / "big.txt").write_text("line\n" * 100_000)
+    commit_workspace(workspace, "big")
+    diff = ws.diff_since(workspace, before or "", limit=1000)
+    assert len(diff) < 1300 and "truncated" in diff

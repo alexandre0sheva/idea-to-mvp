@@ -46,7 +46,7 @@ def test_diagram_expands_the_parallel_implementation_subgraph() -> None:
 
 def test_diagram_expands_the_blueprint_subgraph() -> None:
     diagram = _load_script().render_diagram()
-    for node in ("wave_1", "doc_1", "plan_writer", "wave_3", "doc_3", "review", "revise", "rewrite_plan", "write"):
+    for node in ("wave_1", "doc_1", "plan_writer", "wave_3", "doc_3", "harness_writer", "review", "revise", "rewrite_plan", "write"):
         assert node in diagram
 
 

@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from idea_to_mvp.implementation.fixes import result_text
 from idea_to_mvp.implementation.integrity import CHANGES_FILE
 from idea_to_mvp.implementation.progress import TaskResult, load_progress
 from idea_to_mvp.plan import Plan, load_plan, parse_requirements
@@ -168,6 +169,51 @@ def _integrity_card(findings: Mapping[str, Any], mode: str, iteration: int) -> s
     )
 
 
+# ------------------------------------------------------------ fix attempts
+
+
+def _attempt_item(entry: Mapping[str, Any]) -> str:
+    """One fix attempt: who ran it, what it changed, what it believed, and how it ended."""
+    cost = f" · ${float(entry.get('cost_usd') or 0.0):.2f}" if entry.get("cost_usd") else ""
+    result = str(entry.get("result") or "")
+    files = ", ".join(f"<code>{_e(name)}</code>" for name in entry.get("files") or [])
+    notes = "".join(
+        f"<li><em>{_e(note.get('verdict'))}</em> · {_e(note.get('hypothesis'))}"
+        f"<br><span class='integrity-reason'>Evidence: {_e(note.get('evidence'))}</span></li>"
+        for note in entry.get("notes") or []
+        if isinstance(note, Mapping)
+    )
+    extra = ""
+    if entry.get("kind") == "environment":
+        extra = f"<p>The session found that no change to the project can fix this: {_e(entry.get('summary') or 'see its folder')}</p>"
+    if entry.get("notes_problem"):
+        extra += f"<p class='lane-label'>{_e(entry['notes_problem'])}</p>"
+    return (
+        f"<li class='fix-attempt {_e(result or 'unverified')}'><strong>Attempt {_e(entry.get('attempt'))}</strong> · "
+        f"{_e(entry.get('model') or 'unknown model')}{_e(cost)} · {_e(result_text(entry))}"
+        f"<br>{'Changed: ' + files if files else 'Changed nothing.'}"
+        f"{f'<ul>{notes}</ul>' if notes else ''}{extra}</li>"
+    )
+
+
+def _fix_history_card(verification: Mapping[str, Any]) -> str:
+    """The fix attempts of this version, oldest first ('' when there were none). The text of each is an agent's."""
+    entries = [entry for entry in verification.get("history") or [] if isinstance(entry, Mapping)]
+    if not entries:
+        return ""
+    passed = bool(verification.get("passed"))
+    environment = str(verification.get("environment") or "")
+    stopped = (
+        f"<p class='lane-label'>Stopped: the environment, not the project, is at fault. {_e(environment)}</p>" if environment else ""
+    )
+    return (
+        f"<section class='lane-card fix-history {'passed' if passed else 'failed'}' data-fix-attempts='{len(entries)}'>"
+        f"<header><strong>Fix attempts</strong> <span class='badge {'passed' if passed else 'failed'}'>{len(entries)}</span></header>"
+        "<p>Each attempt read the folders of the earlier ones in <code>.idea-to-mvp/fix/</code>.</p>"
+        f"<ol class='fix-attempts'>{''.join(_attempt_item(entry) for entry in entries)}</ol>{stopped}</section>"
+    )
+
+
 # ------------------------------------------------------------- requirements
 
 
@@ -261,6 +307,7 @@ def render_dashboard(state: Mapping[str, Any], *, elapsed: Mapping[str, float] |
     else:
         lane_html = f"<p class='dashboard-note'>{_e(verification.get('report') or 'No verification report.')}</p>"
     lane_html += _integrity_card(state.get("integrity_findings") or {}, str(verification.get("integrity") or ""), iteration)
+    lane_html += _fix_history_card(verification)
 
     flagged: set[str] = set()
     for lane in lanes:

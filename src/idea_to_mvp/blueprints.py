@@ -17,9 +17,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from idea_to_mvp.harness_pack import AGENTS_MD, CHECK_SCRIPT, HARNESS_SPEC_PATH, pack_harness
 from idea_to_mvp.plan import fallback_plan, load_plan, render_plan_markdown
 from idea_to_mvp.prompts_common import NO_CHANGE_REVISION
-from idea_to_mvp.roles import PLAN_WRITER_SYSTEM
+from idea_to_mvp.roles import HARNESS_WRITER_SYSTEM, PLAN_WRITER_SYSTEM
 
 # Upstream documents are injected into later prompts up to this many characters each.
 MAX_UPSTREAM_CHARS = 12_000
@@ -64,8 +65,10 @@ ROOT_AGENTS_SYSTEM = (
     "- tell agents to read `PRD.md`, `ARCHITECTURE.md`, and `plan.md` first, then the scoped guides "
     "(`contracts/AGENTS.md`, `application/AGENTS.md`, `quality/AGENTS.md`)\n"
     "- mention that `.claude/agents/` contains specialized subagent definitions and `STRATEGY.json` "
-    "describes the execution mode\n"
-    "- keep it usable as an operating manual, not a product essay"
+    "describes the execution mode, that `bash scripts/check.sh` runs every check (install, lint, tests), and "
+    "that `.claude/skills/` holds the project's step-by-step procedures\n"
+    "- keep it usable as an operating manual, not a product essay\n"
+    "- write no guardrails section: one with the always-on rules is appended to the file for you"
 )
 
 CONTRACTS_AGENTS_SYSTEM = (
@@ -119,7 +122,8 @@ class BundleFileSpec:
     # (README, the four AGENTS guides, plan). 3: the per-workstream subagent definitions (they need the plan).
     wave: int = 1
     needs: tuple[str, ...] = ()  # upstream documents (by relative path) injected into this prompt
-    structured: bool = False  # produced as typed data by the plan writer, not as free text
+    structured: bool = False  # produced as typed data (the plan writer, the harness writer), not as free text
+    revisable: bool = True  # the critic's blockers can regenerate it (the harness has its own validator instead)
 
 
 WAVES = (1, 2, 3)
@@ -254,6 +258,21 @@ def bundle_file_plan(strategy: dict[str, Any] | None) -> list[BundleFileSpec]:
                 needs=("plan.md",),
             )
         )
+    specs.append(
+        BundleFileSpec(
+            HARNESS_SPEC_PATH,
+            HARNESS_WRITER_SYSTEM,
+            (
+                "Write the project harness now: the skills, the tool guidance, and the stack's guardrails. The "
+                "project's only script is `scripts/check.sh`, run as `bash scripts/check.sh`."
+            ),
+            "",  # the fallback is built from the plan (`harness_pack.fallback_harness`)
+            wave=3,
+            needs=("ARCHITECTURE.md", PLAN_PATH, PLAN_JSON_PATH),
+            structured=True,
+            revisable=False,
+        )
+    )
     return specs
 
 
@@ -303,8 +322,9 @@ def write_bundle(
     review_issues: Sequence[str] = (),
 ) -> tuple[Path, list[str], str]:
     """Write the generated documents (an empty or missing one gets its fallback), `plan.json` with the
-    `plan.md` rendered from it, `REVIEW.md` when the critic left notes, and STRATEGY.json into a fresh
-    timestamped folder under `root`."""
+    `plan.md` rendered from it, the agent harness (`CLAUDE.md`, `scripts/check.sh`, `.claude/settings.json`,
+    the skills, and the guardrails section of `AGENTS.md`, rendered for the final plan), `REVIEW.md` when the
+    critic left notes, and STRATEGY.json into a fresh timestamped folder under `root`."""
     timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S-%f")
     bundle_dir = Path(root) / f"{timestamp}-{_slug(user_idea)}"
     created: list[str] = []
@@ -315,12 +335,24 @@ def write_bundle(
         target.write_text(content.rstrip("\n") + "\n", encoding="utf-8")
         created.append(relative_path)
 
-    for spec in bundle_file_plan(strategy):
+    specs = bundle_file_plan(strategy)
+    # plan.json is the source of truth; a missing or broken one becomes a valid fallback plan.
+    plan = load_plan(docs.get(PLAN_JSON_PATH)) or fallback_plan(strategy, docs.get("PRD.md") or "")
+    agents_fallback = next(spec.fallback for spec in specs if spec.relative_path == AGENTS_MD)
+    harness = pack_harness(docs.get(HARNESS_SPEC_PATH), plan, (docs.get(AGENTS_MD) or "").strip() or agents_fallback)
+    for spec in specs:
         if spec.relative_path == PLAN_PATH:
-            # plan.json is the source of truth; a missing or broken one becomes a valid fallback plan.
-            plan = load_plan(docs.get(PLAN_JSON_PATH)) or fallback_plan(strategy, docs.get("PRD.md") or "")
             write(PLAN_PATH, render_plan_markdown(plan))
             write(PLAN_JSON_PATH, plan.model_dump_json(indent=2))
+            continue
+        if spec.relative_path == HARNESS_SPEC_PATH:
+            for path, text in harness.items():
+                if path != AGENTS_MD:
+                    write(path, text)
+            (bundle_dir / CHECK_SCRIPT).chmod(0o755)
+            continue
+        if spec.relative_path == AGENTS_MD:
+            write(AGENTS_MD, harness[AGENTS_MD])  # with its guardrails section
             continue
         content = (docs.get(spec.relative_path) or "").strip() or spec.fallback.strip()
         write(spec.relative_path, spec.frontmatter + content)
@@ -336,7 +368,9 @@ def write_bundle(
         *[f"- `{path}`" for path in created],
         "",
         "Start with `PRD.md` and `plan.md` (`plan.json` is the machine-readable plan); `.claude/agents/` holds "
-        "the implementation subagent definitions and `STRATEGY.json` records the chosen execution mode.",
+        "the implementation subagent definitions and `STRATEGY.json` records the chosen execution mode. "
+        "`CLAUDE.md`, `scripts/check.sh`, and `.claude/skills/` are the agents' harness (commands, the one check "
+        "command, and step-by-step procedures).",
     ]
     if review_issues:
         summary_lines += [

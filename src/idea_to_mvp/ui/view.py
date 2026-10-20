@@ -65,7 +65,7 @@ _RUNNING: dict[str, tuple[str, str]] = {
     "strategy": ("Strategy", "Choosing the agent execution strategy..."),
     "plan_bundle": (
         "Planner",
-        "Generating the blueprint pack: PRD, architecture doc, plan, and subagent definitions...",
+        "Generating the blueprint pack: PRD, architecture doc, plan, subagent definitions, and the agent harness...",
     ),
     "prepare_workspace": ("Workspace", "Preparing the project workspace (copying the pack, initialising git)..."),
     "acceptance_author": ("Acceptance author", "Writing held-out acceptance tests from the PRD and the contracts..."),

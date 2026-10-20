@@ -28,7 +28,9 @@ from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import SkipJsonSchema
 
 from idea_to_mvp import implementer
+from idea_to_mvp.harness_pack import CHECK_SCRIPT
 from idea_to_mvp.implementation import acceptance as held_out
+from idea_to_mvp.implementation import fixes
 from idea_to_mvp.implementation.events import ImplEvent, events_from_sdk_message, make_event
 from idea_to_mvp.implementation.integrity import IntegrityFinding, SessionWatch
 from idea_to_mvp.implementation.ledger import SessionOutcome
@@ -92,6 +94,12 @@ class FixOutcome:
     cost_usd: float = 0.0
     turns: int = 0
     integrity: list[IntegrityFinding] = field(default_factory=list)  # what the session did to the tests
+    # "environment": the session found that no change to the project can fix the failures (`environment` says what
+    # is missing), so the loop ends instead of verifying an unchanged project again.
+    kind: Literal["code", "environment"] = "code"
+    environment: str = ""
+    notes: list[fixes.Note] = field(default_factory=list)  # its hypotheses, judged against the earlier attempts
+    trajectory: str = ""  # its trajectory file, relative to the workspace
 
 
 # ---------------------------------------------------------------------- prompts
@@ -108,7 +116,9 @@ Finish with a single JSON object and nothing else: {{"lane": "{lane}", "passed":
 "commands_run": [{{"command": "<what you ran>", "exit_code": <int>}}], "failures": ["<one concrete problem
 per entry, with the file or test and the relevant error>"], "summary": "<two or three sentences>"}}.
 `passed` may be true only when `failures` is empty. If you could not do what this lane asks, that is a failure:
-say why in `failures`.
+say why in `failures`. Start a failure with `ENVIRONMENT:` when the cause is the machine and not the project,
+so that no change to the project could fix it: a domain the sandbox blocks, a credential you do not have, a
+tool that cannot be installed here. A tool the project merely forgot to declare is the project's failure.
 """
 
 TESTS_PROMPT = """\
@@ -178,13 +188,23 @@ def priority_requirements(prd_markdown: str) -> dict[str, str]:
     return p0 or requirements
 
 
-def build_lane_prompt(lane: LaneName, plan: Plan | None, prd_markdown: str) -> str:
+_CHECK_TESTS = (
+    "   The project's check script runs both steps: run `bash scripts/check.sh install test` (its test step is the\n"
+    "   test command named below).\n"
+)
+_CHECK_LINT = "   The project's check script runs the lint step: `bash scripts/check.sh lint`.\n"
+
+
+def build_lane_prompt(lane: LaneName, plan: Plan | None, prd_markdown: str, *, check_script: bool = False) -> str:
+    """The prompt of one verification lane. With `check_script` (the workspace has the pack's
+    `scripts/check.sh`) the tests and quality lanes run its steps instead of piecing the commands together."""
     if lane == "tests":
         report_command = (plan.commands.test_report or "").strip() if plan is not None else ""
         run_tests = _RUN_TESTS_WITH_REPORT.format(command=report_command) if report_command else _RUN_TESTS
-        body = TESTS_PROMPT.format(commands=_commands(plan), run_tests=run_tests)
+        commands = _commands(plan) + (_CHECK_TESTS if check_script else "")
+        body = TESTS_PROMPT.format(commands=commands, run_tests=run_tests)
     elif lane == "quality":
-        body = QUALITY_PROMPT.format(commands=_commands(plan))
+        body = QUALITY_PROMPT.format(commands=_commands(plan) + (_CHECK_LINT if check_script else ""))
     else:
         required = priority_requirements(prd_markdown)
         listing = "\n".join(f"- {rid} ({priority or 'unprioritised'})" for rid, priority in required.items())
@@ -201,8 +221,15 @@ FIX_PROMPT = (
     "`plan.md`. A failure tagged `[requirements]` means a requirement has no test: write the missing test. "
     "A failure tagged `[integrity]` means an earlier session deleted, renamed, skipped, or weakened a test: "
     "restore the test, or, only if the change was right, justify it in `quality/TEST_CHANGES.md` as the failure "
-    "says. Re-run the affected checks to confirm the fix. Do not run `git commit`; the orchestrator commits. "
-    "Finish with a short summary of what you changed.\n\n"
+    "says. Re-run the affected checks to confirm the fix (`bash scripts/check.sh` runs them all when the project "
+    "has it). Do not run `git commit`; the orchestrator commits.\n\n"
+    "Finish with a short summary of what you changed, then a `<notes>` block: one line per hypothesis, each "
+    "`verdict -> hypothesis -> evidence`. Use `new` for the cause you are testing now. When earlier fix attempts "
+    "are listed below, also give one line for each of their hypotheses, with `kept`, `revised`, or `dropped` as "
+    "the verdict. The evidence is the trajectory moment or report line that decided it, not your opinion.\n\n"
+    "If no change to the project could fix the failures because the machine is at fault (a domain the sandbox "
+    "blocks, a credential you do not have, a tool that cannot be installed here), change nothing and answer only "
+    "with `<environment>one line: what is missing and what the user must do</environment>`.\n\n"
     + ANSWER_FREE
     + "\n"
     + TEST_INTEGRITY
@@ -465,7 +492,9 @@ async def run_lane(
         session = await _run_session(
             workspace,
             settings,
-            prompt=build_lane_prompt(lane, plan, _read(workspace / "PRD.md")),
+            prompt=build_lane_prompt(
+                lane, plan, _read(workspace / "PRD.md"), check_script=(workspace / CHECK_SCRIPT).is_file()
+            ),
             task_id=task_id,
             max_turns=settings.verifier_max_turns,
             budget_usd=budget_usd,
@@ -592,18 +621,36 @@ async def _run_acceptance(
     return outcome
 
 
-def build_fix_prompt(failures: list[str]) -> str:
-    """The fix prompt; failures from the held-out acceptance tests add a note on what they are (only then, so a
-    fix session without them is not told that such tests exist)."""
+def build_fix_prompt(failures: list[str], *, workspace: Path | None = None, attempt: int = 1, iteration: int = 1) -> str:
+    """The fix prompt. Failures from the held-out acceptance tests add a note on what they are (only then, so a
+    fix session without them is not told that such tests exist). From the second attempt on, the earlier attempts'
+    folders are named (`fixes.evidence_block`): their content is read from the files, not pasted."""
     prompt = FIX_PROMPT.format(failures="\n".join(f"- {failure}" for failure in failures) or "- (none listed)")
     if any(failure.startswith(f"[{ACCEPTANCE}]") for failure in failures):
         prompt += "\n" + held_out.FIX_NOTE
+    classified = fixes.classify_failures(failures)
+    if classified.environment:
+        listing = "\n".join(f"- {failure}" for failure in classified.environment)
+        prompt += (
+            "\n## Not yours to fix\nThese failures come from the environment and cannot be fixed by changing the "
+            f"project. Leave them alone and fix the others:\n{listing}\n"
+        )
+    if workspace is not None and (block := fixes.evidence_block(workspace, iteration=iteration, attempt=attempt)):
+        prompt += "\n" + block
     return prompt
 
 
 def fix_role(attempt: int) -> AgentRole:
     """The kind of session a fix attempt (1, 2, ...) runs as."""
     return "implementer" if attempt <= 1 else "escalation"
+
+
+def _read_answer(outcome: FixOutcome, text: str) -> None:
+    """Take the notes and an environment verdict out of a fix session's final answer."""
+    outcome.notes = fixes.parse_notes(text)
+    if reason := fixes.parse_environment(text):
+        outcome.kind, outcome.environment = "environment", reason
+    outcome.summary = (fixes.plain_answer(text) or outcome.summary)[:_SUMMARY_LIMIT]
 
 
 async def run_fix(
@@ -639,14 +686,16 @@ async def run_fix(
         from idea_to_mvp.demo.implementer import demo_fix
 
         await asyncio.sleep(0)
-        outcome = FixOutcome(True, demo_fix("\n".join(failures)))
+        answer = demo_fix("\n".join(failures))
+        outcome = FixOutcome(True, fixes.plain_answer(answer))
+        _read_answer(outcome, answer)
         log.event(make_event("text", task_id=task_id, label="agent", detail=outcome.summary))
         log.finish(outcome="success", cost_usd=0.0, turns=0, session_id=None)
     else:
         session = await _run_session(
             Path(workspace),
             settings,
-            prompt=build_fix_prompt(failures),
+            prompt=build_fix_prompt(failures, workspace=Path(workspace), attempt=attempt, iteration=iteration),
             task_id=task_id,
             max_turns=settings.implementer_max_task_turns,
             budget_usd=budget_usd,
@@ -666,6 +715,10 @@ async def run_fix(
             cost_usd=session.cost_usd,
             turns=session.turns,
         )
+        if not session.crashed and not session.is_error:
+            _read_answer(outcome, session.text)
+    if log.path is not None and log.path.is_relative_to(Path(workspace)):
+        outcome.trajectory = log.path.relative_to(Path(workspace)).as_posix()
     outcome.integrity = await asyncio.to_thread(watch.findings, session=log.label)
     emit(make_event("task_end", task_id=task_id, label=label, detail="done" if outcome.success else f"failed: {outcome.summary.splitlines()[0][:120]}"))
     return outcome

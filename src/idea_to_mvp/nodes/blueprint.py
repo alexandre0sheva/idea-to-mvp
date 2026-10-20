@@ -27,6 +27,12 @@ from idea_to_mvp.blueprints import (
     write_bundle,
 )
 from idea_to_mvp.config import get_settings
+from idea_to_mvp.harness_pack import (
+    HARNESS_SPEC_PATH,
+    HarnessSpec,
+    fallback_harness,
+    harness_problems,
+)
 from idea_to_mvp.nodes.common import preferences_block
 from idea_to_mvp.plan import (
     Plan,
@@ -148,11 +154,59 @@ def generate_plan_node(state: DocInput) -> dict[str, Any]:
     }
 
 
+@with_usage(role="harness_writer")
+def generate_harness_node(state: DocInput) -> dict[str, Any]:
+    """Write the project harness (skills, tool guidance, stack guardrails) as typed data, checked by the
+    deterministic harness validator: one repair attempt with its problems, then the fallback harness.
+
+    The writer reads the architecture and the rendered plan; `plan.json` only supplies the commands the
+    harness is checked against (it is left out of the prompt).
+    """
+    spec = _spec_for(state)
+    upstream = state["upstream"]
+    plan = load_plan(upstream.get(PLAN_JSON_PATH)) or fallback_plan(state["strategy"], "")
+    fallback = fallback_harness(plan)
+    runtime = llm.get_runtime("harness_writer")
+    messages = [
+        SystemMessage(content=runtime.system_prompt),
+        HumanMessage(
+            content=prompt_for(
+                spec,
+                state["context_block"],
+                {path: text for path, text in upstream.items() if path != PLAN_JSON_PATH},
+                issues=state["issues"],
+                previous=state["previous"],
+            )
+        ),
+    ]
+    harness = llm.invoke_structured(runtime, messages, HarnessSpec, fallback=lambda: fallback)
+    if problems := harness_problems(harness, plan):
+        repaired = llm.invoke_structured(
+            runtime,
+            [
+                *messages,
+                HumanMessage(
+                    content=(
+                        "Your harness has these problems:\n"
+                        + "\n".join(f"- {problem}" for problem in problems)
+                        + f"\n\nYour harness (JSON):\n{harness.model_dump_json(indent=2)}\n\n"
+                        "Return the complete corrected harness: fix every problem and change nothing else."
+                    )
+                ),
+            ],
+            HarnessSpec,
+            fallback=lambda: fallback,
+        )
+        harness = fallback if harness_problems(repaired, plan) else repaired
+    return {"blueprint_docs": {HARNESS_SPEC_PATH: harness.model_dump_json(indent=2)}}
+
+
 # -------------------------------------------------------------- review + revise
 
 
 def _known_paths(strategy: dict[str, Any] | None) -> list[str]:
-    return [spec.relative_path for spec in bundle_file_plan(strategy)]
+    """The documents a blocker can regenerate."""
+    return [spec.relative_path for spec in bundle_file_plan(strategy) if spec.revisable]
 
 
 def _plan_problems(docs: dict[str, str], strategy: dict[str, Any] | None) -> list[str]:

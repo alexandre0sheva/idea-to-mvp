@@ -326,3 +326,48 @@ def test_the_acceptance_lane_has_a_card_and_each_requirement_its_acceptance_verd
 
 def test_without_an_acceptance_lane_the_table_has_no_acceptance_column(tmp_path: Path) -> None:
     assert "Acceptance" not in render_dashboard(state(tmp_path))
+
+
+# ------------------------------------------------------------- fix attempt history
+
+
+def fix_entry(attempt: int, **fields: Any) -> dict[str, Any]:
+    return {
+        "attempt": attempt, "model": "claude-sonnet-5-5", "kind": "code", "summary": "Changed the parser.",
+        "failures": ["[tests] test_a failed"], "files": ["src/parser.py"], "cost_usd": 0.5,
+        "notes": [{"verdict": "new", "hypothesis": "the parser drops the year", "evidence": "report: test_leap fails"}],
+        "notes_problem": "", "result": "failed", "remaining": 1, **fields,
+    }  # fmt: skip
+
+
+def history_card(html: str) -> str:
+    match = re.search(r"<section class='lane-card fix-history[^']*'.*?</section>", html, flags=re.DOTALL)
+    return match.group(0) if match else ""
+
+
+def test_the_attempt_history_shows_each_attempt_with_its_files_hypothesis_and_result(tmp_path: Path) -> None:
+    history = [fix_entry(1), fix_entry(2, result="passed", remaining=0, notes=[{"verdict": "dropped", "hypothesis": "the parser drops the year", "evidence": "fix-1 run"}])]
+    verification = {"passed": True, "attempts": 2, "report": "r", "lanes": [lane("tests")], "history": history}
+    card = history_card(render_dashboard(state(tmp_path, verification=verification)))
+    assert "Fix attempts" in card and "Attempt 1" in card and "Attempt 2" in card
+    assert "src/parser.py" in card and "the parser drops the year" in card and "fix-1 run" in card
+    assert "still failing" in card and "verification passed" in card and "claude-sonnet-5-5" in card
+
+
+def test_a_run_without_fix_attempts_has_no_history_card(tmp_path: Path) -> None:
+    assert history_card(render_dashboard(state(tmp_path))) == ""
+
+
+def test_a_loop_that_stopped_for_the_environment_says_what_is_missing(tmp_path: Path) -> None:
+    history = [fix_entry(1, kind="environment", result="stopped", files=[], notes=[], summary="Nothing changed.")]
+    verification = {"passed": False, "attempts": 1, "report": "r", "lanes": [lane("tests", False)], "history": history, "environment": "The sandbox has no <docker>."}
+    card = history_card(render_dashboard(state(tmp_path, passed=False, verification=verification)))
+    assert "environment" in card.lower() and "The sandbox has no &lt;docker&gt;." in card and "stopped" in card
+    assert "lane-card fix-history failed" in card
+
+
+def test_what_agents_wrote_in_the_history_is_escaped(tmp_path: Path) -> None:
+    history = [fix_entry(1, files=["<script>x</script>.py"], notes=[{"verdict": "new", "hypothesis": "<img src=x>", "evidence": "<b>e</b>"}], notes_problem="<i>late</i>")]
+    verification = {"passed": False, "attempts": 1, "report": "r", "lanes": [], "history": history}
+    html = render_dashboard(state(tmp_path, passed=False, verification=verification))
+    assert "<script>" not in html and "<img src=x>" not in html and "&lt;img src=x&gt;" in html and "&lt;i&gt;late" in html

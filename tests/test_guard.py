@@ -83,6 +83,30 @@ def test_the_orchestrators_progress_file_cannot_be_written_by_agents(workspace: 
         assert not ok and ".idea-to-mvp" in reason
 
 
+@pytest.mark.parametrize(
+    "path", [".claude/settings.json", ".claude/settings.local.json", "sub/.claude/settings.json", ".mcp.json", "app/.mcp.json"]
+)
+def test_agents_cannot_write_the_claude_code_settings_a_later_session_loads(path: str, workspace: Path) -> None:
+    for tool in ("Write", "Edit", "MultiEdit"):
+        ok, reason = check_tool_use(tool, {"file_path": path}, workspace)
+        assert not ok and "settings" in reason, (tool, path)
+    assert allowed("Read", {"file_path": path}, workspace)
+
+
+def test_the_rest_of_the_project_harness_stays_writable(workspace: Path) -> None:
+    for path in (".claude/skills/add-endpoint/SKILL.md", ".claude/agents/core.md", "CLAUDE.md", "scripts/check.sh", "docs/settings.json"):
+        assert allowed("Write", {"file_path": path}, workspace), path
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["echo '{}' > .claude/settings.json", "cp evil.json .claude/settings.local.json", "tee .mcp.json < x", "sed -i '' s/a/b/ ./.claude/settings.json"],
+)
+def test_shell_commands_that_name_the_claude_code_settings_are_denied(command: str, workspace: Path) -> None:
+    ok, reason = check_tool_use("Bash", {"command": command}, workspace)
+    assert not ok and "settings" in reason, command
+
+
 def test_notebook_glob_and_grep_paths_are_checked_too(workspace: Path, tmp_path: Path) -> None:
     assert not allowed("NotebookEdit", {"notebook_path": str(tmp_path / "n.ipynb")}, workspace)
     assert allowed("NotebookEdit", {"notebook_path": "n.ipynb"}, workspace)

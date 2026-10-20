@@ -5,6 +5,7 @@ a plan that validates, covers every P0 requirement, and can be built in parallel
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,14 @@ import pytest
 from langgraph.checkpoint.memory import MemorySaver
 
 from idea_to_mvp.graph import build_graph, pending_interrupt, run_config
+from idea_to_mvp.harness_pack import (
+    CHECK_SCRIPT,
+    CLAUDE_MD,
+    HARNESS_SPEC_PATH,
+    SETTINGS_PATH,
+    read_harness,
+    validate_harness,
+)
 from idea_to_mvp.plan import (
     Plan,
     execution_waves,
@@ -89,3 +98,14 @@ def test_the_plan_can_be_built_in_at_least_two_waves(pack: dict[str, Any]) -> No
 def test_the_critic_left_no_blocker_open(pack: dict[str, Any]) -> None:
     issues = pack["values"]["blueprint_review"]["issues"]
     assert not [issue for issue in issues if issue["severity"] == "blocker"]
+
+
+def test_the_pack_carries_a_complete_agent_harness_that_validates(pack: dict[str, Any]) -> None:
+    bundle = Path(pack["values"]["project_bundle_dir"])
+    files = read_harness(bundle)
+    assert validate_harness(files) == []
+    assert {CLAUDE_MD, CHECK_SCRIPT, SETTINGS_PATH} <= set(files) and any("/skills/" in path for path in files)
+    assert "## Guardrails" in files["AGENTS.md"] and os.access(bundle / CHECK_SCRIPT, os.X_OK)
+    plan = plan_of(pack["values"])
+    assert (plan.commands.test_report or plan.commands.test) in files[CHECK_SCRIPT]
+    assert not (bundle / HARNESS_SPEC_PATH).exists()  # the writer's answer is rendered, not shipped

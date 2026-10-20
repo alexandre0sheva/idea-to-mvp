@@ -11,6 +11,7 @@ from langgraph.types import Command, Send
 from idea_to_mvp.config import clear_settings_cache
 from idea_to_mvp.graph import build_graph, run_config
 from idea_to_mvp.implementation import verify as lanes
+from idea_to_mvp.implementation.fixes import Note
 from idea_to_mvp.implementation.integrity import SessionWatch
 from idea_to_mvp.implementation.verify import LANES, FixOutcome, LaneOutcome, LaneReport
 from idea_to_mvp.nodes.report import delivery_report_node
@@ -49,6 +50,9 @@ class FakeLanes:
         self.rounds_started = 0
         self.cost = 0.5
         self.fix_effects: list[Any] = []  # per fix attempt: what the session does to the workspace
+        self.lane_failures: dict[str, list[str]] = {}  # lane -> failures it reports when it fails (default: one generic line)
+        self.fix_outcomes: list[FixOutcome] = []  # per fix attempt: the outcome to return (default: fixed, with notes)
+        self.folders_seen: list[list[str]] = []  # per fix attempt: the attempt folders that existed when it started
         monkeypatch.setattr(lanes, "run_lane", self.run_lane)
         monkeypatch.setattr(lanes, "run_fix", self.run_fix)
 
@@ -60,15 +64,25 @@ class FakeLanes:
         self.max_active = max(self.max_active, self.active)
         await asyncio.sleep(0.05)
         self.active -= 1
-        return LaneOutcome(lane_report(lane, script.get(lane, True)), cost_usd=self.cost, turns=3)
+        passed = script.get(lane, True)
+        return LaneOutcome(lane_report(lane, passed, None if passed else self.lane_failures.get(lane)), cost_usd=self.cost, turns=3)
 
     async def run_fix(self, workspace: Path, failures: list[str], settings: Any, *, budget_usd: float, emit: Any, attempt: int = 1, **_: Any) -> FixOutcome:
         self.fix_calls.append((failures, budget_usd))
         self.fix_attempts.append(attempt)
+        root = Path(workspace) / ".idea-to-mvp" / "fix"
+        self.folders_seen.append(sorted(p.name for p in root.iterdir()) if root.is_dir() else [])
         watch = SessionWatch(Path(workspace), settings, session=f"fix-{attempt}", iteration=1)  # as the real run_fix does
         if attempt <= len(self.fix_effects) and self.fix_effects[attempt - 1] is not None:
             self.fix_effects[attempt - 1](Path(workspace))
-        return FixOutcome(True, "Fixed it.", cost_usd=self.cost, turns=2, integrity=watch.findings())
+        if attempt <= len(self.fix_outcomes):
+            outcome = self.fix_outcomes[attempt - 1]
+            outcome.integrity = watch.findings()
+            return outcome
+        notes = [Note("new", f"hypothesis {attempt}", "report line")]
+        if attempt > 1:
+            notes.insert(0, Note("dropped", f"hypothesis {attempt - 1}", "the second run"))
+        return FixOutcome(True, "Fixed it.", cost_usd=self.cost, turns=2, integrity=watch.findings(), notes=notes)
 
 
 @pytest.fixture(autouse=True)
@@ -331,3 +345,109 @@ def test_an_old_test_count_justification_in_the_workspace_does_not_clear_a_new_d
     update = verdict_node(state_with_spend(tmp_path, 1.0, lane_reports=reports, integrity_test_count=12))  # type: ignore[arg-type]
     [finding] = update["integrity_findings"].values()
     assert finding["status"] == "open" and update["verification"]["passed"] is False
+
+
+# ------------------------------------------------------------ contrastive fix loop
+
+
+def touch(name: str):  # type: ignore[no-untyped-def]
+    def effect(workspace: Path) -> None:
+        (workspace / name).write_text(f"changed by {name}\n")
+
+    return effect
+
+
+async def test_each_fix_attempt_leaves_a_folder_that_the_next_one_can_read(fake: FakeLanes) -> None:
+    fake.verify_rounds = [{"tests": False}, {"quality": False}, {"tests": False}]
+    fake.fix_effects = [touch("one.txt"), touch("two.txt")]
+    graph, config, _ = await run_to_the_end("fix-folders")
+    workspace = Path((await graph.aget_state(config)).values["workspace_dir"])
+    assert fake.folders_seen == [[], ["attempt-1"]]  # attempt 2 sees attempt 1's folder, attempt 1 sees none
+    first = workspace / ".idea-to-mvp" / "fix" / "attempt-1"
+    assert "- [tests] tests check failed" in (first / "failures.md").read_text()
+    diff = (first / "diff.patch").read_text()
+    assert "one.txt" in diff and "two.txt" not in diff
+    assert "still failing" in (first / "after.md").read_text().lower() and "Quality lane: FAILED" in (first / "after.md").read_text()
+    assert "[quality] quality check failed" in (workspace / ".idea-to-mvp" / "fix" / "attempt-2" / "failures.md").read_text()
+
+
+async def test_the_attempt_history_is_kept_in_the_verification_result(fake: FakeLanes) -> None:
+    fake.verify_rounds = [{"tests": False}, {"quality": False}, {"tests": False}]
+    fake.fix_effects = [touch("one.txt"), touch("two.txt")]
+    graph, config, _ = await run_to_the_end("fix-history")
+    history = (await graph.aget_state(config)).values["verification"]["history"]
+    assert [entry["attempt"] for entry in history] == [1, 2]
+    assert [entry["result"] for entry in history] == ["failed", "failed"]
+    assert history[0]["files"] == ["one.txt"] and history[1]["files"] == ["two.txt"]
+    assert history[0]["failures"] == ["[tests] tests check failed"] and history[1]["failures"] == ["[quality] quality check failed"]
+    assert history[1]["notes"][0]["verdict"] == "dropped" and history[1]["notes_problem"] == ""
+    assert history[0]["remaining"] == 1 and history[0]["model"]
+
+
+async def test_a_fix_that_works_closes_its_history_entry_as_passed(fake: FakeLanes) -> None:
+    fake.verify_rounds = [{"quality": False}, {}]
+    graph, config, _ = await run_to_the_end("fix-history-passed")
+    verification = (await graph.aget_state(config)).values["verification"]
+    assert verification["passed"] is True and [(e["attempt"], e["result"]) for e in verification["history"]] == [(1, "passed")]
+
+
+async def test_notes_that_break_the_contract_are_recorded_not_punished(fake: FakeLanes) -> None:
+    fake.verify_rounds = [{"tests": False}, {"quality": False}, {}]
+    fake.fix_outcomes = [FixOutcome(True, "Fixed it.", notes=[]), FixOutcome(True, "Fixed it.", notes=[Note("new", "h", "e")])]
+    graph, config, _ = await run_to_the_end("fix-notes")
+    history = (await graph.aget_state(config)).values["verification"]["history"]
+    assert "no <notes>" in history[0]["notes_problem"] and history[1]["notes_problem"] == ""
+    assert (await graph.aget_state(config)).values["verification"]["passed"] is True
+
+
+async def test_a_loop_whose_failures_are_all_environmental_ends_without_a_fix_attempt(fake: FakeLanes) -> None:
+    fake.verify_rounds = [{"tests": False}]
+    fake.lane_failures = {"tests": ["ENVIRONMENT: pypi.org is blocked by the sandbox, so nothing can be installed"]}
+    graph, config, updates = await run_to_the_end("fix-environment-lane")
+    values = (await graph.aget_state(config)).values
+    verification = values["verification"]
+    assert not fake.fix_calls and "fix" not in [node for node, _ in updates] and len(fake.lane_calls) == 3
+    assert verification["passed"] is False and verification["attempts"] == 0
+    assert "pypi.org is blocked" in verification["environment"]
+    assert "environment" in verification["report"].lower() and "another fix attempt cannot help" in verification["report"]
+    assert values["stage"] == "done"
+
+
+async def test_a_mixed_failure_list_is_still_fixed_and_the_fix_is_told_which_part_is_not_its_to_fix(fake: FakeLanes) -> None:
+    fake.verify_rounds = [{"tests": False, "quality": False}, {}]
+    fake.lane_failures = {"tests": ["test_a failed"], "quality": ["ENVIRONMENT: the sandbox blocks the domain api.example.com"]}
+    await run_to_the_end("fix-environment-mixed")
+    [(failures, _)] = fake.fix_calls
+    assert failures == ["[tests] test_a failed", "[quality] ENVIRONMENT: the sandbox blocks the domain api.example.com"]
+
+
+async def test_a_fix_session_that_finds_an_environment_problem_ends_the_loop_without_another_round(fake: FakeLanes) -> None:
+    fake.verify_rounds = [{"tests": False}]
+    fake.fix_outcomes = [FixOutcome(True, "Nothing changed.", kind="environment", environment="The sandbox has no docker.")]
+    graph, config, updates = await run_to_the_end("fix-environment-session")
+    values = (await graph.aget_state(config)).values
+    verification = values["verification"]
+    assert len(fake.fix_calls) == 1 and len(fake.lane_calls) == 3  # no verification round after the fix
+    assert [node for node, _ in updates if node in ("verify", "verdict", "fix", "delivery_report")] == [
+        "verify", "verdict", "fix", "verify", "delivery_report",
+    ]  # fmt: skip
+    assert verification["passed"] is False and verification["attempts"] == 1
+    assert verification["environment"] == "The sandbox has no docker." and "no docker" in verification["report"]
+    assert [(e["kind"], e["result"]) for e in verification["history"]] == [("environment", "stopped")]
+    assert verification["history"][0]["summary"] == "The sandbox has no docker."  # the stated reason, not the prose
+    assert values["stage"] == "done"
+
+
+def test_the_verdict_stops_for_an_environment_marker_whatever_the_attempts_left(tmp_path: Path) -> None:
+    verification = {"passed": False, "attempts": 0, "report": "r", "lanes": [], "environment": "no docker"}
+    assert route_after_verdict(state_with_spend(tmp_path, 1.0, verification=verification)) == "exhausted"  # type: ignore[arg-type]
+    assert route_after_verify(state_with_spend(tmp_path, 1.0, verification=verification)) == "delivery_report"  # type: ignore[arg-type]
+
+
+async def test_the_delivery_report_lists_the_fix_attempts(fake: FakeLanes) -> None:
+    fake.verify_rounds = [{"tests": False}, {"quality": False}, {}]
+    fake.fix_effects = [touch("one.txt"), touch("two.txt")]
+    graph, config, _ = await run_to_the_end("fix-report")
+    report = (await graph.aget_state(config)).values["delivery_report"]
+    assert "### Fix attempts" in report and "Attempt 1" in report and "Attempt 2" in report
+    assert "one.txt" in report and "hypothesis 2" in report

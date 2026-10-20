@@ -18,6 +18,7 @@ from idea_to_mvp.implementation import options as opts
 from idea_to_mvp.implementation.events import ImplEvent
 from idea_to_mvp.implementation.executor import (
     BudgetTracker,
+    build_task_prompt,
     render_task_log,
     run_merge_resolver,
     run_plan,
@@ -237,7 +238,7 @@ def test_the_session_is_confined_like_every_other_agent_session(workspace: Path)
     query = FakeQuery(workspace)
     run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
     options = query.options_for("T01")
-    assert Path(str(options.cwd)) == workspace and options.setting_sources == [] and options.hooks
+    assert Path(str(options.cwd)) == workspace and options.setting_sources == ["project"] and options.hooks
 
 
 def test_an_exhausted_budget_fails_the_task_without_starting_a_session(workspace: Path) -> None:
@@ -416,6 +417,11 @@ def test_a_task_in_a_worktree_runs_and_commits_there_and_leaves_recording_to_the
 
 def head_of(path: Path) -> str:
     return head(path)
+
+
+def test_the_task_prompt_asks_for_the_check_script_and_points_at_the_project_skills(workspace: Path) -> None:
+    prompt = build_task_prompt(make_task("T01"), make_plan(), {})
+    assert "bash scripts/check.sh" in prompt and ".claude/skills/" in prompt
 
 
 def test_the_prompt_of_a_worktree_task_says_dependencies_are_not_installed(workspace: Path) -> None:

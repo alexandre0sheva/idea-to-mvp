@@ -213,7 +213,8 @@ CSS = """
 .lane-card header { display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; }
 .lane-card p { margin: 0.3rem 0; }
 .lane-label { color: var(--text-muted); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; }
-.lane-card ul { margin: 0.1rem 0 0.3rem 1.1rem; padding: 0; font-size: 0.85rem; }
+.lane-card ul, .lane-card ol { margin: 0.1rem 0 0.3rem 1.1rem; padding: 0; font-size: 0.85rem; }
+.lane-card ol li { margin-bottom: 0.4rem; }
 .lane-card code { overflow-wrap: anywhere; }  /* long paths (the acceptance suite's folder) wrap inside the card */
 .req-table { width: 100%; border-collapse: collapse; margin: 0.3rem 0 0.6rem 0; color: var(--text); }
 .req-table th, .req-table td { padding: 0.25rem 0.5rem; text-align: left; border-bottom: 1px solid var(--card-border); }

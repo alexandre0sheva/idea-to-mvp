@@ -6,6 +6,7 @@ from typing import Any
 
 from idea_to_mvp.config import get_settings
 from idea_to_mvp.delivery import make_delivery_zip, tag_iteration
+from idea_to_mvp.implementation.fixes import history_markdown
 from idea_to_mvp.implementation.ledger import check_ledger
 from idea_to_mvp.implementation.workspace import workspace_tree
 from idea_to_mvp.state import IdeaDiscussionState
@@ -41,6 +42,8 @@ def delivery_report_node(state: IdeaDiscussionState) -> dict[str, Any]:
         f"{lane.get('lane')} {'✅' if lane.get('passed') else '❌'}" for lane in verification.get("lanes") or []
     )
     lane_line = f"**Lanes:** {lane_verdicts}\n\n" if lane_verdicts else ""
+    history = history_markdown(verification.get("history") or [])
+    history_section = f"{history}\n\n" if history else ""
     version = f"**Version:** v0.{iteration}" + (f" (git tag `{tag}`)" if tag else " (not tagged: verification did not pass)") + "\n\n"
     download = f"**Download:** `{archive}`\n\n" if archive else ""
     report = (
@@ -55,6 +58,7 @@ def delivery_report_node(state: IdeaDiscussionState) -> dict[str, Any]:
         f"{workspace_tree(Path(workspace_dir)) if workspace_dir else '- (no workspace)'}\n\n"
         "### Verification report\n\n"
         f"{str(verification.get('report') or 'No verification report.').strip()}\n\n"
+        f"{history_section}"
         "### Implementation summary\n\n"
         f"{(state.get('implementation_log') or 'No implementation summary.').strip()}"
     )

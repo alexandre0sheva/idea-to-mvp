@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from idea_to_mvp import blueprints
 from idea_to_mvp.blueprint_review import CritiqueReport
 from idea_to_mvp.evals import CriterionScore, JudgeScores
+from idea_to_mvp.harness_pack import HarnessSpec, SkillSpec
 from idea_to_mvp.implementation.acceptance import ACCEPTANCE_REPORT, AcceptanceFile, AcceptanceSuite
 from idea_to_mvp.plan import (
     DEFAULT_WORKSTREAM,
@@ -447,6 +448,33 @@ def acceptance_suite(messages: list[BaseMessage]) -> AcceptanceSuite:
     )
 
 
+def harness_spec(messages: list[BaseMessage]) -> HarnessSpec:
+    """Skills for the dependency-free demo project: add a feature with its test, and run the app."""
+    return HarnessSpec(
+        skills=[
+            SkillSpec(
+                name="add-a-feature",
+                description="Use when a task adds behaviour to the demo app: put it in `demo_app/core.py` with a test.",
+                body=(
+                    "1. Add the function to `demo_app/core.py`; keep it pure (no I/O).\n"
+                    "2. Add a `unittest` case per acceptance criterion under `tests/`.\n"
+                    "3. Run `bash scripts/check.sh` and fix the code until it passes."
+                ),
+            ),
+            SkillSpec(
+                name="run-the-app",
+                description="Use when you need to see the app working: run the module and read its output.",
+                body="1. Run `python -m demo_app`.\n2. Check that the first line names the idea.",
+            ),
+        ],
+        tool_guidance=[
+            "Standard library only: no package to install, `unittest` for tests.",
+            "Run one test with `python -m unittest tests.test_core -k name`.",
+        ],
+        guardrails=["Keep `demo_app` free of third-party imports."],
+    )
+
+
 def critique(messages: list[BaseMessage]) -> CritiqueReport:
     return CritiqueReport(approved=True, issues=[])
 
@@ -523,6 +551,7 @@ STRUCTURED: dict[type[BaseModel], Callable[[list[BaseMessage]], Any]] = {
     Plan: plan,
     ChangePlan: change_plan,
     AcceptanceSuite: acceptance_suite,
+    HarnessSpec: harness_spec,
     CritiqueReport: critique,
     QuestionSet: question_set,
     ArchitectureProposal: architecture_proposal,

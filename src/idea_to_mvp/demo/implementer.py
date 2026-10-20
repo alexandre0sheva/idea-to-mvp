@@ -239,4 +239,7 @@ def demo_run_acceptance(scratch: Path, command: str) -> int:
 
 
 def demo_fix(report: str) -> str:
-    return "Demo mode: nothing to fix."
+    return (
+        "Demo mode: nothing to fix.\n<notes>\n"
+        "new -> the reported failures need no change in demo mode -> the demo project is unchanged\n</notes>"
+    )
