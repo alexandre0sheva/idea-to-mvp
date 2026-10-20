@@ -38,7 +38,7 @@ from idea_to_mvp.harness_tuning import (
     tuning_identity,
     unsafe_choice,
 )
-from idea_to_mvp.implementation import executor
+from idea_to_mvp.implementation import executor, merge
 from idea_to_mvp.implementation.events import make_event
 from idea_to_mvp.implementation.ledger import (
     LedgerRow,
@@ -48,11 +48,13 @@ from idea_to_mvp.implementation.ledger import (
     record_call,
     tuning_spend,
 )
+from idea_to_mvp.implementation.progress import load_progress
 from idea_to_mvp.implementation.trajectory import events_from_trajectories
-from idea_to_mvp.implementation.workspace import prepare_workspace
+from idea_to_mvp.implementation.workspace import commit_workspace, prepare_workspace
 from idea_to_mvp.nodes import harness_tuning as tuning
 from idea_to_mvp.nodes.implement import implementer_node
 from idea_to_mvp.nodes.implement_graph import _spent
+from idea_to_mvp.pilot_selection import BuildScore, Selection
 from idea_to_mvp.pricing import estimate_run_cost, estimate_tuning_cost
 from idea_to_mvp.state import make_initial_state
 from idea_to_mvp.ui.view import implementation_progress, transcript_from_state, tuning_markdown
@@ -142,13 +144,13 @@ def test_each_tuning_session_gets_an_equal_share_of_half_the_run_budget() -> Non
     assert session_budget(rich) == 5.0  # never more than a task may spend
 
 
-def test_the_gate_estimate_counts_three_rollouts_their_lanes_and_three_calls() -> None:
+def test_the_gate_estimate_counts_three_rollouts_their_lanes_and_four_calls() -> None:
     settings = get_settings()
     run = estimate_run_cost(settings, 3)
     extra = estimate_tuning_cost(settings, run)
-    assert extra["rollouts"] == 3 and extra["calls"] == 3 and extra["cap"] == settings.implementer_max_total_usd / 2
+    assert extra["rollouts"] == 3 and extra["calls"] == 4 and extra["cap"] == settings.implementer_max_total_usd / 2
     assert 3 * (run.per_task or 0) * 0.5 < extra["sessions_low"] < extra["low"] < extra["high"]
-    assert extra["high"] - extra["sessions_high"] == pytest.approx(extra["low"] - extra["sessions_low"])  # the three calls
+    assert extra["high"] - extra["sessions_high"] == pytest.approx(extra["low"] - extra["sessions_low"])  # the four calls
     unpriced = estimate_tuning_cost(settings, estimate_run_cost(Settings(_env_file=None, implementer_model="no-such-model"), 3))
     assert unpriced["low"] is None and unpriced["high"] is None and unpriced["sessions_low"] is None
 
@@ -449,14 +451,17 @@ async def test_a_ledger_that_does_not_add_up_keeps_the_base_harness(demo_env: Pa
     workspace = workspace_with_harness(tmp_path)
     state = compose_state(workspace)
     state["harness_tuning"]["compose"] = {"decision": "adopt_inv", "files": [{"path": SKILL, "content": SKILL_TEXT}]}
+    state["harness_tuning"]["selection"] = {"status": "chosen", "called": True, "choice": "A", "arm": "inv", "builds": {"A": "inv"}}
     for arm in ("base", "inv", "dom"):
         append_row(workspace, row("pilot", f"pilot-{arm}"))
         append_row(workspace, row("pilot_lane", f"pilot-{arm}-tests"))
-    append_row(workspace, row("proposal", "propose-inv"))  # one proposal and no composition were recorded
+    append_row(workspace, row("proposal", "propose-inv"))  # one proposal, no composition, no selection were recorded
     update = await tuning.adopt_node(state)  # type: ignore[arg-type]
     record = update["harness_tuning"]
     assert record["adopted"] == "keep_base" and record["commit"] is None and not (workspace / SKILL).exists()
-    assert record["ledger"]["ok"] is False and len(record["ledger"]["problems"]) == 2
+    assert record["ledger"]["ok"] is False and len(record["ledger"]["problems"]) == 3
+    assert record["selection"]["landed"] is False and "the ledger did not add up" in record["selection"]["note"]
+    assert load_progress(workspace) == {}  # no pilot build is used: the engine builds T01
     shown = tuning_markdown({**state["harness_tuning"], **record})
     assert "The ledger did not add up" in shown
 
@@ -476,6 +481,159 @@ async def test_an_adopted_edit_is_written_and_committed_when_the_ledger_adds_up(
     assert read_harness(workspace)[SKILL].startswith("---\nname: start-a-task")
     log = subprocess.run(["git", "log", "--format=%s"], cwd=workspace, capture_output=True, text=True, check=True).stdout
     assert log.splitlines()[0] == "harness: tuned (pilot T01)"
+
+
+# ------------------------------------------------------------------ selecting a pilot build
+
+
+def all_scored(*builds: str) -> list[BuildScore]:
+    marks = {"delivery": 4, "conformance": 4, "fidelity": 4, "consistency": 4, "operational_fitness": 4, "finish": 4}
+    return [BuildScore(build=build, notes="n", **marks) for build in builds]
+
+
+def selection_state(workspace: Path, mode: str = "agent_team") -> dict[str, Any]:
+    return {**compose_state(workspace), "iteration": 1, "execution_strategy": {"mode": mode}}
+
+
+def test_the_selector_compares_the_builds_blind_and_its_choice_is_recorded(demo_env: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    workspace = workspace_with_harness(tmp_path)
+    leak = str(merge.worktree_path(workspace, "pilot-inv"))
+    monkeypatch.setattr(tuning, "commit_diff", lambda ws, commit, limit: f"+ROOT = '{leak}'  # built in pilot-inv\n")
+    answer = Selection(choice="B", scores=all_scored("A", "B", "C"), rationale="B covers the acceptance criteria.")
+    calls = fake_llm(monkeypatch, [answer, answer])
+    state = selection_state(workspace)
+    selection = tuning.select_node(state)["harness_tuning"]["selection"]  # type: ignore[arg-type]
+    assert selection["status"] == "chosen" and selection["choice"] == "B" and selection["arm"] == selection["builds"]["B"]
+    assert sorted(selection["builds"].values()) == ["base", "dom", "inv"] and selection["overruled"] == ""
+    assert [score["build"] for score in selection["scores"]] == ["A", "B", "C"]
+    prompt = str(calls[0][-1].content)
+    assert leak not in prompt and "pilot-inv" not in prompt and "base run" not in prompt and "### Build C" in prompt
+    assert [(r["kind"], r["label"]) for r in load_ledger(workspace)] == [("select", "select")]
+    again = tuning.select_node(state)["harness_tuning"]["selection"]  # type: ignore[arg-type]
+    assert again["builds"] == selection["builds"]  # a retried step names the builds the same way
+
+
+def test_an_unusable_answer_selects_no_build_and_a_failing_choice_is_overruled(demo_env: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    workspace = workspace_with_harness(tmp_path)
+    monkeypatch.setattr(tuning, "commit_diff", lambda ws, commit, limit: "+x\n")
+    unscored = Selection(choice="A", scores=[], rationale="r")
+    fake_llm(monkeypatch, [unscored, unscored])
+    selection = tuning.select_node(selection_state(workspace))["harness_tuning"]["selection"]  # type: ignore[arg-type]
+    assert selection["status"] == "none" and selection["choice"] == "" and "stays unusable" in selection["overruled"]
+
+    state = selection_state(workspace)
+    state["harness_tuning"]["base"] = probe("base", passed=False)
+    state["harness_tuning"]["dom"]["probe"] = probe("dom", delivered=False, passed=None)
+    monkeypatch.setattr(tuning, "anonymize", lambda arms, seed: dict(zip("AB", arms, strict=True)))
+    fake_llm(monkeypatch, [Selection(choice="A", scores=all_scored("A", "B"), rationale="r")])
+    selection = tuning.select_node(state)["harness_tuning"]["selection"]  # type: ignore[arg-type]
+    assert selection["builds"] == {"A": "base", "B": "inv"}  # a run that delivered nothing is no candidate
+    assert selection["proposed"] == "A" and selection["choice"] == "B" and "its tests did not pass" in selection["overruled"]
+
+
+def test_no_build_is_selected_for_a_lead_session_or_when_no_run_delivered(demo_env: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    workspace = workspace_with_harness(tmp_path)
+    calls = fake_llm(monkeypatch, [])
+    lead = tuning.select_node(selection_state(workspace, mode="subagents"))["harness_tuning"]["selection"]  # type: ignore[arg-type]
+    assert lead["status"] == "skipped" and "one lead session" in lead["note"] and lead["called"] is False
+    state = selection_state(workspace)
+    for arm in ("base", "inv", "dom"):
+        target = state["harness_tuning"] if arm == "base" else state["harness_tuning"][arm]
+        target[arm if arm == "base" else "probe"] = probe(arm, delivered=False, passed=None)
+    empty = tuning.select_node(state)["harness_tuning"]["selection"]  # type: ignore[arg-type]
+    assert empty["status"] == "skipped" and "no pilot run delivered" in empty["note"]
+    assert calls == [] and load_ledger(workspace) == []
+
+
+async def pilot_build(workspace: Path, arm: str, files: dict[str, str], candidate: dict[str, str] | None = None) -> str:
+    """A pilot build like `_probe` makes one: the candidate harness committed apart, then the session's work."""
+    name = f"pilot-{arm}"
+    work_dir = await merge.create_worktree(workspace, name)
+    if candidate:
+        tuning._write_changes(work_dir, candidate)
+        assert merge.commit_worktree(workspace, work_dir, name, f"harness: {arm} candidate")
+    for path, text in files.items():
+        (work_dir / path).parent.mkdir(parents=True, exist_ok=True)
+        (work_dir / path).write_text(text)
+    commit = merge.commit_worktree(workspace, work_dir, name, f"pilot T01 ({arm} harness)")
+    assert commit
+    return commit
+
+
+def complete_ledger(workspace: Path) -> None:
+    for arm in ("base", "inv", "dom"):
+        append_row(workspace, row("pilot", f"pilot-{arm}"))
+        append_row(workspace, row("pilot_lane", f"pilot-{arm}-tests"))
+    for kind, label in (("proposal", "propose-inv"), ("proposal", "propose-dom"), ("compose", "compose"), ("select", "select")):
+        append_row(workspace, row(kind, label))
+
+
+def landing_state(workspace: Path, commit: str, decision_files: list[dict[str, str]]) -> dict[str, Any]:
+    state = selection_state(workspace)
+    finding = {
+        "id": "f1", "session": "pilot-inv", "iteration": 1, "kind": "skip_added", "path": "tests/test_app.py", "block": "",
+        "before": 0, "detail": "a skip marker was added", "status": "open", "reason": "", "stale": "",
+    }  # fmt: skip
+    state["harness_tuning"]["inv"]["probe"] = probe("inv") | {"commit": commit, "integrity": [finding]}
+    state["harness_tuning"]["compose"] = {"decision": "adopt_inv", "files": decision_files}
+    state["harness_tuning"]["selection"] = {
+        "status": "chosen", "called": True, "choice": "B", "arm": "inv", "builds": {"A": "base", "B": "inv"}, "note": "",
+    }  # fmt: skip
+    return state
+
+
+async def test_the_selected_build_becomes_the_pilot_tasks_result_on_top_of_the_tuned_harness(demo_env: Path, tmp_path: Path) -> None:
+    workspace = workspace_with_harness(tmp_path)
+    commit = await pilot_build(workspace, "inv", {"app.py": "print('climb')\n"}, candidate={SKILL: SKILL_TEXT})
+    complete_ledger(workspace)
+    record = (await tuning.adopt_node(landing_state(workspace, commit, [{"path": SKILL, "content": SKILL_TEXT}])))["harness_tuning"]  # type: ignore[arg-type]
+
+    selection = record["selection"]
+    assert record["ledger"]["ok"] is True and selection["landed"] is True and selection["task_commit"]
+    log = subprocess.run(["git", "log", "--format=%s"], cwd=workspace, capture_output=True, text=True, check=True).stdout.splitlines()
+    assert log[:2] == ["T01: Task T01 (pilot build B, selected)", "harness: tuned (pilot T01)"]
+    assert (workspace / "app.py").read_text() == "print('climb')\n" and not (demo_env / "projects" / ".worktrees").exists()
+    result = load_progress(workspace)["T01"]
+    assert result["status"] == "done" and result["cost_usd"] == 0.0 and result["commit"] == selection["task_commit"]
+    assert result["summary"].startswith("Selected pilot build B of 2 (built under the INV edit during harness tuning; its $0.50")
+    assert [finding["kind"] for finding in result.get("integrity", [])] == ["skip_added"]  # the guard still sees it
+
+    events: list[Any] = []
+    results = await executor.run_plan(workspace, make_plan(), get_settings(), emit=events.append, iteration=1)
+    assert results[0]["summary"] == result["summary"] and results[1]["status"] == "done"  # T01 is not built again
+    assert [r["task_id"] for r in load_ledger(workspace) if r["kind"] == "task"] == ["T02"]
+
+
+async def test_a_build_that_conflicts_with_the_tuned_harness_is_built_again(demo_env: Path, tmp_path: Path) -> None:
+    workspace = workspace_with_harness(tmp_path)
+    commit = await pilot_build(workspace, "inv", {"AGENTS.md": "# Agents\n\nThe session's own notes.\n"})
+    complete_ledger(workspace)
+    tuned = [{"path": "AGENTS.md", "content": "# Agents\n\nThe tuned guide.\n"}]
+    record = (await tuning.adopt_node(landing_state(workspace, commit, tuned)))["harness_tuning"]  # type: ignore[arg-type]
+    selection = record["selection"]
+    assert record["commit"] and selection["landed"] is False and "could not be applied (conflicts in: AGENTS.md)" in selection["note"]
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=workspace, capture_output=True, text=True, check=True).stdout
+    assert status == "" and (workspace / "AGENTS.md").read_text() == "# Agents\n\nThe tuned guide.\n"
+    assert load_progress(workspace) == {}
+    assert "T01 is built again" in tuning_markdown({**selection_state(workspace)["harness_tuning"], **record})
+
+
+async def test_a_pilot_session_that_weakens_a_test_carries_the_finding(demo_env: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    workspace = workspace_with_harness(tmp_path)
+    (workspace / "tests").mkdir()
+    (workspace / "tests" / "test_core.py").write_text("def test_core():\n    assert 1 + 1 == 2\n")
+    assert commit_workspace(workspace, "tests")
+    work_dir = await merge.create_worktree(workspace, "pilot-base")
+
+    async def deletes_the_test(cwd: Path, task: Any, emit: Any) -> Any:
+        (cwd / "tests" / "test_core.py").unlink()
+        (cwd / "app.py").write_text("x = 1\n")
+        return executor._Outcome(success=True, summary="Done.")
+
+    monkeypatch.setattr(executor, "_run_demo_session", deletes_the_test)
+    rollout = await executor.run_pilot_rollout(workspace, work_dir, make_plan().tasks[0], get_settings(), arm="base", budget_usd=1.0, emit=lambda event: None)
+    assert rollout.commit and [(f["kind"], f["session"]) for f in rollout.integrity] == [("deleted", "pilot-base")]
+    await merge.remove_worktree(workspace, "pilot-base")
 
 
 # ------------------------------------------------------------------ the stage in the real graph
@@ -503,22 +661,31 @@ async def test_the_demo_tunes_the_harness_on_a_pilot_before_the_first_task(demo_
     record = values["harness_tuning"]
 
     assert record["status"] == "done" and record["pilot"]["id"] == "T01"  # the demo's T02 and T03 both wait on T01
-    assert record["adopted"] == "merge" and record["ledger"] == {"ok": True, "problems": [], "rows": 9, "cost_usd": 0.0}
+    assert record["adopted"] == "merge" and record["ledger"] == {"ok": True, "problems": [], "rows": 10, "cost_usd": 0.0}
     assert all(record[arm]["probe"]["delivered"] for arm in ("inv", "dom")) and record["base"]["delivered"]
     assert record["base"]["tests"]["passed"] is True and record["base"]["tests"]["evidence"]["tests"] == 3
+    selection = record["selection"]
+    assert selection["status"] == "chosen" and selection["choice"] == "A" and selection["landed"] is True
+    assert sorted(selection["builds"].values()) == ["base", "dom", "inv"] and selection["arm"] == selection["builds"]["A"]
     log = subprocess.run(["git", "log", "--reverse", "--format=%s"], cwd=workspace, capture_output=True, text=True, check=True).stdout.splitlines()
-    assert log.index("harness: tuned (pilot T01)") < log.index("T01: Project setup")  # the build ran under the tuned harness
+    # The selected pilot build is T01's result, on top of the tuned harness: the engine never built T01 again.
+    assert log.index("harness: tuned (pilot T01)") < log.index("T01: Project setup (pilot build A, selected)")
+    assert not any(line.startswith("T01: Project setup (merged)") for line in log)
+    assert "T01" not in [event["task_id"] for event in custom if event["kind"] == "task_start"]
+    assert values["task_results"]["T01"]["status"] == "done" and values["task_results"]["T01"]["cost_usd"] == 0.0
+    assert values["task_results"]["T01"]["summary"].startswith("Selected pilot build A of 3")
     harness = read_harness(workspace)
     assert ".claude/skills/start-a-task/SKILL.md" in harness and ".claude/skills/write-a-unittest/SKILL.md" in harness
     kinds = [r["kind"] for r in load_ledger(workspace)]
     assert kinds.count("pilot") == 3 and kinds.count("pilot_lane") == 3 and kinds.count("proposal") == 2 and kinds.count("compose") == 1
+    assert kinds.count("select") == 1 and kinds.count("task") == 2  # T02 and T03
     assert check_ledger(workspace, values["usage"]).ok
     assert not (demo_env / "projects" / ".worktrees").exists()  # the pilot worktrees were removed
     assert values["verification"]["passed"] is True
     starts = [event["task_id"] for event in custom if event["kind"] == "task_start"]
-    assert starts[:2] == ["pilot:base", "pilot:base:tests"] and "T01" not in starts[: starts.index("pilot:dom")]
+    assert starts[:2] == ["pilot:base", "pilot:base:tests"]
     shown = [entry for entry in transcript_from_state(values, None) if entry.kind == "harness_tuning"]
-    assert len(shown) == 1 and "merged the INV and DOM edits" in shown[0].content
+    assert len(shown) == 1 and "merged the INV and DOM edits" in shown[0].content and "Build A" in shown[0].content
 
 
 async def test_without_the_choice_the_build_starts_right_after_the_acceptance_author(demo_env: Path) -> None:

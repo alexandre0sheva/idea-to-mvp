@@ -31,6 +31,7 @@ JUDGE_PROMPTS = {
     "blueprint critic": ROLES["blueprint_critic"].system_prompt,
     "harness editor": ROLES["harness_editor"].system_prompt,
     "harness composer": ROLES["harness_composer"].system_prompt,
+    "pilot build selector": ROLES["pilot_selector"].system_prompt,
 }
 
 
@@ -72,7 +73,7 @@ def test_the_rubric_lists_six_criteria_in_the_documented_order() -> None:
     assert "length is not merit" in RUBRIC_ORDER.lower()
 
 
-@pytest.mark.parametrize("name", ["requirements lane", "blueprint critic"])
+@pytest.mark.parametrize("name", ["requirements lane", "blueprint critic", "pilot build selector"])
 def test_the_critic_and_the_requirements_lane_judge_by_the_ordered_rubric(name: str) -> None:
     assert RUBRIC_ORDER in JUDGE_PROMPTS[name]
 

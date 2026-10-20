@@ -82,9 +82,11 @@ def stage_stepper(stage: str, statuses: Mapping[str, str], elapsed: Mapping[str,
         status = statuses.get(step_key, status)
         current = " aria-current='step'" if status == "active" else ""
         took = elapsed.get(step_key, 0)
-        time = f"<span class='stage-time'>{format_elapsed(took)}</span>" if took and round(took) > 0 else ""
+        shown = format_elapsed(took) if took and round(took) > 0 else ""
+        time = f"<span class='stage-time'>{shown}</span>" if shown else ""
+        title = f" title='{html.escape(label, quote=True)}: {shown}'" if shown else ""  # a finished step shows it on hover
         items.append(
-            f"<li class='stage-step {html.escape(status, quote=True)}'{current}>"
+            f"<li class='stage-step {html.escape(status, quote=True)}'{current}{title}>"
             f"<span class='stage-label'>{html.escape(label)}</span>{time}</li>"
         )
     return "<ol class='stage-stepper'>" + "".join(items) + "</ol>"

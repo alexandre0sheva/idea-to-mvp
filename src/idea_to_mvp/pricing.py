@@ -195,8 +195,8 @@ def _typical_session(settings: Settings, role: Any, overrides: dict[str, Price],
 
 def estimate_tuning_cost(settings: Settings, estimate: CostRange) -> dict[str, Any]:
     """What harness tuning adds to a run (`nodes/harness_tuning.py`): three pilot task sessions at the run estimate's
-    per-task cost and band, a quick tests lane after each, and three calls on the harness editor's model (two
-    proposals, one composition). The sessions never cost more than their share of the whole-run budget.
+    per-task cost and band, a quick tests lane after each, and four calls on the harness editor's model (two
+    proposals, one composition, the selection of a pilot build). The sessions never cost more than their share of the whole-run budget.
     `low` / `high` are None when a model has no price; `sessions_low` / `sessions_high` are the agent sessions alone
     (what the dashboard sets against the agent spend; the calls are planning spend)."""
     from idea_to_mvp.harness_tuning import TUNING_SHARE
@@ -207,7 +207,7 @@ def estimate_tuning_cost(settings: Settings, estimate: CostRange) -> dict[str, A
         overrides = settings_overrides(settings)
     except PricingError:
         overrides = {}
-    rollouts, calls = 3, 3
+    rollouts, calls = 3, 4
     lane = _typical_session(settings, "verifier", overrides, catalog)
     shape = catalog.typical_run["architect"]
     price = price_for(resolve_role_model(settings, "harness_editor")[1], overrides, catalog)

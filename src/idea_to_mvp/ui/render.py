@@ -7,7 +7,9 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from idea_to_mvp.pilot_selection import CRITERIA
 from idea_to_mvp.schemas import ResearchBrief
+from idea_to_mvp.ui.view import ADOPTED_HARNESS, ARM_HARNESS, selection_sentences, tuning_spend
 
 render_markdown: Callable[..., str] | None
 try:
@@ -188,4 +190,107 @@ def research_card(research: Mapping[str, Any]) -> str:
         f"<details class='speaker-card {_style_class_for_speaker('Research')}' open>"
         "<summary class='speaker-head'>Research brief</summary>"
         f"<div class='speaker-body'>{''.join(sections)}</div></details>"
+    )
+
+
+_e = html.escape
+_RUNS = (("base", "Base"), ("inv", "INV edit"), ("dom", "DOM edit"))
+
+
+def _tests_cell(probe: Mapping[str, Any]) -> str:
+    tests = probe.get("tests") or {}
+    if not tests.get("ran"):
+        return "not run"
+    count = (tests.get("evidence") or {}).get("tests")
+    return ("passed" if tests.get("passed") else "failed") + (f" ({count})" if count is not None else "")
+
+
+def _edit_block(name: str, candidate: Mapping[str, Any]) -> str:
+    """What one edit changed and the trajectory moments its editor named."""
+    if candidate.get("inherited"):
+        return f"<p><strong>{name}</strong>: no usable edit, so its run used the pack's harness.</p>"
+    files = [str(item.get("path") or "") for item in candidate.get("files") or []]
+    if not files:
+        return f"<p><strong>{name}</strong>: no edit (nothing in the base run pointed to a better harness).</p>"
+    paths = ", ".join(f"<code>{_e(path)}</code>" for path in files)
+    evidence = "".join(f"<li>{_e(str(item))}</li>" for item in candidate.get("evidence") or [])
+    return (
+        f"<p><strong>{name}</strong>: {_e(str(candidate.get('summary') or ''))} Files: {paths}.</p>"
+        + (f"<ul>{evidence}</ul>" if evidence else "")
+    )
+
+
+def tuning_card(record: Mapping[str, Any]) -> str:
+    """The Behavioral contrast card: what each edit changed, the trajectory moments that decided it, the harness
+    adopted, the pilot build selected and why, and the spend ('' unless the tuning finished; agent and model text is
+    escaped)."""
+    if record.get("status") != "done":
+        return ""
+    pilot = record.get("pilot") or {}
+    selection = record.get("selection") or {}
+    builds = {str(arm): str(build) for build, arm in (selection.get("builds") or {}).items()}
+    chosen = str(selection.get("arm") or "") if selection.get("landed") else ""
+    rows = []
+    for arm, name in _RUNS:
+        probe = (record.get("base") if arm == "base" else (record.get(arm) or {}).get("probe")) or {}
+        build = builds.get(arm, "—")
+        mark = " <strong>✓ selected</strong>" if arm == chosen else ""
+        rows.append(
+            f"<tr><td>{name}</td><td>{'yes' if probe.get('delivered') else 'no'}</td><td>{_tests_cell(probe)}</td>"
+            f"<td>${float(probe.get('cost_usd') or 0):.2f}</td><td>{int(probe.get('turns') or 0)}</td><td>{_e(build)}{mark}</td></tr>"
+        )
+    runs = (
+        "<table class='req-table'><thead><tr><th>Run</th><th>Delivered</th><th>Tests</th><th>Cost</th><th>Turns</th>"
+        f"<th>Build</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
+    )
+    compose = record.get("compose") or {}
+    notes = "".join(
+        f"<li><strong>{_e(str(note.get('verdict') or ''))}</strong> {_e(str(note.get('edit') or ''))} — "
+        f"{_e(str(note.get('evidence') or ''))}</li>"
+        for note in compose.get("notes") or []
+    )
+    decided = (f"<ul>{notes}</ul>" if notes else "") + (f"<p>{_e(str(compose.get('rationale') or ''))}</p>" if compose.get("rationale") else "")
+    if compose.get("overruled"):
+        decided += f"<p>The composer chose <code>{_e(str(compose.get('proposed')))}</code>, overruled: {_e(str(compose['overruled']))}.</p>"
+    adopted = _e(ADOPTED_HARNESS.get(str(record.get("adopted")), str(record.get("adopted"))))
+    commit = f" (commit <code>{_e(str(record['commit']))}</code>)" if record.get("commit") else ""
+    scores = selection.get("scores") or []
+    score_rows = "".join(
+        f"<tr><td>{_e(str(score.get('build') or ''))}</td>"
+        f"<td>{' / '.join(str(int(score.get(criterion) or 0)) for criterion in CRITERIA)}</td>"
+        f"<td>{_e(str(score.get('notes') or ''))}</td></tr>"
+        for score in scores
+    )
+    order = ", ".join(criterion.replace("_", " ") for criterion in CRITERIA)
+    score_table = (
+        f"<p class='gate-note'>Scores from 1 to 5 in rubric order: {order}.</p>"
+        f"<table class='req-table'><thead><tr><th>Build</th><th>Scores</th><th>Notes</th></tr></thead><tbody>{score_rows}</tbody></table>"
+        if score_rows
+        else ""
+    )
+    sessions, calls = tuning_spend(record)
+    ledger = record.get("ledger") or {}
+    trust = (
+        f"<p>The ledger did not add up, so the pack's harness was kept and no build was used: {_e('; '.join(ledger.get('problems') or []))}.</p>"
+        if ledger and not ledger.get("ok")
+        else ""
+    )
+    harnesses = ", ".join(f"{_e(build)} = {_e(ARM_HARNESS.get(arm, arm))}" for arm, build in sorted(builds.items(), key=lambda item: item[1]))
+    body = (
+        f"<p><strong>Harness:</strong> {adopted}{commit}.</p>"
+        f"<p><strong>Build:</strong> {_e(' '.join(selection_sentences(record)) or 'no selection was made.')}</p>"
+        f"{trust}{runs}"
+        f"<p><strong>What each edit changed</strong></p>"
+        f"{_edit_block('INV edit (how the agent works)', record.get('inv') or {})}"
+        f"{_edit_block('DOM edit (what a practitioner of the stack knows)', record.get('dom') or {})}"
+        + (f"<p><strong>What decided the harness</strong></p>{decided}" if decided else "")
+        + (f"<p><strong>Blind selection</strong> (revealed: {harnesses})</p>{score_table}" if score_table else "")
+        + f"<p><strong>Spend:</strong> ${sessions + calls:.2f} (pilot builds and their tests lanes ${sessions:.2f}, "
+        f"model calls ${calls:.2f}).</p>"
+    )
+    title = f"Behavioral contrast · pilot {pilot.get('id', '')} ({pilot.get('title', '')})"
+    return (
+        "<details class='speaker-card' open>"
+        f"<summary class='speaker-head'>{_e(title)}</summary>"
+        f"<div class='speaker-body'>{body}</div></details>"
     )

@@ -19,7 +19,7 @@ import difflib
 import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel
 
@@ -114,6 +114,7 @@ class ProbeResult(TypedDict):
     changed: str  # `git diff --stat` of that commit
     tests: TestsResult
     trajectory: str  # the rollout's trajectory, relative to the workspace
+    integrity: NotRequired[list[dict[str, Any]]]  # what the session did to the tests (`integrity.IntegrityFinding` dumps)
 
 
 # ------------------------------------------------------------------ the pilot
@@ -370,11 +371,11 @@ def adopted_changes(
 # ------------------------------------------------------------------ ledger
 
 
-def tuning_identity(rows: Sequence[LedgerRow], delivered: int) -> list[str]:
+def tuning_identity(rows: Sequence[LedgerRow], delivered: int, selections: int = 0) -> list[str]:
     """Whether the ledger holds exactly what one tuning makes: three rollouts, a quick tests lane for each one that
-    delivered, two proposals, and one composition. [] when it does."""
+    delivered, two proposals, one composition, and the selection call when one was made. [] when it does."""
     counts: Counter[str] = Counter(str(row["kind"]) for row in rows)
-    expected = {"pilot": EXPECTED_ROLLOUTS, "pilot_lane": delivered, **EXPECTED_CALLS}
+    expected = {"pilot": EXPECTED_ROLLOUTS, "pilot_lane": delivered, **EXPECTED_CALLS, "select": selections}
     return [
         f"the ledger has {counts.get(kind, 0)} {kind} row(s), expected {count}"
         for kind, count in expected.items()

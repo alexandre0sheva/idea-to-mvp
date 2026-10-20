@@ -49,6 +49,7 @@ from idea_to_mvp.ui.render import (
     research_card,
     summary_block,
     thinking_block,
+    tuning_card,
     turn_block,
     warning_block,
 )
@@ -102,6 +103,8 @@ def _chat_message(entry: ViewEntry, elapsed: dict[str, float] | None = None) -> 
         return {"role": "user", "content": entry.content}
     if entry.kind == "research" and isinstance(entry.data, dict):
         return {"role": "assistant", "content": research_card(entry.data) or turn_block(entry.speaker, entry.content)}
+    if entry.kind == "harness_tuning" and isinstance(entry.data, dict):
+        return {"role": "assistant", "content": tuning_card(entry.data) or turn_block(entry.speaker, entry.content)}
     if entry.kind == "moderator":
         return {"role": "assistant", "content": moderator_banner(entry.content)}
     if entry.kind == "discussion" and isinstance(entry.data, TurnInfo):

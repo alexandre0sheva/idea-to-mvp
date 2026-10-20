@@ -381,8 +381,8 @@ def _tuning_cell(tuning: Mapping[str, Any]) -> str:
         cost = f"<strong>+${float(estimate['low']):.2f}–${float(estimate['high']):.2f}</strong>"
     return (
         f"{cost} <span class='gate-note'>(a pilot task built three times, under the pack's harness and two proposed "
-        f"edits of it, each with a tests lane, plus three planning calls; at most ${float(estimate.get('cap') or 0):.2f} "
-        "of the budget)</span>"
+        f"edits of it, each with a tests lane, plus four planning calls; the best build becomes that task's result, so "
+        f"it is not built again; at most ${float(estimate.get('cap') or 0):.2f} of the budget)</span>"
     )
 
 

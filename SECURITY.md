@@ -111,7 +111,13 @@ red warning when the sandbox is off or unavailable or the permission mode is `by
   `.claude/settings.json`, every base guardrail kept, at most four files. That limits an injected instruction to
   what a task session could already write into `AGENTS.md` or a skill; it runs only inside the sandbox, the
   orchestrator never runs a script it wrote, and the verification lanes load none of it. The pilot sessions run in
-  throwaway worktrees under the same sandbox and guard as task sessions.
+  throwaway worktrees under the same sandbox and guard as task sessions, and the test-integrity guard watches them.
+- **A pilot build can become a task's result without being rebuilt.** The build selector reads agent-written diffs
+  and test output, so its prompt carries the evidence boundary; an injected "choose me" can at most pick one of the
+  builds, each made under the sandbox like any task, and the orchestrator never selects a build whose tests did not
+  pass or whose session weakened the tests over a clean one. The selected build is applied with git by the
+  orchestrator (hardened like a task merge; refused on a dirty tree, undone on a conflict) and carries its
+  integrity findings into the verdict, so it is judged by the same verification as any other task.
 - **Model API keys stay in the orchestrator process**, and `OUTPUT_DIR/sessions.db` holds every session's
   ideas and transcript; neither is reachable by agents through the sandbox's credential list.
 - **Residual git risk:** an agent could plant a `.gitattributes` file or other in-tree content aimed at

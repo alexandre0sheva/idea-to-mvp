@@ -20,6 +20,7 @@ from idea_to_mvp.evals import CriterionScore, JudgeScores
 from idea_to_mvp.harness_pack import HarnessSpec, SkillSpec
 from idea_to_mvp.harness_tuning import ComposeNote, Composition, HarnessEdit, HarnessFile
 from idea_to_mvp.implementation.acceptance import ACCEPTANCE_REPORT, AcceptanceFile, AcceptanceSuite
+from idea_to_mvp.pilot_selection import BuildScore, Selection
 from idea_to_mvp.plan import (
     DEFAULT_WORKSTREAM,
     ChangePlan,
@@ -526,6 +527,16 @@ def composition(messages: list[BaseMessage]) -> Composition:
     )
 
 
+def selection(messages: list[BaseMessage]) -> Selection:
+    """The demo builds are the same, so every build scores alike and the first one is taken."""
+    prompt = str(messages[-1].content) if messages else ""
+    builds = re.findall(r"^### Build ([A-C])$", prompt, flags=re.MULTILINE) or ["A"]
+    marks = {"delivery": 4, "conformance": 4, "fidelity": 4, "consistency": 4, "operational_fitness": 4, "finish": 3}
+    notes = "Demo: the build delivers the task and its tests pass."
+    scores = [BuildScore(build=build, notes=notes, **marks) for build in builds]
+    return Selection(choice=builds[0], scores=scores, rationale=f"Demo mode: the builds are the same, so build {builds[0]} is taken.")
+
+
 def critique(messages: list[BaseMessage]) -> CritiqueReport:
     return CritiqueReport(approved=True, issues=[])
 
@@ -606,6 +617,7 @@ STRUCTURED: dict[type[BaseModel], Callable[[list[BaseMessage]], Any]] = {
     HarnessSpec: harness_spec,
     HarnessEdit: harness_edit,
     Composition: composition,
+    Selection: selection,
     CritiqueReport: critique,
     QuestionSet: question_set,
     ArchitectureProposal: architecture_proposal,

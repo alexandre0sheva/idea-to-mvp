@@ -213,3 +213,32 @@ def _complete_merge(workspace: Path, message: str, task_id: str) -> MergeOutcome
 async def complete_merge(workspace: Path, message: str, task_id: str) -> MergeOutcome:
     """Commit a merge whose conflicts have been resolved, refusing leftover conflicts or markers."""
     return await asyncio.to_thread(_complete_merge, Path(workspace), message, task_id)
+
+
+# ---------------------------------------------------------------------------- one commit
+
+
+def _apply_commit(workspace: Path, commit: str, message: str) -> MergeOutcome:
+    harden_git_dir(workspace / ".git")
+    if not all(char in "0123456789abcdef" for char in commit) or not 4 <= len(commit) <= 40:
+        return MergeOutcome("conflict", f"{commit!r} is not a commit id")
+    status = run_git(workspace, "status", "--porcelain")
+    if status is None or status.returncode != 0 or status.stdout.strip():
+        return MergeOutcome("conflict", "the workspace has uncommitted changes")
+    done = run_git(workspace, "cherry-pick", "--no-commit", commit)
+    if done is not None and done.returncode == 0:
+        if _git_ok(workspace, "commit", "-q", "--no-verify", "--no-gpg-sign", "-m", message):
+            return MergeOutcome("merged", "applied", head_commit(workspace))
+        detail = "nothing to apply"
+    else:
+        files = conflicted_files(workspace)
+        detail = "conflicts in: " + ", ".join(files) if files else (done.stderr.strip()[-200:] if done else "git unavailable")
+    run_git(workspace, "reset", "-q", "--hard", "HEAD")  # the tree was clean before: nothing of the commit is kept
+    return MergeOutcome("conflict", detail)
+
+
+async def apply_commit(workspace: Path, commit: str, message: str) -> MergeOutcome:
+    """Apply what one commit changed (against its parent) to the workspace as a new commit: how a pilot build made
+    in a worktree on top of a candidate harness lands without that harness. Refused on a dirty tree; a conflict is
+    undone, never left in progress."""
+    return await asyncio.to_thread(_apply_commit, Path(workspace), commit, message)

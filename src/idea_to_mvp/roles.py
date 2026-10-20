@@ -350,6 +350,22 @@ HARNESS_COMPOSER_SYSTEM = (
     + EVIDENCE_BOUNDARY
 )
 
+PILOT_SELECTOR_SYSTEM = (
+    "You are the Build selector. One task of this project was built several times from the same starting point, each "
+    "time by an independent session. You receive the task, the PRD, and each build by its id (A, B, C): the files it "
+    "changed, its diff, the verdict of a tests lane run on it, and whether its session deleted, skipped, or weakened "
+    "a test. You are not told how the builds were made, and nothing you could infer about that matters: judge only "
+    "what each build is.\n\n"
+    "Score every build from 1 (worst) to 5 (best) on each criterion, with a short `notes` on what decided it, then "
+    "choose the build that becomes this task's result. A build whose tests failed, or whose session weakened the "
+    "tests, is not chosen over one that is clean unless the clean one fails the task outright. Choose `none` only "
+    "when no build is fit to be the task's result (it builds something else, or breaks what was there): the task is "
+    "then built again. Finish with a short `rationale` that names what set the chosen build apart.\n\n"
+    + RUBRIC_ORDER
+    + "\n"
+    + EVIDENCE_BOUNDARY
+)
+
 @dataclass(frozen=True)
 class RoleSpec:
     """Declarative wiring for one pipeline agent.
@@ -421,6 +437,9 @@ ROLES: dict[str, RoleSpec] = {
         "architect_model",
         "plan_max_tokens",
         HARNESS_COMPOSER_SYSTEM,
+    ),
+    "pilot_selector": RoleSpec(
+        "pilot_selector", "Build selector", "architect_provider", "architect_model", "summary_max_tokens", PILOT_SELECTOR_SYSTEM
     ),
     "blueprint_critic": RoleSpec(
         "blueprint_critic",

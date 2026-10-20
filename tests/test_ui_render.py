@@ -65,6 +65,8 @@ def test_elapsed_time_is_shown_only_for_stages_that_have_some() -> None:
     html = stage_stepper("strategy", {}, {"discussion": 8.2, "summary": 65.0, "answers": 0.0})
     assert html.count("class='stage-time'") == 2
     assert ">8s<" in html and ">1m 05s<" in html
+    assert "title='Panel: 8s'" in html and "title='Summary: 1m 05s'" in html  # a finished step's time on hover
+    assert "title='Answers" not in html
 
 
 def test_stage_names_are_escaped() -> None:

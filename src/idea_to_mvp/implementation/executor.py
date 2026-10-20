@@ -428,6 +428,7 @@ class PilotRollout:
     commit: str | None = None  # the work, committed on the rollout's throwaway branch; None when nothing changed
     changed: str = ""  # `git diff --stat` of that commit
     trajectory: str = ""  # relative to the workspace
+    integrity: list[IntegrityFinding] = field(default_factory=list)  # what the session did to the tests
 
 
 async def run_pilot_rollout(
@@ -445,10 +446,12 @@ async def run_pilot_rollout(
     """Build the pilot task in its own worktree (`work_dir`, made by the caller with the harness of this `arm` in
     place) as a task session would, and commit the work on the worktree's branch. Recorded as a `pilot` session
     (`pilot-<arm>`) in the workspace's ledger; nothing is recorded in `progress.json`, since the worktree is
-    thrown away. A crashing session is a failed rollout, never raised (a missing sandbox still is)."""
+    thrown away. A crashing session is a failed rollout, never raised (a missing sandbox still is). The test files
+    are watched as for a task session, since the build may be selected as the task's result."""
     workspace, work_dir = Path(workspace), Path(work_dir)
     name = f"pilot-{arm}"
     log = SessionLog(workspace, kind="pilot", label=name, task_id=task.id, attempt=1, model=model_label(settings, "implementer"))
+    watch = await asyncio.to_thread(SessionWatch, work_dir, settings, session=name, iteration=iteration_of(task.id))
     if settings.demo_mode:
         outcome = await _run_demo_session(work_dir, task, log.tee(emit))
     else:
@@ -468,6 +471,7 @@ async def run_pilot_rollout(
         commit = await asyncio.to_thread(merge.commit_worktree, workspace, work_dir, name, f"pilot {task.id} ({arm} harness)")
     changed = await asyncio.to_thread(diff_stat, workspace, commit) if commit else ""
     trajectory = log.path.relative_to(workspace).as_posix() if log.path is not None else ""
+    findings = await _session_findings(watch, name, keep=commit is not None)
     return PilotRollout(
         success=outcome.success,
         summary=outcome.summary,
@@ -477,6 +481,7 @@ async def run_pilot_rollout(
         commit=commit,
         changed=changed,
         trajectory=trajectory,
+        integrity=findings,
     )
 
 

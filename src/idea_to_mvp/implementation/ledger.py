@@ -3,7 +3,7 @@
 Every session the orchestrator starts (a task, a merge resolver, a verification lane, a fix, a harness-tuning
 pilot rollout and its quick tests lane) appends a row when it ends, so what a run spent can be traced to the
 session that spent it, and the sum of the rows can be checked against the spend that `usage` reports
-(`check_ledger`). Harness tuning also records its model calls (two proposals, one composition) as rows, so
+(`check_ledger`). Harness tuning also records its model calls (two proposals, one composition, the selection) as rows, so
 its budget identity can be checked from the ledger alone (`nodes/harness_tuning.py`). Like `progress.json` the file is
 git-ignored, left out of the delivery zip, and off limits to agents (the tool guard protects the folder).
 """
@@ -22,16 +22,16 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.usage import UsageRecord
 
 LEDGER_DIR = ".idea-to-mvp"
-SessionKind = Literal["task", "resolver", "lane", "fix", "pilot", "pilot_lane", "proposal", "compose"]
+SessionKind = Literal["task", "resolver", "lane", "fix", "pilot", "pilot_lane", "proposal", "compose", "select"]
 SessionOutcome = Literal["success", "failed", "crashed"]
 # The `usage` roles that are agent sessions (planning and panel calls are not in the ledger).
 AGENT_USAGE_ROLES = ("implementer", "resolver", "verifier", "fixer", "pilot")
 # Model calls the ledger records as well (harness tuning's), and the `usage` roles their spend is recorded under.
-CALL_KINDS = ("proposal", "compose")
-CALL_USAGE_ROLES = ("harness_editor", "harness_composer")
+CALL_KINDS = ("proposal", "compose", "select")
+CALL_USAGE_ROLES = ("harness_editor", "harness_composer", "pilot_selector")
 TUNING_SESSION_KINDS = ("pilot", "pilot_lane")  # harness tuning's agent sessions: paid from the whole-run budget
 
-_KINDS = ("task", "resolver", "lane", "fix", "pilot", "pilot_lane", "proposal", "compose")
+_KINDS = ("task", "resolver", "lane", "fix", "pilot", "pilot_lane", "proposal", "compose", "select")
 _OUTCOMES = ("success", "failed", "crashed")
 _TOLERANCE_USD = 1e-6
 _LOCK = threading.Lock()  # parallel tasks append from one event loop; sync callers may use threads

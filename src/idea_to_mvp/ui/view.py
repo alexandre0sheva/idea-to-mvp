@@ -250,7 +250,7 @@ def strategy_markdown(strategy: Mapping[str, Any]) -> str:
     return "\n".join(lines).strip()
 
 
-_ADOPTED = {
+ADOPTED_HARNESS = {
     "keep_base": "kept the pack's harness",
     "adopt_inv": "adopted the INV edit (how the agent works)",
     "adopt_dom": "adopted the DOM edit (what a practitioner of the stack knows)",
@@ -265,6 +265,44 @@ def _run_line(probe: Mapping[str, Any]) -> str:
     return f"{delivered}, {verdict} · ${float(probe.get('cost_usd') or 0):.2f}"
 
 
+ARM_HARNESS = {"base": "the pack's harness", "inv": "the INV edit", "dom": "the DOM edit"}
+
+
+def selection_sentences(record: Mapping[str, Any]) -> list[str]:
+    """What became of the pilot builds ([] before a selection): the build that is the pilot task's result and why,
+    or why none is."""
+    pilot = str((record.get("pilot") or {}).get("id") or "the pilot task")
+    selection = record.get("selection") or {}
+    status = selection.get("status")
+    rationale = str(selection.get("rationale") or "").strip()
+    overruled = str(selection.get("overruled") or "").strip()
+    if status == "skipped":
+        return [f"No pilot build was selected: {selection.get('note') or 'no reason recorded'}."]
+    if status == "none":
+        return [f"No pilot build was selected ({overruled or rationale or 'no reason recorded'}); {pilot} is built again."]
+    if status != "chosen":
+        return []
+    build = selection.get("choice")
+    origin = ARM_HARNESS.get(str(selection.get("arm")), "an unknown harness")
+    if selection.get("landed") is False:
+        return [f"Build {build} (built under {origin}) was selected, but {selection.get('note') or 'it was not applied'}."]
+    count = len(selection.get("builds") or {})
+    sentences = [f"Build {build} of {count} (built under {origin}) was selected as {pilot}'s result, so it is not built again."]
+    if rationale:
+        sentences.append(rationale)
+    if overruled:
+        sentences.append(f"The selector chose build {selection.get('proposed')}, overruled: {overruled}.")
+    return sentences
+
+
+def tuning_spend(record: Mapping[str, Any]) -> tuple[float, float]:
+    """(the pilot builds and their tests lanes, the model calls) in dollars, from the probes and the ledger."""
+    probes = [record.get("base") or {}, *((record.get(kind) or {}).get("probe") or {} for kind in ("inv", "dom"))]
+    sessions = sum(float(probe.get("cost_usd") or 0.0) for probe in probes)
+    total = float((record.get("ledger") or {}).get("cost_usd") or 0.0)
+    return sessions, max(0.0, total - sessions)
+
+
 def tuning_markdown(record: Mapping[str, Any]) -> str:
     """The chat's short account of harness tuning ('' before it ran): the outcome, the three runs, the composer."""
     status = record.get("status")
@@ -277,7 +315,7 @@ def tuning_markdown(record: Mapping[str, Any]) -> str:
     compose = record.get("compose") or {}
     lines = [
         f"**Harness tuning** on pilot task `{pilot.get('id', '')}` ({pilot.get('title', '')}): "
-        f"{_ADOPTED.get(str(record.get('adopted')), str(record.get('adopted')))}.",
+        f"{ADOPTED_HARNESS.get(str(record.get('adopted')), str(record.get('adopted')))}.",
         "",  # a list must not run into the paragraph above it
     ]
     lines.append(f"- Base harness: {_run_line(record.get('base') or {})}")
@@ -296,6 +334,10 @@ def tuning_markdown(record: Mapping[str, Any]) -> str:
         lines.append("\nThe ledger did not add up, so the base harness was kept: " + "; ".join(ledger.get("problems") or []) + ".")
     if record.get("commit"):
         lines.append(f"\nCommitted as `harness: tuned (pilot {pilot.get('id', '')})` ({record['commit']}).")
+    if selected := selection_sentences(record):
+        lines.append("\n" + " ".join(selected))
+    sessions, calls = tuning_spend(record)
+    lines.append(f"\nSpend: ${sessions + calls:.2f} (pilot builds and their tests lanes ${sessions:.2f}, model calls ${calls:.2f}).")
     return "\n".join(lines)
 
 

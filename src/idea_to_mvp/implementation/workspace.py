@@ -235,3 +235,20 @@ def diff_since(workspace: Path, commit: str, limit: int = DIFF_LIMIT) -> str:
     if len(text) > limit:
         return f"{text[:limit]}\n… [truncated {len(text) - limit} characters of the diff]\n"
     return text
+
+
+def commit_diff(workspace: Path, commit: str, limit: int = DIFF_LIMIT) -> str:
+    """The unified diff a commit brought in (against its first parent), cut at `limit` characters. '' when `commit`
+    is not a plain hex id, has no parent, or git is not usable. Hardened like `diff_stat`."""
+    workspace = Path(workspace)
+    git_dir = workspace / ".git"
+    if not _COMMIT_ID.match(commit or "") or git_dir.is_symlink() or not git_dir.is_dir():
+        return ""
+    harden_git_dir(git_dir)
+    done = run_git(workspace, "diff", "--no-ext-diff", "--no-textconv", "--no-color", f"{commit}^1", commit)
+    if done is None or done.returncode != 0:
+        return ""
+    text = done.stdout
+    if len(text) > limit:
+        return f"{text[:limit]}\n… [truncated {len(text) - limit} characters of the diff]\n"
+    return text
