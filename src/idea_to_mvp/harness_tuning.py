@@ -280,8 +280,11 @@ def probe_lines(probe: ProbeResult) -> str:
 
 
 def proposal_prompt(
-    kind: EditKind, task: PlanTask, base_files: Mapping[str, str], base: ProbeResult, trajectory: str
+    kind: EditKind, task: PlanTask, base_files: Mapping[str, str], base: ProbeResult, trajectory: str, reference: str = ""
 ) -> str:
+    """`reference` is the experience library's index (`library.reference_block`): what earlier projects of the stack
+    learned, as data to re-verify against this trajectory."""
+    library = f"{reference.strip()}\n\n" if reference.strip() else ""
     return (
         f"## Edit kind: {KIND_TITLES[kind]}\n"
         f"Propose one {kind.upper()} edit: {KIND_SCOPE[kind]}.\n\n"
@@ -290,6 +293,7 @@ def proposal_prompt(
         f"## The current harness\n{harness_listing(base_files)}\n\n"
         f"## The base run's trajectory (`{base['trajectory'] or 'not recorded'}`)\n"
         f"{fenced(excerpt(trajectory, PROPOSAL_TRAJECTORY_CHARS) or '(empty)')}\n\n"
+        f"{library}"
         f"Propose your {kind.upper()} edit now, or an empty `files` list if the trajectory points to no better harness."
     )
 

@@ -125,6 +125,12 @@ class IdeaDiscussionState(TypedDict):
     # Behavioral Contrast on a pilot task (`nodes/harness_tuning.py`): {status, pilot, budget_usd, base, inv, dom,
     # compose, adopted, commit, changed_files, ledger}; filled by parallel branches, {} until the stage runs.
     harness_tuning: Annotated[dict[str, Any], merge_dicts]
+    # The experience library as read before the blueprint was written (`library.snapshot`): {domain, index, lessons,
+    # entries}; {} when EXPERIENCE_LIBRARY is off. The planner, the harness writer, and the harness editors read it.
+    library: dict[str, Any]
+    # What the latest delivery's reflection recorded (`nodes/reflect.py`): {status, domain, entry, lesson, edits,
+    # dropped, rationale, note}; {} before the first delivery or with the library off.
+    reflection: dict[str, Any]
     delivery_report: str
     delivery_zip: str  # the latest delivery bundle (a zip of the project)
     iteration: int  # the version being built: 1 = the first delivery (v0.1), 2 = v0.2, ...
@@ -183,6 +189,8 @@ def make_initial_state(
         "integrity_test_count": None,
         "acceptance": {},
         "harness_tuning": {},
+        "library": {},
+        "reflection": {},
         "delivery_report": "",
         "delivery_zip": "",
         "iteration": 1,

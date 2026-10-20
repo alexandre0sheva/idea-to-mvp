@@ -32,6 +32,7 @@ JUDGE_PROMPTS = {
     "harness editor": ROLES["harness_editor"].system_prompt,
     "harness composer": ROLES["harness_composer"].system_prompt,
     "pilot build selector": ROLES["pilot_selector"].system_prompt,
+    "reflector": ROLES["reflector"].system_prompt,
 }
 
 

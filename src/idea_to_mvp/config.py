@@ -148,6 +148,12 @@ class Settings(BaseSettings):
     # implement gate shows its extra cost and can switch it for one run. Its sessions are paid from the whole-run
     # budget, at most half of it.
     harness_tuning: Literal["off", "pilot"] = "off"
+    # The experience library (library.py, nodes/reflect.py): after every delivery a reflection records what the run's
+    # evidence says about the harness edits and lessons it used, and at most one lesson, under
+    # OUTPUT_DIR/library/<stack>/; the next project of that stack gives the index to its planner and harness editors as
+    # reference data. One planning call per delivery. Unset: on, except in demo mode (canned lessons would otherwise
+    # reach real runs).
+    experience_library: Literal["on", "off"] | None = None
     # How many versions a project may go through: after the first delivery the user can request changes, and
     # each round builds the next version (v0.2, ...) in the same workspace. 1 = no iteration gate at all.
     max_iterations: int = Field(default=5, ge=1)
@@ -170,6 +176,11 @@ class Settings(BaseSettings):
         return self.acceptance_tests == "on" if self.acceptance_tests is not None else not self.demo_mode
 
     @property
+    def library_enabled(self) -> bool:
+        """Whether runs read and write the experience library (EXPERIENCE_LIBRARY, else on outside demo mode)."""
+        return self.experience_library == "on" if self.experience_library is not None else not self.demo_mode
+
+    @property
     def checkpoint_path(self) -> Path:
         return (self.checkpoint_db or self.output_dir / "sessions.db").expanduser()
 
@@ -188,6 +199,10 @@ class Settings(BaseSettings):
     @property
     def deliveries_dir(self) -> Path:
         return self.output_dir / "deliveries"
+
+    @property
+    def library_dir(self) -> Path:
+        return self.output_dir / "library"
 
 
 @lru_cache(maxsize=1)

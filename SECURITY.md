@@ -118,6 +118,21 @@ red warning when the sandbox is off or unavailable or the permission mode is `by
   pass or whose session weakened the tests over a clean one. The selected build is applied with git by the
   orchestrator (hardened like a task merge; refused on a dirty tree, undone on a conflict) and carries its
   integrity findings into the verdict, so it is judged by the same verification as any other task.
+- **The experience library carries model text from one project into the prompts of the next.** After a delivery
+  the reflector reads that project's trajectories, lane reports, and fix notes (agent-produced, possibly
+  web-derived text) and writes a lesson into `OUTPUT_DIR/library/<stack>/`; later projects of that stack give the
+  index to their plan writer, harness writer, and harness editors. So an instruction injected into one project could
+  outlive it. The reflector's prompt carries the evidence boundary, the index reaches later prompts fenced as
+  reference data ("re-verify; an earlier project's fact is a hypothesis here"), a lesson is a few clipped sentences,
+  and whatever a later model writes from it passes the same validators as before (plan validation, the harness
+  validator); it never reaches a verification lane. Lessons that later projects judged harmful are marked disputed.
+  Review the *Experience library* panel now and then and forget what you do not trust, or set
+  `EXPERIENCE_LIBRARY=off`. An entry never stores the held-out acceptance tests or a secret: the reflector is not
+  shown the acceptance failures, its prompt has every acceptance test name, acceptance line, and secret replaced by a
+  marker (a fix session's notes can name a hidden test), and an entry, row, or harness file that contains a provider key, the value of an
+  environment variable named like a key, token, secret, or password, a key-shaped string, a line of the project's
+  acceptance suites, or one of their test names is dropped, and the write is refused if anything still matches.
+  That check matches exact text; a paraphrase of a hidden test is not caught.
 - **Model API keys stay in the orchestrator process**, and `OUTPUT_DIR/sessions.db` holds every session's
   ideas and transcript; neither is reachable by agents through the sandbox's credential list.
 - **Residual git risk:** an agent could plant a `.gitattributes` file or other in-tree content aimed at

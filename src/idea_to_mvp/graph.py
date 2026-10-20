@@ -40,6 +40,7 @@ from idea_to_mvp.nodes.iterate import (
     route_after_iterate_gate,
 )
 from idea_to_mvp.nodes.panel import build_panel_subgraph
+from idea_to_mvp.nodes.reflect import reflect_node, route_to_reflect
 from idea_to_mvp.nodes.report import delivery_report_node
 from idea_to_mvp.nodes.research import research_node, route_research
 from idea_to_mvp.nodes.strategy import strategy_node
@@ -81,6 +82,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
     builder.add_node("verdict", verdict_node)
     builder.add_node("fix", fix_node)
     builder.add_node("delivery_report", delivery_report_node)
+    builder.add_node("reflect", reflect_node, retry_policy=LLM_RETRY)  # the experience library; skipped when off
     builder.add_node("iterate_gate", iterate_gate_node)
     builder.add_node("change_planner", change_planner_node, retry_policy=LLM_RETRY)
 
@@ -125,8 +127,14 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
         {"pass": "delivery_report", "exhausted": "delivery_report", "retry": "fix"},
     )
     builder.add_edge("fix", "verify")
+    # After every delivery the run's lessons go into the stack's experience library (when it is on).
     builder.add_conditional_edges(
         "delivery_report",
+        route_to_reflect,
+        {"reflect": "reflect", "iterate_gate": "iterate_gate", "__end__": END},
+    )
+    builder.add_conditional_edges(
+        "reflect",
         route_after_delivery,
         {"iterate_gate": "iterate_gate", "__end__": END},
     )

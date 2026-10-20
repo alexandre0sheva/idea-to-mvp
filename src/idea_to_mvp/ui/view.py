@@ -77,6 +77,7 @@ _RUNNING: dict[str, tuple[str, str]] = {
     "verify": ("Verifier", "Verifying in parallel lanes: tests, quality, requirement coverage, and acceptance tests when there are any..."),
     "fix": ("Fixer", "Fixing what verification found..."),
     "delivery_report": ("Delivery", "Assembling the delivery report..."),
+    "reflect": ("Reflector", "Recording what this delivery showed in the experience library..."),
     "change_planner": ("Change planner", "Planning your changes as new tasks..."),
 }
 
@@ -341,6 +342,46 @@ def tuning_markdown(record: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def library_markdown(library: Mapping[str, Any]) -> str:
+    """The chat's note that the planner was given an earlier project's lessons ('' when it was given none)."""
+    lessons = list(library.get("lessons") or [])
+    if not lessons:
+        return ""
+    return (
+        f"**Experience library** (`{library.get('domain', '')}`): the plan writer and the harness writer (and harness "
+        f"tuning's editors, when it runs) were given {len(lessons)} lesson(s) from earlier projects of this stack, as "
+        "reference data to re-verify."
+    )
+
+
+def reflection_markdown(record: Mapping[str, Any]) -> str:
+    """The chat's account of what the delivery's reflection recorded ('' before one ran)."""
+    status = record.get("status")
+    if not status:
+        return ""
+    domain = f"`{record.get('domain')}`" if record.get("domain") else "the"
+    if status in ("skipped", "failed", "refused"):
+        return f"**Experience library** ({domain}): nothing recorded. {record.get('note') or ''}".strip()
+    lines = []
+    lesson = record.get("lesson") or {}
+    if lesson:
+        lines.append(
+            f"**Experience library** ({domain}): recorded a lesson for the next project of this stack "
+            f"(confidence {lesson.get('confidence', '?')}).\n\n"
+            f"- When: {lesson.get('cue', '')}\n- Lesson: {lesson.get('lesson', '')}\n- Evidence: {lesson.get('evidence', '')}"
+        )
+    else:
+        lines.append(f"**Experience library** ({domain}): no lesson from this delivery (NO_ENTRY).")
+    if edits := record.get("edits") or []:
+        lines.append("\nWhat the run tried, judged from its evidence:\n")
+        lines += [f"- `{row.get('edit', '')}`: {row.get('effect', '')} — {row.get('evidence', '')}" for row in edits]
+    if dropped := record.get("dropped") or []:
+        lines.append("\nNot recorded: " + "; ".join(str(item) for item in dropped) + ".")
+    if record.get("entry"):
+        lines.append(f"\nEntry `{record['entry']}` (browse or forget it in the *Experience library* panel).")
+    return "\n".join(lines)
+
+
 def panel_running(values: Mapping[str, Any]) -> tuple[str, str]:
     """The in-progress indicator for the panel: parallel openings first, then one speaker at a time."""
     if values.get("panel_mode", "moderated") == "moderated" and not values.get("turn_count"):
@@ -569,6 +610,8 @@ def transcript_from_state(
 
     if bundle := str(values.get("project_bundle_summary") or values.get("project_bundle_dir") or "").strip():
         entries.append(ViewEntry("project_bundle", "Planner", bundle, data=list(values.get("project_bundle_files") or [])))
+        if library := library_markdown(values.get("library") or {}):
+            entries.append(ViewEntry("library", "Experience library", library))
 
     implement_decision = values.get("implement_decision") or {}
     if generated and _reached(values, "implementation"):
@@ -599,6 +642,8 @@ def transcript_from_state(
 
     if report := str(values.get("delivery_report") or "").strip():
         entries.append(ViewEntry("delivery_report", "Delivery", report, data=values))  # rendered as the dashboard
+        if reflection := reflection_markdown(values.get("reflection") or {}):
+            entries.append(ViewEntry("reflection", "Reflector", reflection))
 
     if no_change := values.get("no_change") or {}:  # the request was not built, so it is not a version above
         entries.append(ViewEntry("change_request", "You", f"Change request: {no_change.get('request', '')}"))

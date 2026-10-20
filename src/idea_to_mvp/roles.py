@@ -366,6 +366,29 @@ PILOT_SELECTOR_SYSTEM = (
     + EVIDENCE_BOUNDARY
 )
 
+REFLECTOR_SYSTEM = (
+    "You are the Reflector. A project was just delivered by coding agents, and you write what the next project of the "
+    "same stack should know into its experience library. You receive the run's evidence: the sessions it ran (outcome, "
+    "cost, turns), the verification lanes' verdicts, what sessions did to the tests, the fix attempts with their "
+    "hypotheses, harness tuning's pilot runs, excerpts of trajectories, the library's current index, and the edits to "
+    "judge: the harness edits this run tried and the library lessons it was given.\n\n"
+    "1. `edits`: exactly one row per edit listed under Edits to judge, with its id as `edit`. `effect` is `helped` (the "
+    "evidence shows the edit made something go better), `hurt` (it made something go worse), `no observed effect`, or "
+    "`confounded` (something changed, but other differences explain it as well). One run is little evidence: when a "
+    "single rollout is all the evidence, or the runs differ in more than the edit, prefer `confounded`. `evidence` "
+    "names the trajectory moment, lane verdict, or fix note that decided it.\n"
+    "2. `lessons`: at most ONE lesson, or none (NO_ENTRY). A lesson is for a different product built on the same stack: "
+    "about the stack, its tools and conventions, the workflow, or the harness, never about this product's features. "
+    "`cue` is the situation in which it applies, recognisable before the mistake is made; `lesson` is what to do; "
+    "`evidence` is what in this run shows it; `confidence` is `low` for one observation, `medium` when several "
+    "sessions or a failed and a fixed attempt agree, `high` only when the evidence is unambiguous. Do not restate a "
+    "lesson the index already holds unless this run's evidence revises it. No lesson is better than a weak or "
+    "generic one.\n"
+    "Never quote test code or test names, credentials, environment values, or the content of files: an entry is "
+    "kept and read by other projects. Finish with a short `rationale`.\n\n"
+    + EVIDENCE_BOUNDARY
+)
+
 @dataclass(frozen=True)
 class RoleSpec:
     """Declarative wiring for one pipeline agent.
@@ -440,6 +463,9 @@ ROLES: dict[str, RoleSpec] = {
     ),
     "pilot_selector": RoleSpec(
         "pilot_selector", "Build selector", "architect_provider", "architect_model", "summary_max_tokens", PILOT_SELECTOR_SYSTEM
+    ),
+    "reflector": RoleSpec(
+        "reflector", "Reflector", "architect_provider", "architect_model", "summary_max_tokens", REFLECTOR_SYSTEM
     ),
     "blueprint_critic": RoleSpec(
         "blueprint_critic",

@@ -136,6 +136,14 @@ def make_ui(
             with gr.Row():
                 resume_btn = gr.Button("Resume selected")
                 delete_btn = gr.Button("Delete selected", variant="stop")
+        # What earlier deliveries recorded, per stack (library.py): the next project of a stack reads it.
+        with gr.Accordion("Experience library", open=False):
+            library_domain_dd = gr.Dropdown(label="Stack", choices=[], value=None)
+            library_md = gr.Markdown("")
+            library_entry_dd = gr.Dropdown(label="Entry", choices=[], value=None)
+            with gr.Row():
+                library_refresh_btn = gr.Button("Refresh")
+                library_forget_btn = gr.Button("Forget selected entry", variant="stop")
 
         # The browser session only remembers which graph thread it is looking at (`thread_id_state`, created
         # above); everything else (chat, mode, status, the gate form) is derived from that thread's checkpoint.
@@ -206,6 +214,11 @@ def make_ui(
             service.delete_session, inputs=[sessions_dd, thread_id_state], outputs=view_outputs
         )
         demo.load(service.initial_view, inputs=[thread_id_state], outputs=view_outputs)
+        library_outputs = [library_domain_dd, library_md, library_entry_dd]
+        library_domain_dd.input(service.library_panel, inputs=[library_domain_dd], outputs=library_outputs)
+        library_refresh_btn.click(service.library_panel, inputs=[library_domain_dd], outputs=library_outputs)
+        library_forget_btn.click(service.forget_library_entry, inputs=[library_domain_dd, library_entry_dd], outputs=library_outputs)
+        demo.load(service.library_panel, inputs=[library_domain_dd], outputs=library_outputs)
     return demo
 
 

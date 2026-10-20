@@ -40,12 +40,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
 
-from idea_to_mvp import llm
 from idea_to_mvp.config import Settings, get_settings
 from idea_to_mvp.harness_pack import read_harness, write_harness
 from idea_to_mvp.harness_tuning import (
@@ -83,6 +82,8 @@ from idea_to_mvp.implementation.ledger import (
 from idea_to_mvp.implementation.progress import TaskResult, load_progress, save_result
 from idea_to_mvp.implementation.trajectory import SessionLog, model_label
 from idea_to_mvp.implementation.workspace import commit_diff, commit_workspace, head_commit
+from idea_to_mvp.library import reference_block
+from idea_to_mvp.nodes.common import structured_with_repair
 from idea_to_mvp.nodes.implement import (
     agent_record,
     builds_task_by_task,
@@ -118,6 +119,7 @@ class TuningInput(TypedDict):
     workspace_dir: str
     iteration: int
     execution_strategy: dict[str, Any]  # whether the plan is built task by task: only then is a pilot build selected
+    library: dict[str, Any]  # the experience library read before the blueprint: the proposers get its index
 
 
 class ProposeInput(TypedDict):
@@ -126,6 +128,7 @@ class ProposeInput(TypedDict):
     kind: str
     workspace_dir: str
     record: dict[str, Any]  # the tuning so far: the pilot and the base run
+    reference: str  # the experience library's index as reference data ('' when there is none)
 
 
 class ProbeInput(TypedDict):
@@ -289,16 +292,8 @@ def _record_call(workspace: Path, settings: Settings, *, kind: SessionKind, labe
 def _structured(
     role: str, messages: list[BaseMessage], schema: type[Any], fallback: Callable[[], Any], check: Callable[[Any], list[str]]
 ) -> tuple[Any, list[str]]:
-    """A structured call checked by `check`: one repair attempt with the problems; (answer, problems left)."""
-    runtime = llm.get_runtime(role)
-    messages = [SystemMessage(content=runtime.system_prompt), *messages]
-    answer = llm.invoke_structured(runtime, messages, schema, fallback=fallback)
-    problems = check(answer)
-    if problems:
-        repair = HumanMessage(content=repair_prompt(problems, answer.model_dump_json(indent=2)))
-        answer = llm.invoke_structured(runtime, [*messages, repair], schema, fallback=fallback)
-        problems = check(answer)
-    return answer, problems
+    """A structured call checked by `check`, repaired once in the words of an edit (no files keeps the base)."""
+    return structured_with_repair(role, messages, schema, fallback, check, repair=repair_prompt)
 
 
 # ------------------------------------------------------------------ nodes
@@ -341,8 +336,10 @@ def route_after_pilot(state: IdeaDiscussionState) -> list[Send] | Literal["__end
     record = dict(state.get("harness_tuning") or {})
     if record.get("status") != "running":
         return "__end__"
+    reference = reference_block(state.get("library"))
     return [
-        Send("propose", ProposeInput(kind=kind, workspace_dir=state["workspace_dir"], record=record)) for kind in EDIT_KINDS
+        Send("propose", ProposeInput(kind=kind, workspace_dir=state["workspace_dir"], record=record, reference=reference))
+        for kind in EDIT_KINDS
     ]
 
 
@@ -363,7 +360,7 @@ def propose_node(state: ProposeInput) -> dict[str, Any]:
     with recording_usage("harness_editor") as records:
         edit, problems = _structured(
             "harness_editor",
-            [HumanMessage(content=proposal_prompt(kind, task, base_files, base, trajectory))],  # type: ignore[arg-type]
+            [HumanMessage(content=proposal_prompt(kind, task, base_files, base, trajectory, state.get("reference", "")))],  # type: ignore[arg-type]
             HarnessEdit,
             _no_edit,
             lambda answer: edit_problems(base_files, answer.files),

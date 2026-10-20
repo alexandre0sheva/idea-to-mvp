@@ -9,7 +9,8 @@ START → wave_1 ─Send×n→ doc_1 → wave_2 ─Send×n→ doc_2 ┐
                                                           rewrite_doc / rewrite_plan ←─Send─ revise
 ```
 
-Each `wave_n` node is a no-op that only exists to fan out: its conditional edge sends one task per
+Each `wave_n` node only exists to fan out (`wave_1` also reads the stack's experience library into the
+state, which the plan and the harness are given as reference data): its conditional edge sends one task per
 document of that wave, and the static edge out of the workers fires once all of them are done. Every
 document is written from the shared context plus the upstream documents it `needs`
 (`blueprints.BundleFileSpec`), so the plan sees the real PRD and the subagents see the real plan. The
@@ -36,12 +37,14 @@ from langgraph.types import Send
 from idea_to_mvp.blueprint_review import format_issues, issues_for, revision_targets
 from idea_to_mvp.blueprints import PLAN_JSON_PATH, WAVES, BundleFileSpec, bundle_file_plan
 from idea_to_mvp.harness_pack import HARNESS_SPEC_PATH
+from idea_to_mvp.library import reference_block
 from idea_to_mvp.nodes.blueprint import (
     DocInput,
     blueprint_context,
     generate_doc_node,
     generate_harness_node,
     generate_plan_node,
+    read_library_node,
     review_issues_of,
     review_node,
     revise_node,
@@ -99,6 +102,8 @@ def _send(
             upstream={path: docs[path] for path in spec.needs if path in docs},
             issues=issues,
             previous=previous,
+            # The plan and the harness are where an earlier project's lessons about the stack apply.
+            reference=reference_block(state.get("library")) if spec.structured else "",
         ),
     )
 
@@ -155,7 +160,7 @@ def build_blueprint_subgraph() -> CompiledStateGraph:
     """The blueprint pack, compiled to be mounted as the parent graph's `plan_bundle` node."""
     builder = StateGraph(IdeaDiscussionState, input_schema=BlueprintInput)
     for wave in WAVES:
-        builder.add_node(f"wave_{wave}", _fan_out)
+        builder.add_node(f"wave_{wave}", read_library_node if wave == WAVES[0] else _fan_out)
         builder.add_node(f"doc_{wave}", generate_doc_node, input_schema=DocInput, retry_policy=LLM_RETRY)
     builder.add_node("plan_writer", generate_plan_node, input_schema=DocInput, retry_policy=LLM_RETRY)
     builder.add_node("harness_writer", generate_harness_node, input_schema=DocInput, retry_policy=LLM_RETRY)

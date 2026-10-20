@@ -295,15 +295,19 @@ def prompt_for(
     *,
     issues: str = "",
     previous: str = "",
+    reference: str = "",
 ) -> str:
     """The user prompt for one document: the shared context, the upstream documents it needs (when
-    they exist and are not empty), for a revision the reviewer's issues and the previous version, then
-    the instruction last."""
+    they exist and are not empty), reference data such as the experience library's index (the plan and
+    the harness get it), for a revision the reviewer's issues and the previous version, then the
+    instruction last."""
     parts = [context_block]
     for path in spec.needs:
         text = (generated.get(path) or "").strip()
         if text:
             parts.append(f"## Upstream document: {path}\n\n{truncate_document(text, MAX_UPSTREAM_CHARS)}")
+    if reference.strip():
+        parts.append(reference.strip())
     if issues.strip():
         parts.append(f"## Review issues to fix in this revision\n\n{issues.strip()}\n\n{NO_CHANGE_REVISION.strip()}")
     if previous.strip():

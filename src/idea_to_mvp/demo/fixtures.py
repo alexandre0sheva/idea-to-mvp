@@ -20,6 +20,7 @@ from idea_to_mvp.evals import CriterionScore, JudgeScores
 from idea_to_mvp.harness_pack import HarnessSpec, SkillSpec
 from idea_to_mvp.harness_tuning import ComposeNote, Composition, HarnessEdit, HarnessFile
 from idea_to_mvp.implementation.acceptance import ACCEPTANCE_REPORT, AcceptanceFile, AcceptanceSuite
+from idea_to_mvp.library import EditRow, Lesson, Reflection
 from idea_to_mvp.pilot_selection import BuildScore, Selection
 from idea_to_mvp.plan import (
     DEFAULT_WORKSTREAM,
@@ -537,6 +538,31 @@ def selection(messages: list[BaseMessage]) -> Selection:
     return Selection(choice=builds[0], scores=scores, rationale=f"Demo mode: the builds are the same, so build {builds[0]} is taken.")
 
 
+_EDIT_TO_JUDGE_RE = re.compile(r"^- `([a-z]+:[A-Za-z0-9-]+)`:", flags=re.MULTILINE)
+DEMO_LESSON = Lesson(
+    cue="The project's tests use only the standard library and no test runner is installed",
+    lesson="Keep a small runner in tests/ that writes the JUnit report, and point the plan's test_report command at it.",
+    evidence="Demo: the tests lane judged every round by the report that runner wrote.",
+    confidence="low",
+)
+
+
+def reflection(messages: list[BaseMessage]) -> Reflection:
+    """Every edit the prompt lists is confounded (one demo run is all the evidence); one lesson about the demo's own
+    test runner, unless the library already holds it."""
+    prompt = str(messages[-1].content) if messages else ""
+    edits = [
+        EditRow(edit=edit, effect="confounded", evidence="Demo: one run per harness, and every run delivered the same build.")
+        for edit in dict.fromkeys(_EDIT_TO_JUDGE_RE.findall(prompt.split("## Edits to judge", 1)[-1]))
+    ]
+    known = DEMO_LESSON.cue in prompt.split("## Edits to judge", 1)[0]
+    return Reflection(
+        edits=edits,
+        lessons=[] if known else [DEMO_LESSON],
+        rationale="Demo mode: the run went as planned; the one transferable fact is how its tests are reported.",
+    )
+
+
 def critique(messages: list[BaseMessage]) -> CritiqueReport:
     return CritiqueReport(approved=True, issues=[])
 
@@ -618,6 +644,7 @@ STRUCTURED: dict[type[BaseModel], Callable[[list[BaseMessage]], Any]] = {
     HarnessEdit: harness_edit,
     Composition: composition,
     Selection: selection,
+    Reflection: reflection,
     CritiqueReport: critique,
     QuestionSet: question_set,
     ArchitectureProposal: architecture_proposal,

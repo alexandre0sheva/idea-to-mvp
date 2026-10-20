@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -33,6 +33,7 @@ from idea_to_mvp.harness_pack import (
     fallback_harness,
     harness_problems,
 )
+from idea_to_mvp.library import domain_for, snapshot
 from idea_to_mvp.nodes.common import preferences_block
 from idea_to_mvp.plan import (
     Plan,
@@ -61,6 +62,7 @@ class DocInput(TypedDict):
     upstream: dict[str, str]  # the documents this one `needs`, already generated
     issues: str  # reviewer issues to fix, formatted ('' on the first pass)
     previous: str  # the previous version of this document ('' on the first pass)
+    reference: NotRequired[str]  # reference data for this document: the experience library's index for the plan and the harness
 
 
 def blueprint_context(state: IdeaDiscussionState) -> str:
@@ -81,6 +83,17 @@ def blueprint_context(state: IdeaDiscussionState) -> str:
         planning_request=state.get("plan_decision", {}).get("notes", ""),
         preferences=preferences_block(state.get("preferences")),
     )
+
+
+def read_library_node(state: IdeaDiscussionState) -> dict[str, Any]:
+    """Read the stack's experience library once, before the first document is written: the snapshot is kept in the
+    state, so a revised plan and harness tuning later see the same entries, and the reflection knows which lessons
+    the run was given. {} when the library is off."""
+    settings = get_settings()
+    if not settings.library_enabled:
+        return {"library": {}}
+    domain = domain_for(state.get("execution_strategy"), state.get("architecture_proposal"), state.get("arch_choice"))
+    return {"library": snapshot(settings.library_dir, domain)}
 
 
 def _spec_for(state: DocInput):
@@ -122,7 +135,12 @@ def generate_plan_node(state: DocInput) -> dict[str, Any]:
         SystemMessage(content=runtime.system_prompt),
         HumanMessage(
             content=prompt_for(
-                spec, state["context_block"], state["upstream"], issues=state["issues"], previous=state["previous"]
+                spec,
+                state["context_block"],
+                state["upstream"],
+                issues=state["issues"],
+                previous=state["previous"],
+                reference=state.get("reference", ""),
             )
         ),
     ]
@@ -179,6 +197,7 @@ def generate_harness_node(state: DocInput) -> dict[str, Any]:
                 {path: text for path, text in upstream.items() if path != PLAN_JSON_PATH},
                 issues=state["issues"],
                 previous=state["previous"],
+                reference=state.get("reference", ""),
             )
         ),
     ]

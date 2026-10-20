@@ -20,6 +20,7 @@ from idea_to_mvp.implementation.ledger import ledger_path, task_trajectories
 from idea_to_mvp.implementation.progress import TaskResult, load_progress, spent_in_iteration
 from idea_to_mvp.implementation.trajectory import events_from_trajectories
 from idea_to_mvp.implementation.workspace import diff_stat
+from idea_to_mvp.library import forget
 from idea_to_mvp.nodes.common import stated_preferences
 from idea_to_mvp.nodes.implement import builds_task_by_task, effective_parallel
 from idea_to_mvp.plan import load_plan
@@ -41,6 +42,7 @@ from idea_to_mvp.ui.console import (
 )
 from idea_to_mvp.ui.dashboard import render_dashboard
 from idea_to_mvp.ui.gates import GATES, PAYLOAD_INPUT, gate_outputs
+from idea_to_mvp.ui.library import entry_choices, library_markdown, read_view
 from idea_to_mvp.ui.render import (
     architect_block,
     moderator_banner,
@@ -443,6 +445,30 @@ class SubmitService:
             return await self._render(current_thread_id, status="Pick a saved session first.")
         self._reset_view(selected_thread_id)
         return await self._render(selected_thread_id, clear_input=True)
+
+    # ------------------------------------------------------------ experience library panel
+
+    def library_panel(self, domain: str | None, *, status: str = "") -> tuple[Any, Any, Any]:
+        """(stack dropdown, the stack's lessons and edit rows, entry dropdown) for the *Experience library* panel; the
+        first stack when none is picked yet. The library is read once per render."""
+        view = read_view(self._context.settings.library_dir, domain)
+        entries = entry_choices(view.entries)
+        text = library_markdown(view, enabled=self._context.settings.library_enabled)
+        return (
+            gr.update(choices=view.domains, value=view.domain),
+            (f"{status}\n\n" if status else "") + text,
+            gr.update(choices=entries, value=entries[0][1] if entries else None),
+        )
+
+    def forget_library_entry(self, domain: str | None, entry: str | None) -> tuple[Any, Any, Any]:
+        """Delete one entry (and its harness files) and rebuild the stack's index."""
+        if not domain or not entry:
+            return self.library_panel(domain, status="Pick an entry first.")
+        try:
+            forgotten = forget(self._context.settings.library_dir, domain, entry)
+        except ValueError:
+            forgotten = False
+        return self.library_panel(domain, status=f"Forgot `{entry}`." if forgotten else f"No entry `{entry}` to forget.")
 
     async def delete_session(self, selected_thread_id: str | None, current_thread_id: str) -> tuple[Any, ...]:
         if not selected_thread_id:
