@@ -22,7 +22,7 @@ _SKIPPED_FILES = frozenset({".DS_Store", ".coverage"})
 _SKIPPED_SUFFIXES = (".pyc", ".pyo")
 
 
-def _is_secret_env(name: str) -> bool:
+def is_secret_env(name: str) -> bool:
     return (name == ".env" or name.startswith(".env.")) and name != ".env.example"
 
 
@@ -42,7 +42,7 @@ def _files(workspace: Path, include_git: bool) -> list[Path]:
         )
         for name in sorted(files):
             path = Path(root, name)
-            if path.is_symlink() or name in _SKIPPED_FILES or name.endswith(_SKIPPED_SUFFIXES) or _is_secret_env(name):
+            if path.is_symlink() or name in _SKIPPED_FILES or name.endswith(_SKIPPED_SUFFIXES) or is_secret_env(name):
                 continue
             found.append(path)
     return found

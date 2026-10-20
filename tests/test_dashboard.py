@@ -377,3 +377,11 @@ def test_what_agents_wrote_in_the_history_is_escaped(tmp_path: Path) -> None:
     verification = {"passed": False, "attempts": 1, "report": "r", "lanes": [], "history": history}
     html = render_dashboard(state(tmp_path, passed=False, verification=verification))
     assert "<script>" not in html and "<img src=x>" not in html and "&lt;img src=x&gt;" in html and "&lt;i&gt;late" in html
+
+
+def test_repo_link_is_a_link_only_for_https_and_always_escaped() -> None:
+    from idea_to_mvp.ui.components import repo_link
+
+    assert repo_link("https://github.com/a/b", "a/b") == "<a href='https://github.com/a/b' target='_blank' rel='noopener noreferrer'>a/b</a>"
+    assert repo_link("javascript:alert(1)", "<b>x</b>") == "<code>&lt;b&gt;x&lt;/b&gt;</code>"
+    assert "&#x27;" in repo_link("https://x/'onmouseover='y", "n")

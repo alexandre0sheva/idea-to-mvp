@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -15,6 +15,7 @@ from langgraph.types import Command
 from idea_to_mvp.config import PanelMode, Settings
 from idea_to_mvp.exporter import save_session_export
 from idea_to_mvp.graph import GraphProvider, read_thread, run_config
+from idea_to_mvp.headless import publish_and_record
 from idea_to_mvp.implementation.events import EVENT_KINDS, ImplEvent
 from idea_to_mvp.implementation.ledger import ledger_path, task_trajectories
 from idea_to_mvp.implementation.progress import TaskResult, load_progress, spent_in_iteration
@@ -24,6 +25,7 @@ from idea_to_mvp.library import forget
 from idea_to_mvp.nodes.common import stated_preferences
 from idea_to_mvp.nodes.implement import builds_task_by_task, effective_parallel
 from idea_to_mvp.plan import load_plan
+from idea_to_mvp.publish import GitHubClient, PublishError, PublishPlan, make_client, plan_publish
 from idea_to_mvp.resilience import error_hint
 from idea_to_mvp.sessions import SessionRegistry
 from idea_to_mvp.state import make_initial_state
@@ -41,7 +43,15 @@ from idea_to_mvp.ui.console import (
     running_tasks,
 )
 from idea_to_mvp.ui.dashboard import render_dashboard
-from idea_to_mvp.ui.gates import GATES, PAYLOAD_INPUT, gate_outputs
+from idea_to_mvp.ui.gates import (
+    GATES,
+    PAYLOAD_INPUT,
+    PublishScreen,
+    gate_outputs,
+    publish_info_html,
+    publish_note,
+    publish_preview_html,
+)
 from idea_to_mvp.ui.library import entry_choices, library_markdown, read_view
 from idea_to_mvp.ui.render import (
     architect_block,
@@ -91,6 +101,7 @@ class AppContext:
     settings: Settings
     graphs: GraphProvider
     registry: SessionRegistry | None = None
+    github: Callable[[Settings], GitHubClient | None] = make_client  # how publishing reaches GitHub (tests fake it)
 
     @property
     def sessions(self) -> SessionRegistry:
@@ -188,6 +199,8 @@ class SubmitService:
         self._replayed: dict[str, tuple[tuple[int, int], list[ImplEvent]]] = {}
         self._tab: dict[str, str] = {}  # the tab last selected for each thread
         self._artifact_seen: dict[str, tuple[str, str, int, str]] = {}  # what the artifacts panel currently shows
+        self._publishing: set[str] = set()  # threads with a confirmed publish in flight: one at a time, nothing else meanwhile
+        self._clients: dict[str, GitHubClient | None] = {}  # the GitHub client a review made, reused by its confirmation
 
     def _reset_view(self, thread_id: str) -> None:
         """A page that (re)loads a thread starts on the conversation tab with an empty artifacts panel."""
@@ -523,6 +536,9 @@ class SubmitService:
             values = {}
         elif (kind := str((interrupt_payload or {}).get("kind") or "")) in GATES:
             spec = GATES[kind]
+            if thread_id in self._publishing:  # a decision now would move the graph on under the publish
+                yield await self._render(thread_id, status="Publishing to GitHub is in progress; wait for it to finish.")
+                return
             inputs = {**dict(gate_inputs or {}), PAYLOAD_INPUT: interrupt_payload or {}}
             if problem := spec.validate(inputs, interrupt_payload or {}):
                 yield await self._render(thread_id, status=problem)
@@ -637,6 +653,91 @@ class SubmitService:
         (fill the suggestions, save a blueprint file) work from."""
         _values, interrupt_payload, _next = await self._read((thread_id or "").strip())
         return dict(interrupt_payload or {})
+
+    # ------------------------------------------------------------ publish to GitHub
+
+    async def _publish_refusal(self, thread_id: str, *, holding: bool = False) -> str:
+        """Why a publish action cannot run now ('' if it can): it is offered at the iterate gate, on a quiet thread
+        (`holding`: the caller is the publish in flight)."""
+        if thread_id in self._publishing and not holding:
+            return "A publish is already in progress for this session."
+        if thread_id in self._active:
+            return "A step of this session is still running; wait for it to stop first."
+        _values, interrupt_payload, _next = await self._read(thread_id)
+        if (interrupt_payload or {}).get("kind") != "iterate_gate":
+            return "Publishing is offered at the iterate gate, once a version is delivered."
+        return ""
+
+    async def _publish_plan(
+        self, thread_id: str, repo: str | None, visibility: str | None, *, fresh: bool
+    ) -> tuple[PublishPlan, GitHubClient | None]:
+        """The plan for the form's values, and the client it was made with (a review makes a new one, which its
+        confirmation reuses, so the account is not looked up again)."""
+        values, _interrupt, _next = await self._read(thread_id)
+        if fresh or thread_id not in self._clients:
+            self._clients[thread_id] = self._context.github(self._context.settings)
+        client = self._clients[thread_id]
+        plan = await asyncio.to_thread(
+            plan_publish, values, self._context.settings, client, repo=(repo or "").strip() or None, visibility=visibility or None
+        )
+        return plan, client
+
+    async def publish_review(self, thread_id: str, repo: str | None, visibility: str | None) -> PublishScreen:
+        """Work out and show what publishing would do. Creates nothing; the confirm button appears only for a plan
+        without problems, and carries this plan's fingerprint."""
+        thread_id = (thread_id or "").strip()
+        if refusal := await self._publish_refusal(thread_id):
+            return PublishScreen(publish_note(refusal, problem=True))
+        plan, _client = await self._publish_plan(thread_id, repo, visibility, fresh=True)
+        if not plan.ok:
+            return PublishScreen(publish_note("Nothing can be published yet.", problem=True), publish_preview_html(plan))
+        return PublishScreen(
+            publish_note("This is everything that would be sent. Nothing exists on GitHub until you confirm."),
+            publish_preview_html(plan),
+            plan.fingerprint,
+            True,
+        )
+
+    async def publish_confirm(self, thread_id: str, repo: str | None, visibility: str | None, shown: str | None) -> PublishScreen:
+        """Create the repository and push, if (and only if) the plan as it is now is the one the user reviewed.
+
+        Otherwise the new plan is shown to be reviewed again; whatever went wrong is shown, never swallowed. A
+        success is recorded in the thread's state, so the dashboard and a later `publish` know about it.
+        """
+        thread_id = (thread_id or "").strip()
+        if thread_id in self._publishing:  # checked and taken without an await, so two clicks cannot both pass
+            return PublishScreen(publish_note("A publish is already in progress for this session.", problem=True))
+        self._publishing.add(thread_id)
+        try:
+            return await self._publish_confirmed(thread_id, repo, visibility, shown)
+        finally:
+            self._publishing.discard(thread_id)
+
+    async def _publish_confirmed(
+        self, thread_id: str, repo: str | None, visibility: str | None, shown: str | None
+    ) -> PublishScreen:
+        if refusal := await self._publish_refusal(thread_id, holding=True):
+            return PublishScreen(publish_note(refusal, problem=True))
+        plan, client = await self._publish_plan(thread_id, repo, visibility, fresh=False)
+        if not plan.ok or client is None:
+            return PublishScreen(publish_note("Nothing can be published yet.", problem=True), publish_preview_html(plan))
+        if not shown or shown != plan.fingerprint:
+            return PublishScreen(
+                publish_note("The plan is not the one you reviewed (or was not reviewed): check it, then confirm again.", problem=True),
+                publish_preview_html(plan),
+                plan.fingerprint,
+                True,
+            )
+        try:
+            record, unrecorded = await publish_and_record(
+                await self._context.graphs.get(), thread_id, plan, client, confirm=shown
+            )
+        except PublishError as error:
+            LOGGER.warning("Publishing %s failed: %s", plan.full_name, error)
+            return PublishScreen(publish_note(str(error), problem=True))
+        self._clients.pop(thread_id, None)
+        note = publish_note(f"Published, but the session could not record it ({unrecorded}).", problem=True) if unrecorded else ""
+        return PublishScreen(note + publish_info_html({"published": record}))
 
     async def stop_run(self, thread_id: str) -> tuple[Any, ...]:
         """The Stop button. Gradio cancels the running `handle_submit` (its `cancels=` wiring), which cancels

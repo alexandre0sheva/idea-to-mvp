@@ -47,6 +47,15 @@ EXAMPLE_IDEAS: list[str] = [
 ]
 
 
+def repo_link(url: str, label: str) -> str:
+    """A repository as a link when its address is https (the only scheme a link may have here), else as plain code;
+    both are escaped."""
+    name = html.escape(label)
+    if url.startswith("https://"):
+        return f"<a href='{html.escape(url)}' target='_blank' rel='noopener noreferrer'>{name}</a>"
+    return f"<code>{name}</code>"
+
+
 def canonical_stage(stage: str) -> str:
     """The pipeline step a state stage belongs to ('' aliases resolved; unknown names returned unchanged)."""
     stage = (stage or "").strip()

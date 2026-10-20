@@ -1,5 +1,6 @@
 """Command-line entry point: `idea-to-mvp` starts the UI, `run` / `resume` / `sessions` drive the pipeline
-headless, `bench` scores it on the golden ideas, `doctor` checks the setup, `models` shows the model catalog."""
+headless, `publish` puts a delivery on GitHub, `bench` scores the pipeline on the golden ideas, `doctor` checks the
+setup, `models` shows the model catalog."""
 
 from __future__ import annotations
 
@@ -101,8 +102,28 @@ def _build_parser() -> argparse.ArgumentParser:
     sessions = commands.add_parser("sessions", help="list the saved sessions, newest first")
     sessions.add_argument("--limit", type=_positive_int, default=50, help="how many to list (default 50)")
     sessions.add_argument("--json", action="store_true", help="print the list as JSON")
+    _add_publish(commands)
     _add_bench(commands)
     return parser
+
+
+def _add_publish(commands: Any) -> None:
+    publish = commands.add_parser(
+        "publish",
+        help="publish a delivery to a new GitHub repository (previewed, then confirmed)",
+        description="Show what would be pushed to a new GitHub repository (its name, visibility, and the delivery's "
+        "git history and version tags, never .idea-to-mvp/ or a secret) and, after you confirm, create it and push. "
+        "Uses GITHUB_TOKEN, else the signed-in gh CLI. Agents never get the credential.",
+        epilog="exit codes: 0 published (or --dry-run showed a clean plan), 3 not confirmed, 1 error or a plan with problems",
+    )
+    publish.add_argument("thread", help="the session id (see `idea-to-mvp sessions`)")
+    publish.add_argument("--repo", metavar="[OWNER/]NAME", help="the new repository (default: the project's name, in your account or GITHUB_OWNER)")
+    publish.add_argument(
+        "--visibility", choices=("private", "public"), help="private (default, or PUBLISH_VISIBILITY) or public"
+    )
+    publish.add_argument("--yes", action="store_true", help="confirm without asking (the preview is still printed)")
+    publish.add_argument("--dry-run", action="store_true", help="print the plan and stop; create nothing")
+    publish.add_argument("--json", action="store_true", help="print the plan (--dry-run) or the result as JSON")
 
 
 def _add_bench(commands: Any) -> None:
@@ -158,6 +179,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         from idea_to_mvp.bench import run_command
 
         return run_command(args)
+
+    if args.command == "publish":
+        return _publish(args)
 
     if args.command == "sessions":
         return _sessions(args)
@@ -221,6 +245,55 @@ async def _drive(args: argparse.Namespace, options: Any, settings: Any) -> Any:
         if args.command == "run":
             return await run_idea(graph, registry, args.idea, options, settings=settings, progress=_progress)
         return await resume_thread(graph, registry, args.thread, options, settings=settings, progress=_progress)
+
+
+def _publish(args: argparse.Namespace) -> int:
+    from idea_to_mvp.config import get_settings
+
+    return asyncio.run(_publish_thread(args, get_settings()))
+
+
+async def _publish_thread(args: argparse.Namespace, settings: Any) -> int:
+    """Preview, confirm, publish, and record in the session. The preview goes to stderr, the result to stdout."""
+    from idea_to_mvp import publish
+    from idea_to_mvp.graph import open_graph, read_thread
+    from idea_to_mvp.headless import publish_and_record
+
+    async with open_graph(settings) as graph:
+        view = await read_thread(graph, args.thread)
+        if not view.values.get("user_idea"):
+            print(f"idea-to-mvp: no saved session {args.thread!r} (see `idea-to-mvp sessions`)", file=sys.stderr)
+            return 1
+        client = publish.make_client(settings)
+        plan = await asyncio.to_thread(
+            publish.plan_publish, view.values, settings, client, repo=args.repo, visibility=args.visibility
+        )
+        if args.dry_run and args.json:
+            print(json.dumps(plan.to_dict(), indent=2))
+            return 0 if plan.ok else 1
+        print(publish.render_plan(plan), file=sys.stderr if not args.dry_run else sys.stdout)
+        if not plan.ok:
+            return 1
+        if args.dry_run:
+            return 0
+        if not args.yes:
+            if not sys.stdin.isatty():
+                print("idea-to-mvp: not a terminal; pass --yes to publish what is shown above", file=sys.stderr)
+                return 1
+            print(f"Create the {plan.visibility} repository {plan.full_name} and push? [y/N] ", end="", file=sys.stderr, flush=True)
+            if sys.stdin.readline().strip().lower() not in ("y", "yes"):
+                print("Nothing was pushed.", file=sys.stderr)
+                return 3
+        assert client is not None  # a plan without problems has a client
+        try:
+            record, unrecorded = await publish_and_record(graph, args.thread, plan, client, confirm=plan.fingerprint)
+        except publish.PublishError as error:
+            print(f"idea-to-mvp: {error}", file=sys.stderr)
+            return 1
+        if unrecorded:  # the push happened; say where it went even if the session could not note it
+            print(f"idea-to-mvp: published, but the session could not record it ({unrecorded})", file=sys.stderr)
+    print(json.dumps(record, indent=2) if args.json else f"Published {record['repo']} ({record['visibility']}): {record['url']}")
+    return 0
 
 
 def _sessions(args: argparse.Namespace) -> int:

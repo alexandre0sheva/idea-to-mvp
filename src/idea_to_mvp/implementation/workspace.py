@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 
@@ -90,14 +91,23 @@ def _git_env() -> dict[str, str]:
     return env
 
 
-def run_git(workspace: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
-    """Run hardened git in `workspace`; None when git is not available."""
+def run_git(
+    workspace: Path, *args: str, env: Mapping[str, str] | None = None, timeout: float = 120
+) -> subprocess.CompletedProcess[str] | None:
+    """Run hardened git in `workspace`; None when git is not available. `env` adds variables to the hardened
+    environment (publishing passes a credential header this way, so it never appears in an argument list)."""
     command = [GIT]
     for option in _GIT_OPTIONS:
         command += ["-c", option]
     try:
         return subprocess.run(
-            [*command, *args], cwd=workspace, env=_git_env(), capture_output=True, text=True, timeout=120, check=False
+            [*command, *args],
+            cwd=workspace,
+            env={**_git_env(), **(env or {})},
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         LOGGER.warning("git is not usable (%s); the workspace at %s is not version controlled.", exc, workspace)

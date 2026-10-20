@@ -193,6 +193,21 @@ async def read_thread(graph: CompiledStateGraph, thread_id: str) -> ThreadView:
     return ThreadView(merged_values(snapshot), pending_interrupt(snapshot), tuple(snapshot.next or ()))
 
 
+async def update_thread(graph: CompiledStateGraph, thread_id: str, values: dict[str, Any]) -> None:
+    """Write `values` into a thread's state outside a run, keeping the gate the thread waits at.
+
+    A state update is a checkpoint of its own, and the gate's interrupt belongs to the checkpoint before it, so
+    after the write the thread is still *at* the gate (its node is next) but no longer shows the gate's payload.
+    Running the gate's node again raises the same interrupt, now from the new state; the node does nothing else
+    (gate nodes have no side effects before `interrupt()`), so this costs nothing.
+    """
+    config = run_config(thread_id)
+    waiting = (await read_thread(graph, thread_id)).interrupt is not None
+    await graph.aupdate_state(config, values)
+    if waiting:
+        await graph.ainvoke(None, config)
+
+
 def merged_values(snapshot: Any) -> dict[str, Any]:
     """The thread's state values with the progress of a running subgraph folded in.
 

@@ -154,6 +154,13 @@ class Settings(BaseSettings):
     # reference data. One planning call per delivery. Unset: on, except in demo mode (canned lessons would otherwise
     # reach real runs).
     experience_library: Literal["on", "off"] | None = None
+    # Publishing a delivery to GitHub (publish.py): opt-in at the iterate gate or with `idea-to-mvp publish`, previewed
+    # and confirmed each time. A token that can create repositories (kept out of the agents' environment), else the
+    # `gh` CLI's sign-in; the owner is a user or organisation (default: the token's own account); repositories are
+    # private unless the request says public.
+    github_token: str | None = Field(default=None, validation_alias="GITHUB_TOKEN")
+    github_owner: str | None = None
+    publish_visibility: Literal["private", "public"] = "private"
     # How many versions a project may go through: after the first delivery the user can request changes, and
     # each round builds the next version (v0.2, ...) in the same workspace. 1 = no iteration gate at all.
     max_iterations: int = Field(default=5, ge=1)

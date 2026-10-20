@@ -37,6 +37,7 @@ from idea_to_mvp.plan import (
     validate_plan,
     workstream_names,
 )
+from idea_to_mvp.publish import publish_options
 from idea_to_mvp.state import IdeaDiscussionState, IterateDecision, VerificationResult
 from idea_to_mvp.usage import summarize_usage, with_usage
 
@@ -81,6 +82,7 @@ def iterate_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
             "passed": passed,
             "delivery_zip": state.get("delivery_zip", ""),
             "max_iterations": settings.max_iterations,
+            "publish": publish_options(state, settings),  # the UI's Publish to GitHub action (a side action, not a decision)
         }
     )
     iterate, feedback = False, ""

@@ -65,6 +65,11 @@ def test_secrets_are_blanked_with_empty_strings_because_the_sdk_merges_env_over_
     assert all(name not in env for name in KEEP)
 
 
+def test_github_credentials_are_blanked_so_publishing_stays_with_the_orchestrator() -> None:
+    env = scrubbed_env({"GITHUB_TOKEN": "ghp_x", "GH_TOKEN": "ghp_y", "GITHUB_PAT": "ghp_z", "GH_PAT": "ghp_w", "GITHUB_OWNER": "acme"})
+    assert env == {"GITHUB_TOKEN": "", "GH_TOKEN": "", "GITHUB_PAT": "", "GH_PAT": ""}  # the owner is not a secret
+
+
 def test_the_agents_own_anthropic_credentials_survive() -> None:
     assert "ANTHROPIC_API_KEY" not in scrubbed_env(KEEP) and "CLAUDE_CODE_OAUTH_TOKEN" not in scrubbed_env(KEEP)
 

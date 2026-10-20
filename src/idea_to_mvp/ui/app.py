@@ -196,7 +196,15 @@ def make_ui(
                 run_events.append(
                     button.click(submit_for(kind, gate_action.name), inputs=[*shared_inputs, *field_components], outputs=view_outputs)
                 )
-            spec.wire(gate_widgets[kind], GateRuntime(thread=thread_id_state, payload=service.gate_payload))
+            spec.wire(
+                gate_widgets[kind],
+                GateRuntime(
+                    thread=thread_id_state,
+                    payload=service.gate_payload,
+                    review_publish=service.publish_review,
+                    confirm_publish=service.publish_confirm,
+                ),
+            )
         # Cancelling a run event cancels the graph run cooperatively (the checkpoint keeps its state);
         # the handler then shows where the run stands and offers to continue.
         stop_btn.click(service.stop_run, inputs=[thread_id_state], outputs=view_outputs, cancels=cast(Any, run_events))

@@ -46,6 +46,8 @@ _SECRET_NAME = re.compile(
     r"(_API_KEY|_TOKEN|_SECRET|_SECRET_KEY|_ACCESS_KEY|_PASSWORD|_PASSWD|_CREDENTIALS?)$", re.IGNORECASE
 )
 _KEEP_PREFIXES = ("ANTHROPIC_", "CLAUDE_")
+# Credentials the pattern does not catch by name (`GITHUB_TOKEN` and `GH_TOKEN`, which publishing uses, end in _TOKEN).
+_SECRET_NAMES = frozenset({"GITHUB_PAT", "GH_PAT"})
 # Credential locations the sandbox must not let shell commands read (relative to the user's home).
 _CREDENTIAL_PATHS = (
     ".ssh",
@@ -138,7 +140,7 @@ def scrubbed_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     return {
         name: ""
         for name in environ
-        if _SECRET_NAME.search(name) and not name.upper().startswith(_KEEP_PREFIXES)
+        if (_SECRET_NAME.search(name) or name.upper() in _SECRET_NAMES) and not name.upper().startswith(_KEEP_PREFIXES)
     }
 
 

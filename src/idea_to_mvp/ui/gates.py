@@ -7,7 +7,8 @@ graph node runs next (`next_step`). The service dispatches through `GATES`; addi
 one entry here.
 
 The implement gate also carries the blueprint editor: PRD, architecture, and plan can be edited before any
-money is spent, and edits are checked on save (`save_blueprint_file`).
+money is spent, and edits are checked on save (`save_blueprint_file`). The iterate gate carries *Publish to GitHub*:
+two side actions (review what would be pushed, then confirm) that do not resume the graph.
 """
 
 from __future__ import annotations
@@ -32,7 +33,9 @@ from idea_to_mvp.plan import (
     validate_plan,
     workstream_names,
 )
+from idea_to_mvp.publish import FILE_LIST_LIMIT, PublishPlan
 from idea_to_mvp.schemas import QUESTION_COUNT
+from idea_to_mvp.ui.components import repo_link
 from idea_to_mvp.ui.view import (
     IMPL_CHOICE_SKIP,
     IMPL_CHOICE_START,
@@ -74,6 +77,10 @@ class GateRuntime:
 
     thread: gr.State
     payload: Callable[[str], Awaitable[dict[str, Any]]]  # the interrupt payload the thread is paused at
+    # The iterate gate's Publish to GitHub: (thread, repo, visibility) -> what to show; and with the fingerprint of
+    # the plan the user reviewed, the same for the confirmation.
+    review_publish: Callable[[str, str, str], Awaitable[PublishScreen]] | None = None
+    confirm_publish: Callable[[str, str, str, str], Awaitable[PublishScreen]] | None = None
 
 
 def _no_validation(inputs: GateInputs, payload: dict[str, Any]) -> str | None:
@@ -527,9 +534,88 @@ def _implement_wire(widgets: dict[str, Any], runtime: GateRuntime) -> None:
 # ------------------------------------------------------------------- iterate
 
 
+@dataclass(frozen=True)
+class PublishScreen:
+    """What the Publish to GitHub area shows: a note, the preview of the plan (HTML, '' to hide it), the fingerprint
+    of that plan (what a confirmation must quote), and whether the confirm button is offered."""
+
+    info: str
+    preview: str = ""
+    fingerprint: str = ""
+    confirm: bool = False
+
+
+def publish_note(text: str, *, problem: bool = False) -> str:
+    return f"<p class='publish-note{' publish-problem' if problem else ''}'>{_e(text)}</p>"
+
+
+def publish_info_html(options: Mapping[str, Any]) -> str:
+    """The area's standing note: where the delivery is published, or what publishing needs."""
+    published = options.get("published") or {}
+    if published:
+        url = str(published.get("url") or "")
+        link = repo_link(url, str(published.get("repo") or url))
+        return f"<p class='publish-note'>Published: {link} ({_e(published.get('visibility'))}). To send a later version, push from the project folder.</p>"
+    if not options.get("available"):
+        return publish_note(
+            "Publishing needs GITHUB_TOKEN in .env (a token that can create repositories) or a signed-in gh CLI; "
+            "restart the app after setting it.",
+        )
+    via = "GITHUB_TOKEN" if options.get("backend") == "token" else "the gh CLI"
+    return publish_note(
+        f"Creates a new GitHub repository (private unless you choose public) from this project's git history, using {via}. "
+        "Review shows exactly what would be pushed; nothing is created until you confirm."
+    )
+
+
+def publish_preview_html(plan: PublishPlan) -> str:
+    """The plan as the user is asked to confirm it; every value (file names, commit subjects) is escaped."""
+    if plan.problems:
+        items = "".join(f"<li>{_e(problem)}</li>" for problem in plan.problems)
+        return f"<div class='publish-plan publish-problem'><strong>Cannot publish</strong><ul>{items}</ul></div>"
+    files = list(plan.files[:FILE_LIST_LIMIT])
+    more = len(plan.files) - len(files)
+    file_items = "".join(f"<li><code>{_e(path)}</code></li>" for path in files) + (f"<li>... and {more} more</li>" if more > 0 else "")
+    history = "".join(f"<li>{_e(line)}</li>" for line in plan.commits) + ("<li>...</li>" if plan.commit_count > len(plan.commits) else "")
+    removed = list(plan.removed[:FILE_LIST_LIMIT])
+    removed_items = "".join(f"<li><code>{_e(path)}</code></li>" for path in removed) + (
+        f"<li>... and {len(plan.removed) - len(removed)} more</li>" if len(plan.removed) > len(removed) else ""
+    )
+    removed_html = (
+        f"<details open><summary>{len(plan.removed)} more file(s) in the history, removed from the latest version "
+        f"(pushed all the same)</summary><ul>{removed_items}</ul></details>"
+        if plan.removed
+        else ""
+    )
+    return (
+        "<div class='publish-plan'>"
+        f"<p><strong>Repository:</strong> <code>{_e(plan.full_name)}</code> · <strong>{_e(plan.visibility)}</strong> · new</p>"
+        f"<p><strong>Pushed:</strong> branch <code>{_e(plan.branch)}</code> at <code>{_e(plan.commit[:7])}</code> "
+        f"({plan.commit_count} commit(s)); tags {_e(', '.join(plan.tags) or 'none')}</p>"
+        "<p><strong>Never sent:</strong> <code>.idea-to-mvp/</code> (orchestrator records), <code>.env</code> files, "
+        "anything git-ignored, other branches.</p>"
+        f"<details><summary>{len(plan.files)} file(s) in the repository</summary><ul>{file_items}</ul></details>"
+        f"{removed_html}"
+        f"<details><summary>History</summary><ul>{history}</ul></details>"
+        "</div>"
+    )
+
+
 def _iterate_view(payload: dict[str, Any]) -> GateView:
     version = int(payload.get("iteration") or 1) + 1
-    return GateView({"feedback": {"label": f"What should change in v0.{version}?", "value": ""}})
+    options = payload.get("publish") or {}
+    settled = bool(options.get("published"))
+    return GateView(
+        {
+            "feedback": {"label": f"What should change in v0.{version}?", "value": ""},
+            "publish_info": {"value": publish_info_html(options)},
+            "publish_repo": {"value": options.get("repo") or "", "interactive": not settled},
+            "publish_visibility": {"value": options.get("visibility") or "private", "interactive": not settled},
+            "publish_preview": {"value": "", "visible": False},
+            "publish_fingerprint": {"value": ""},
+            "publish_confirm": {"visible": False},
+        }
+    )
 
 
 def _iterate_resume(inputs: GateInputs) -> dict[str, Any]:
@@ -550,7 +636,40 @@ def _iterate_build() -> dict[str, Any]:
     with gr.Row():
         widgets["action:iterate"] = gr.Button("Iterate", variant="primary")
         widgets["action:finish"] = gr.Button("Finish")
+    with gr.Accordion("Publish to GitHub (optional)", open=False):
+        widgets["publish_info"] = gr.HTML()
+        widgets["publish_repo"] = gr.Textbox(label="Repository", info="A new repository: name, or owner/name", lines=1)
+        widgets["publish_visibility"] = gr.Radio(choices=["private", "public"], value="private", label="Visibility")
+        widgets["publish_review"] = gr.Button("Review what will be pushed")
+        widgets["publish_preview"] = gr.HTML(visible=False)
+        widgets["publish_fingerprint"] = gr.Textbox(visible=False)
+        widgets["publish_confirm"] = gr.Button("Confirm: create the repository and push", variant="primary", visible=False)
     return widgets
+
+
+def _iterate_wire(widgets: dict[str, Any], runtime: GateRuntime) -> None:
+    if runtime.review_publish is None or runtime.confirm_publish is None:
+        return
+    review, confirm = runtime.review_publish, runtime.confirm_publish
+    outputs = [widgets[name] for name in ("publish_info", "publish_preview", "publish_fingerprint", "publish_confirm")]
+
+    def show(screen: PublishScreen) -> list[Any]:
+        return [
+            gr.update(value=screen.info),
+            gr.update(value=screen.preview, visible=bool(screen.preview)),
+            gr.update(value=screen.fingerprint),
+            gr.update(visible=screen.confirm),
+        ]
+
+    async def on_review(thread_id: str, repo: str, visibility: str) -> list[Any]:
+        return show(await review(thread_id, repo, visibility))
+
+    async def on_confirm(thread_id: str, repo: str, visibility: str, fingerprint: str) -> list[Any]:
+        return show(await confirm(thread_id, repo, visibility, fingerprint))
+
+    inputs = [runtime.thread, widgets["publish_repo"], widgets["publish_visibility"]]
+    widgets["publish_review"].click(on_review, inputs=inputs, outputs=outputs)
+    widgets["publish_confirm"].click(on_confirm, inputs=[*inputs, widgets["publish_fingerprint"]], outputs=outputs)
 
 
 # ------------------------------------------------------------------ registry
@@ -622,7 +741,15 @@ GATES: dict[str, GateSpec] = {
     "iterate_gate": GateSpec(
         kind="iterate_gate",
         mode=MODE_ITERATE_GATE,
-        fields=("feedback",),
+        fields=(
+            "feedback",
+            "publish_info",
+            "publish_repo",
+            "publish_visibility",
+            "publish_preview",
+            "publish_fingerprint",
+            "publish_confirm",
+        ),
         actions=(GateAction("iterate", "Iterate", "primary"), GateAction("finish", "Finish")),
         build=_iterate_build,
         render=_iterate_view,
@@ -634,6 +761,7 @@ GATES: dict[str, GateSpec] = {
         ),
         next_step=lambda resume: "change_planner" if resume.get("iterate") else None,
         validate=_iterate_validate,
+        wire=_iterate_wire,
     ),
 }
 

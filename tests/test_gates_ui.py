@@ -481,7 +481,10 @@ def test_only_the_editable_documents_can_be_written(bundle: Path) -> None:
 
 def test_the_iterate_form_is_a_feedback_box_with_iterate_and_finish(monkeypatch: pytest.MonkeyPatch) -> None:
     spec = GATES["iterate_gate"]
-    assert [a.name for a in spec.actions] == ["iterate", "finish"] and spec.fields == ("feedback",)
+    assert [a.name for a in spec.actions] == ["iterate", "finish"] and spec.fields[0] == "feedback"
+    assert set(spec.fields[1:]) == {
+        "publish_info", "publish_repo", "publish_visibility", "publish_preview", "publish_fingerprint", "publish_confirm"
+    }
     assert "v0.3" in spec.render({"kind": "iterate_gate", "iteration": 2}).updates["feedback"]["label"]
     assert "describe" in (spec.validate({"action": "iterate", "feedback": " "}, {}) or "").lower()
     assert spec.validate({"action": "iterate", "feedback": "Add CSV"}, {}) is None

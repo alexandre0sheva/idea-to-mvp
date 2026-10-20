@@ -31,7 +31,10 @@ DEMO_MODE=true uv run idea-to-mvp run "a habit tracker" --autopilot --implement
 uv run idea-to-mvp run "a habit tracker" --autopilot   # stops at the implement gate and prints the cost estimate
 uv run idea-to-mvp sessions                            # saved sessions, from the UI or the CLI
 uv run idea-to-mvp resume <session> --implement --max-total-usd 10
+uv run idea-to-mvp publish <session> --dry-run        # what would go to a new GitHub repository; creates nothing
 ```
+
+Publishing is opt-in too: set `GITHUB_TOKEN` (or sign in with `gh`), then use the iterate gate's *Publish to GitHub* or `publish <session>`. It shows the repository (private by default) and exactly what would be pushed, and creates and pushes only after you confirm; `.idea-to-mvp/` and secret files never leave the project folder.
 
 Agents are only started with an explicit `--implement`. `--answers FILE` and `--arch 1|2` answer those gates yourself; `resume <session> --implement --feedback "..."` builds the next version.
 

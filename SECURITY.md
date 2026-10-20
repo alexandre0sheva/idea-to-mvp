@@ -133,6 +133,23 @@ red warning when the sandbox is off or unavailable or the permission mode is `by
   environment variable named like a key, token, secret, or password, a key-shaped string, a line of the project's
   acceptance suites, or one of their test names is dropped, and the write is refused if anything still matches.
   That check matches exact text; a paraphrase of a hidden test is not caught.
+- **Publishing sends the project's git history to GitHub, with a credential agents must not have.** It happens only
+  when you ask for it (the iterate gate's *Publish to GitHub* or `idea-to-mvp publish <session>`), after a preview of
+  the repository, its visibility (private unless you choose public), the branch, the `v0.<n>` tags, and every file
+  that will be in it, and only for a confirmation that quotes that exact plan (a fingerprint of repository,
+  visibility, commit, and tags), so a plan that changed after you looked is shown again, not sent. Only the main
+  branch and the version tags are pushed (no task branches), without force, to a repository it creates itself (an
+  existing name is an error, never an overwrite). `.idea-to-mvp/` is git-ignored, and the plan also reads the whole
+  history that would be pushed: a commit that ever held an orchestrator record or a `.env` file (an agent can
+  `git add -f` one) makes the plan refuse. The credential (`GITHUB_TOKEN`, or the token of the signed-in `gh` CLI)
+  is read by the orchestrator only: agent environments are scrubbed of `GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_PAT`,
+  and `GH_PAT`, the sandbox cannot read `~/.config/gh`, and the guard refuses `gh` and `git push`. It reaches git as
+  an HTTP header in git's environment, scoped to the host of the repository it pushes to (github.com, or the host `gh` is signed in to), never in an argument list, and error text is stripped
+  of it. The preview also lists files that only the history holds (committed once, removed later), because they are pushed with it. What it cannot do: judge what a generated project contains. Read the file list and the code before
+  publishing, especially as *public*: the agents wrote it, a secret could be in a file the plan lists, and the check
+  above only covers the file names it knows. Publishing the same session again is refused (a later version is
+  pushed by hand from the project folder). The token needs permission to create repositories; give it as little
+  else as you can, and revoke it when you are done.
 - **Model API keys stay in the orchestrator process**, and `OUTPUT_DIR/sessions.db` holds every session's
   ideas and transcript; neither is reachable by agents through the sandbox's credential list.
 - **Residual git risk:** an agent could plant a `.gitattributes` file or other in-tree content aimed at

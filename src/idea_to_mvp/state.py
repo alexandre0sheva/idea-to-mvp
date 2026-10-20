@@ -133,6 +133,9 @@ class IdeaDiscussionState(TypedDict):
     reflection: dict[str, Any]
     delivery_report: str
     delivery_zip: str  # the latest delivery bundle (a zip of the project)
+    # Where the delivery was published (`publish.py`): {repo, url, visibility, branch, commit, tags, files, backend,
+    # published_at}; {} until the user publishes it.
+    publication: dict[str, Any]
     iteration: int  # the version being built: 1 = the first delivery (v0.1), 2 = v0.2, ...
     change_requests: list[str]  # the user's feedback, one entry per iteration after the first
     iterate_decision: IterateDecision
@@ -193,6 +196,7 @@ def make_initial_state(
         "reflection": {},
         "delivery_report": "",
         "delivery_zip": "",
+        "publication": {},
         "iteration": 1,
         "change_requests": [],
         "iterate_decision": {"iterate": False, "feedback": ""},

@@ -17,7 +17,7 @@ from idea_to_mvp.implementation.fixes import result_text
 from idea_to_mvp.implementation.integrity import CHANGES_FILE
 from idea_to_mvp.implementation.progress import TaskResult, load_progress
 from idea_to_mvp.plan import Plan, load_plan, parse_requirements
-from idea_to_mvp.ui.components import compact_count, format_elapsed
+from idea_to_mvp.ui.components import compact_count, format_elapsed, repo_link
 from idea_to_mvp.usage import summarize_usage
 
 _LANE_ORDER = ("tests", "quality", "requirements", "acceptance")
@@ -259,6 +259,18 @@ def _requirement_rows(
 # ----------------------------------------------------------------- dashboard
 
 
+def published_line(publication: Mapping[str, Any]) -> str:
+    """Where the delivery was published ('' before it was): the repository as a link, when its address is https."""
+    if not publication:
+        return ""
+    url = str(publication.get("url") or "")
+    target = repo_link(url, str(publication.get("repo") or url))
+    tags = ", ".join(str(tag) for tag in publication.get("tags") or [])
+    commit = str(publication.get("commit") or "")[:7]
+    detail = ", ".join(part for part in (str(publication.get("visibility") or ""), commit and f"commit {commit}", tags) if part)
+    return f"<p class='dashboard-published'><strong>Published:</strong> {target}{f' ({_e(detail)})' if detail else ''}</p>"
+
+
 def _stat(name: str, label: str, value: str) -> str:
     return f"<div class='stat stat-{name}'><span class='stat-label'>{_e(label)}</span><span class='stat-value'>{_e(value)}</span></div>"
 
@@ -349,6 +361,7 @@ def render_dashboard(state: Mapping[str, Any], *, elapsed: Mapping[str, float] |
     where = (
         (f"<p><strong>Project:</strong> <code>{_e(workspace_dir)}</code></p>" if workspace_dir else "")
         + (f"<p><strong>Download:</strong> <code>{_e(archive)}</code></p>" if archive else "")
+        + published_line(state.get("publication") or {})
     )
     return (
         "<div class='dashboard'>"

@@ -11,6 +11,8 @@ Progress goes to the `progress` callback (stderr in the CLI); the result is a `R
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 import time
 import uuid
@@ -22,14 +24,17 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from idea_to_mvp.config import Settings
-from idea_to_mvp.graph import ThreadView, read_thread, run_config
+from idea_to_mvp.graph import ThreadView, read_thread, run_config, update_thread
 from idea_to_mvp.implementation.events import EVENT_KINDS
 from idea_to_mvp.nodes.gates import AUTOPILOT_NOTE, recommended_option, suggested_answers
+from idea_to_mvp.publish import GitHubClient, PublishPlan, publish_plan
 from idea_to_mvp.resilience import error_hint
 from idea_to_mvp.schemas import ProjectPreferences
 from idea_to_mvp.sessions import SessionInfo, SessionRegistry
 from idea_to_mvp.state import make_initial_state
 from idea_to_mvp.usage import summarize_usage
+
+LOGGER = logging.getLogger(__name__)
 
 EXIT_VERIFIED = 0
 EXIT_ERROR = 1
@@ -382,6 +387,23 @@ async def resume_thread(
         # a UI run with autopilot on: the flags decide the gates from here
         await graph.aupdate_state({"configurable": {"thread_id": thread_id}}, {"autopilot": False})
     return await drive(graph, registry, thread_id, payload, options, settings=settings, progress=progress)
+
+
+async def publish_and_record(
+    graph: CompiledStateGraph, thread_id: str, plan: PublishPlan, client: GitHubClient, *, confirm: str
+) -> tuple[dict[str, Any], str]:
+    """Publish a confirmed plan and note it in the thread's state (the UI and `idea-to-mvp publish` share this).
+
+    Returns the record and what went wrong while noting it ('' if nothing): the push has happened either way, so a
+    failure to record is reported, not raised. `PublishError` (nothing, or only an empty repository, was made) is raised.
+    """
+    record = await asyncio.to_thread(publish_plan, plan, client, confirm=confirm)
+    try:
+        await update_thread(graph, thread_id, {"publication": record})
+    except Exception as error:
+        LOGGER.warning("Published %s but could not record it in session %s: %s", record["repo"], thread_id, error)
+        return record, str(error)
+    return record, ""
 
 
 def session_rows(sessions: Sequence[SessionInfo]) -> list[dict[str, str]]:
