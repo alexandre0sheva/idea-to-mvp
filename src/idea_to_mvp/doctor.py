@@ -16,6 +16,7 @@ from idea_to_mvp.config import Settings
 from idea_to_mvp.model_catalog import AGENT_ROLES, ModelCatalog, get_catalog
 from idea_to_mvp.pricing import PricingError, settings_overrides
 from idea_to_mvp.roles import ROLES, resolve_agent_model, resolve_role_model
+from idea_to_mvp.templates import load_templates, missing_tools
 
 Status = Literal["ok", "warn", "fail"]
 
@@ -97,6 +98,26 @@ def _catalog_checks(settings: Settings, catalog: ModelCatalog) -> list[Check]:
     return checks
 
 
+def _template_checks(which: Callable[[str], str | None]) -> list[Check]:
+    """Warn when the toolchain of a starter template is missing: the strategy may pick the template, and the
+    agent sessions then install and run its scaffold with these tools. Templates that need the same tools
+    are reported together."""
+    by_toolchain: dict[tuple[str, ...], list[str]] = {}
+    for template in load_templates().values():
+        by_toolchain.setdefault(template.toolchain, []).append(template.name)
+    checks: list[Check] = []
+    for toolchain, names in by_toolchain.items():
+        label = f"template {', '.join(names)}"
+        missing = [tool for template in load_templates().values() if template.toolchain == toolchain for tool in missing_tools(template, which)]
+        if missing:
+            checks.append(
+                Check(label, "warn", f"{', '.join(dict.fromkeys(missing))} not found on the PATH: a project from this template cannot be installed or tested here")
+            )
+        else:
+            checks.append(Check(label, "ok", f"{', '.join(toolchain)} found"))
+    return checks
+
+
 def _prices_checks(settings: Settings) -> list[Check]:
     """Warn when MODEL_PRICES_FILE is set but cannot be used (cost figures then fall back to the catalog)."""
     if not settings.model_prices_file:
@@ -115,6 +136,7 @@ def collect_checks(
     ping: Callable[[Any], str] = default_ping,
     offline: bool = False,
     catalog: ModelCatalog | None = None,
+    which: Callable[[str], str | None] = shutil.which,
 ) -> list[Check]:
     """Run every check; failures are reported, never raised."""
     if settings.demo_mode:
@@ -145,6 +167,7 @@ def collect_checks(
         checks.append(Check(name, status, detail))
     checks.extend(_implementer_checks(settings))
     checks.extend(_catalog_checks(settings, catalog or get_catalog()))
+    checks.extend(_template_checks(which))
     checks.extend(_prices_checks(settings))
     return checks
 

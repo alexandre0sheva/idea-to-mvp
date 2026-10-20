@@ -230,3 +230,84 @@ def test_a_harness_that_no_longer_fits_the_final_plan_is_replaced_by_the_fallbac
     bundle_dir, _, _ = write_bundle(root=tmp_path, user_idea="idea", docs=docs, strategy=STRATEGY)
     assert (bundle_dir / ".claude/skills/check/SKILL.md").is_file()
     assert validate_harness(read_harness(bundle_dir)) == []
+
+
+# --------------------------------------------------------------------- the starter template
+
+TEMPLATE_STRATEGY = {**STRATEGY, "template": "python-fastapi"}
+
+
+def _context(strategy: dict) -> str:
+    from idea_to_mvp.blueprints import build_bundle_context
+
+    return build_bundle_context(
+        user_idea="idea",
+        summary="",
+        questions=[],
+        user_answers="",
+        architecture="",
+        arch_choice=None,
+        strategy=strategy,
+        planning_request="",
+    )
+
+
+def test_every_document_is_told_what_the_starter_template_already_provides() -> None:
+    context = _context(TEMPLATE_STRATEGY)
+    assert "Starter template `python-fastapi`" in context and "Do not plan tasks that create" in context
+    assert "Starter template" not in _context(STRATEGY)
+    assert "Starter template" not in _context({**STRATEGY, "template": "none"})
+    assert "Starter template" not in _context({**STRATEGY, "template": "django"})
+
+
+def test_the_pack_of_a_template_project_runs_the_templates_commands(tmp_path) -> None:
+    from idea_to_mvp.harness_pack import CHECK_SCRIPT
+    from idea_to_mvp.templates import get_template, template_files
+
+    template = get_template("python-fastapi")
+    assert template is not None
+    own_commands = make_plan()  # a plan whose commands do not match the scaffold
+    assert own_commands.commands != template.commands
+    bundle, _created, _summary = write_bundle(
+        root=tmp_path, user_idea="idea", docs={"plan.json": own_commands.model_dump_json()}, strategy=TEMPLATE_STRATEGY
+    )
+    plan = json.loads((bundle / "plan.json").read_text())
+    assert plan["commands"]["test_report"] == template.commands.test_report
+    assert (bundle / CHECK_SCRIPT).read_text() == template_files(template)[CHECK_SCRIPT]
+    assert json.loads((bundle / "STRATEGY.json").read_text())["template"] == "python-fastapi"
+    assert template.commands.test_report in (bundle / "plan.md").read_text()
+
+
+def test_a_project_without_a_template_keeps_the_commands_of_its_plan(tmp_path) -> None:
+    plan = make_plan()
+    bundle, _created, _summary = write_bundle(
+        root=tmp_path, user_idea="idea", docs={"plan.json": plan.model_dump_json()}, strategy=STRATEGY
+    )
+    assert json.loads((bundle / "plan.json").read_text())["commands"] == plan.commands.model_dump()
+
+
+def test_the_plan_writer_node_replaces_the_commands_with_the_templates(monkeypatch) -> None:
+    from plan_helpers import PRD
+
+    from idea_to_mvp import llm
+    from idea_to_mvp.nodes.blueprint import generate_plan_node
+    from idea_to_mvp.templates import get_template
+
+    class Runtime:
+        system_prompt = "system"
+        provider, model, max_tokens, llm = "anthropic", "fake", 256, object()
+
+    monkeypatch.setattr(llm, "get_runtime", lambda key: Runtime())
+    monkeypatch.setattr(llm, "invoke_structured", lambda runtime, messages, schema, *, fallback=None: make_plan())
+    state = {
+        "path": "plan.md",
+        "strategy": TEMPLATE_STRATEGY,
+        "context_block": _context(TEMPLATE_STRATEGY),
+        "upstream": {"PRD.md": PRD, "ARCHITECTURE.md": "# Architecture"},
+        "issues": "",
+        "previous": "",
+    }
+    update = generate_plan_node(state)  # type: ignore[arg-type]
+    plan = json.loads(update["blueprint_docs"]["plan.json"])
+    template = get_template("python-fastapi")
+    assert template is not None and plan["commands"]["test"] == template.commands.test

@@ -57,7 +57,10 @@ red warning when the sandbox is off or unavailable or the permission mode is `by
 - **The network allowlist covers sandboxed shell commands only**, and the allowed domains (package
   registries, `github.com`) can themselves host or receive data.
 - **Dependencies run as code.** Installing packages executes their install scripts inside the sandbox; a
-  malicious package can do whatever the sandbox permits, including writing into the workspace.
+  malicious package can do whatever the sandbox permits, including writing into the workspace. A starter template
+  (`src/idea_to_mvp/templates/`) names its dependencies by version range, not by lock file, so the first install
+  resolves whatever the registry then serves; the orchestrator writes the scaffold's files but never installs or
+  runs them, the agents do, inside the sandbox.
 - **The generated project is untrusted.** When you run it yourself, it has your full permissions. Read it
   first, or run it in a container.
 - **Test reports are evidence, not proof.** The orchestrator parses the JUnit and coverage files the plan's

@@ -1,0 +1,16 @@
+name = "node-ts-express"
+title = "Node.js + TypeScript API (Express)"
+description = "An Express 5 service in TypeScript (ES modules) with a /health route, vitest and supertest, ESLint with typescript-eslint, and coverage."
+use_when = "The product is a web API or a backend service in Node.js / TypeScript, with or without a separate frontend."
+toolchain = ["node", "npm"]
+notes = [
+  "`src/app.ts` exports `createApp()` (routes and middleware) and `src/server.ts` starts it; add routers as modules under `src/` and mount them in `createApp`.",
+  "Imports of local files end in `.js` (NodeNext ES modules). Tests live in `tests/` and use vitest with supertest; add dependencies in `package.json`.",
+]
+
+[commands]
+install = "npm install --no-audit --no-fund"
+test = "npm test"
+test_report = "npx vitest run --reporter=junit --outputFile=.idea-to-mvp/reports/junit.xml"
+lint = "npm run lint"
+run = "npm run dev"

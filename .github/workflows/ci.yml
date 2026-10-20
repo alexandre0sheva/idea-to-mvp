@@ -27,3 +27,21 @@ jobs:
       # Also runs the golden blueprint packs and the graph-diagram sync test; coverage below 80% fails the job.
       - name: Test
         run: uv run pytest --cov=idea_to_mvp --cov-report=term-missing:skip-covered --cov-fail-under=80
+
+  # Installs, lints, and tests every starter template (src/idea_to_mvp/templates) with the real toolchain and
+  # network, so a template that stops working (a dependency release, a tool's new default) fails here and not
+  # in a user's run. The main job leaves these tests out: they need node, npm, and the package registries.
+  starter-templates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Check each template
+        run: uv run pytest -m scaffold tests/test_templates.py --no-cov -v

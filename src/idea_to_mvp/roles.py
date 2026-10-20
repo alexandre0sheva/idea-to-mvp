@@ -119,6 +119,9 @@ PLAN_WRITER_SYSTEM = (
     "--junitxml=.idea-to-mvp/reports/junit.xml`, `vitest run --reporter=junit "
     "--outputFile=.idea-to-mvp/reports/junit.xml`, `gotestsum --junitfile .idea-to-mvp/reports/junit.xml`, "
     "`mvn test` with surefire's report directory set. Null only when the stack truly cannot write JUnit XML.\n"
+    "- starter template: when the project context names one, its files already exist before T01. Plan no task "
+    "that creates the project skeleton, the test runner, the linter, `.gitignore`, or `scripts/check.sh`; T01 "
+    "builds the product's first slice on top of them. `commands` are the template's own, exactly as listed.\n"
     "Keep the writing dense and implementation-oriented."
 )
 
@@ -238,7 +241,11 @@ STRATEGY_SYSTEM = (
     "each in its own git worktree, and are merged back automatically. Best when workstreams are large and "
     "independent (clear API boundaries, little shared code).\n\n"
     "Then split the MVP into 2-5 workstreams. Each workstream gets a unique kebab-case name, a one-sentence "
-    "focus, and concrete deliverables. Give a short reasoning paragraph for the mode you chose."
+    "focus, and concrete deliverables. Give a short reasoning paragraph for the mode you chose.\n\n"
+    "Finally set `template`: the starter template the project begins from, one of the names in the list that comes "
+    "with the request. A template is a working scaffold (project skeleton, test runner, linter, `.gitignore`) laid "
+    "down before the first task, so choose one only when the chosen architecture's stack and the user's "
+    "preferences match it; otherwise answer `none`. Never pick a template to override the user's stack."
 )
 
 

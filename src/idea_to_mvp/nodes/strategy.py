@@ -8,6 +8,7 @@ from idea_to_mvp import llm
 from idea_to_mvp.nodes.common import preferences_block
 from idea_to_mvp.schemas import ExecutionStrategy, Workstream
 from idea_to_mvp.state import IdeaDiscussionState
+from idea_to_mvp.templates import catalog_text
 from idea_to_mvp.usage import with_usage
 
 
@@ -19,6 +20,7 @@ def fallback_strategy() -> ExecutionStrategy:
             "Strategy output could not be validated; defaulting to a single lead session with specialized "
             "subagents, which is the safest mode for a small MVP."
         ),
+        template="none",
         workstreams=[
             Workstream(
                 name="core-product",
@@ -51,7 +53,8 @@ def strategy_node(state: IdeaDiscussionState) -> dict[str, Any]:
                     f"Architecture options:\n{state.get('architecture', '').strip() or 'No architecture.'}\n\n"
                     f"User chose option: {arch_choice.get('option') or 'A'}\n"
                     f"User notes: {arch_choice.get('notes') or 'None.'}\n\n"
-                    "Decide the execution mode and workstreams now."
+                    f"Starter templates (choose one for `template`, or `none`):\n{catalog_text()}\n\n"
+                    "Decide the execution mode, the workstreams, and the template now."
                 )
             ),
         ],

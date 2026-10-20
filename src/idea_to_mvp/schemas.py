@@ -14,6 +14,9 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from idea_to_mvp.templates import NONE as NO_TEMPLATE
+from idea_to_mvp.templates import normalize_template
+
 MAX_WORKSTREAMS = 5
 QUESTION_COUNT = 5
 
@@ -230,6 +233,21 @@ class ExecutionStrategy(BaseModel):
     mode: Literal["subagents", "agent_team"]
     reasoning: str
     workstreams: list[Workstream]
+    # The starter template (`templates/`) the project begins from, `none` when nothing fits. Required in the schema
+    # like every field, but a strategy written before templates existed still loads: a missing key reads as `none`.
+    template: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _strategies_before_templates(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "template" not in data:
+            return {**data, "template": NO_TEMPLATE}
+        return data
+
+    @field_validator("template", mode="before")
+    @classmethod
+    def _known_template(cls, value: Any) -> str:
+        return normalize_template(value)
 
     @field_validator("workstreams", mode="before")
     @classmethod

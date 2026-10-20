@@ -1,0 +1,16 @@
+name = "python-fastapi"
+title = "Python web API (FastAPI)"
+description = "A FastAPI service in the package `app` (src layout) with a /health route, pytest with the test client, ruff, and coverage."
+use_when = "The product is a web API or a backend service in Python (REST/JSON), with or without a separate frontend."
+toolchain = ["python3"]
+notes = [
+  "The app object is `app` in `src/app/main.py`; add routers as modules under `src/app/` and include them there.",
+  "Tests live in `tests/` and use FastAPI's `TestClient`; add dependencies to `pyproject.toml` (`dependencies`, or `dev` for tools).",
+]
+
+[commands]
+install = 'python3 -m venv .venv && .venv/bin/python -m pip install --quiet -e ".[dev]"'
+test = ".venv/bin/python -m pytest"
+test_report = ".venv/bin/python -m pytest --junitxml=.idea-to-mvp/reports/junit.xml --cov=app --cov-report=xml:.idea-to-mvp/reports/coverage.xml"
+lint = ".venv/bin/ruff check ."
+run = ".venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000"

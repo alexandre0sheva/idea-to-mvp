@@ -1,0 +1,16 @@
+name = "nextjs"
+title = "Next.js (App Router) + TypeScript"
+description = "A Next.js app using the App Router and TypeScript, tested with vitest and Testing Library (jsdom), ESLint with the Next.js config, and coverage."
+use_when = "The product is a full-stack web app with server-rendered pages, server actions, or route handlers in one Next.js project."
+toolchain = ["node", "npm"]
+notes = [
+  "Pages and layouts live in `app/` (`app/page.tsx`, `app/layout.tsx`); route handlers are `app/<route>/route.ts`. Tests live in `tests/` (`*.test.tsx`).",
+  "Tests run in jsdom with Testing Library and the jest-dom matchers (`tests/setup.ts`); an async server component is tested through its plain functions, not rendered. Add dependencies in `package.json`.",
+]
+
+[commands]
+install = "npm install --no-audit --no-fund"
+test = "npm test"
+test_report = "npx vitest run --reporter=junit --outputFile=.idea-to-mvp/reports/junit.xml"
+lint = "npm run lint"
+run = "npm run dev"

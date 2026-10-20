@@ -1,0 +1,16 @@
+name = "python-cli"
+title = "Python command-line app"
+description = "A Python package `app` (src layout) with an argparse entry point, pytest, ruff, and coverage."
+use_when = "The product is a command-line tool, a script, or a library in Python, with no web server."
+toolchain = ["python3"]
+notes = [
+  "The package is `src/app/`: `cli.py` holds `main(argv)` and `__main__.py` runs it (`python -m app`). Add commands there.",
+  "Tests live in `tests/` and use pytest; add dependencies to `pyproject.toml` (`dependencies`, or `dev` for tools).",
+]
+
+[commands]
+install = 'python3 -m venv .venv && .venv/bin/python -m pip install --quiet -e ".[dev]"'
+test = ".venv/bin/python -m pytest"
+test_report = ".venv/bin/python -m pytest --junitxml=.idea-to-mvp/reports/junit.xml --cov=app --cov-report=xml:.idea-to-mvp/reports/coverage.xml"
+lint = ".venv/bin/ruff check ."
+run = ".venv/bin/python -m app"

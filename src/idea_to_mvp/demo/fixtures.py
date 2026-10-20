@@ -483,6 +483,7 @@ def execution_strategy(messages: list[BaseMessage]) -> ExecutionStrategy:
     return ExecutionStrategy(
         mode="agent_team",
         reasoning=STRATEGY_REASONING,
+        template="none",  # the demo builds its own dependency-free project; a scaffold would need a real install
         workstreams=[
             Workstream(
                 name="core-app",

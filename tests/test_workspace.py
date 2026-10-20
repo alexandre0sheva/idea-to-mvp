@@ -284,3 +284,45 @@ def test_a_diff_since_a_commit_that_is_not_a_plain_id_is_refused_and_a_big_diff_
     commit_workspace(workspace, "big")
     diff = ws.diff_since(workspace, before or "", limit=1000)
     assert len(diff) < 1300 and "truncated" in diff
+
+
+# --------------------------------------------------------------------- the starter template
+
+
+def _template_bundle(bundle: Path, template: str | None) -> Path:
+    import json
+
+    strategy = {"mode": "agent_team", "reasoning": "r", "workstreams": []}
+    if template is not None:
+        strategy["template"] = template
+    (bundle / "STRATEGY.json").write_text(json.dumps(strategy))
+    (bundle / "README.md").write_text("# the pack's README")
+    return bundle
+
+
+def test_the_chosen_template_is_laid_down_and_committed_as_scaffold_before_any_task(
+    bundle: Path, tmp_path: Path
+) -> None:
+    workspace = prepare_workspace(_template_bundle(bundle, "python-fastapi"), tmp_path / "projects")
+    assert git(workspace, "log", "--format=%s").splitlines() == ["scaffold", "blueprint"]
+    tracked = set(git(workspace, "ls-files").splitlines())
+    assert {"pyproject.toml", "src/app/main.py", "tests/test_health.py", "scripts/check.sh", ".gitignore"} <= tracked
+    assert "plan.md" in tracked and (workspace / "README.md").read_text() == "# the pack's README"
+    scaffold_files = set(git(workspace, "show", "--name-only", "--format=", "HEAD").splitlines())
+    assert "plan.md" not in scaffold_files and "src/app/main.py" in scaffold_files  # the pack was its own commit
+    assert 'name = "my-idea"' in (workspace / "pyproject.toml").read_text()
+
+
+def test_no_scaffold_commit_without_a_template(bundle: Path, tmp_path: Path) -> None:
+    for recorded in (None, "none", "django"):
+        workspace = prepare_workspace(_template_bundle(bundle, recorded), tmp_path / f"projects-{recorded}")
+        assert git(workspace, "log", "--format=%s").splitlines() == ["blueprint"]
+        assert not (workspace / "pyproject.toml").exists()
+
+
+def test_the_scaffold_is_laid_even_when_git_is_missing(
+    bundle: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ws, "GIT", "git-that-does-not-exist")
+    workspace = prepare_workspace(_template_bundle(bundle, "python-cli"), tmp_path / "projects")
+    assert (workspace / "src" / "app" / "cli.py").exists() and not (workspace / ".git").exists()

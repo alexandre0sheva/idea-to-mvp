@@ -38,6 +38,8 @@ uv run pytest --cov=idea_to_mvp                # what CI runs; fails below 80% c
 
 CI also fails on a stale `uv.lock` (`uv lock --check`), on a graph diagram that is out of sync (`uv run python scripts/gen_graph_diagram.py` fixes it), and on a golden blueprint pack that stops validating (`tests/test_golden_blueprints.py`). `uvx pre-commit install` (one time) runs ruff and mypy before every commit.
 
+The starter templates (`src/idea_to_mvp/templates/`) are installed and checked for real by `uv run pytest -m scaffold tests/test_templates.py` (needs node 22.12+, npm, Python 3, and network; the `starter-templates` CI job runs it, the default run leaves it out).
+
 Tests that call real provider APIs carry `@pytest.mark.live`, are skipped by default, and need keys: `uv run pytest -m live`. The opt-in blueprint quality eval, which spends tokens and is never run by CI, is `uv run python scripts/eval_blueprint.py --live --idea climbing-log` (add `DEMO_MODE=true` to try it offline).
 
 Dependencies live only in `pyproject.toml`; after changing them run `uv lock` and commit `uv.lock` (CI uses `uv sync --locked`).

@@ -237,13 +237,10 @@ def with_notes(text: str, notes: str) -> str:
 
 
 def strategy_markdown(strategy: Mapping[str, Any]) -> str:
-    lines = [
-        f"**Execution mode:** `{strategy.get('mode') or 'unknown'}`",
-        "",
-        str(strategy.get("reasoning") or "").strip(),
-        "",
-        "**Workstreams:**",
-    ]
+    lines = [f"**Execution mode:** `{strategy.get('mode') or 'unknown'}`", ""]
+    if (template := str(strategy.get("template") or "")) and template != "none":
+        lines += [f"**Starter template:** `{template}` (laid down before the first task)", ""]
+    lines += [str(strategy.get("reasoning") or "").strip(), "", "**Workstreams:**"]
     for workstream in strategy.get("workstreams") or []:
         lines.append(f"- `{workstream.get('name') or 'workstream'}` — {workstream.get('focus') or ''}")
     return "\n".join(lines).strip()

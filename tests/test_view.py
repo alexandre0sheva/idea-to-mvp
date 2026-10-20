@@ -460,3 +460,12 @@ def test_stated_preferences_are_shown_as_your_message_right_after_the_idea() -> 
 def test_no_preferences_no_message() -> None:
     assert "preferences" not in _kinds(transcript_from_state(_values(), None))
     assert "preferences" not in _kinds(transcript_from_state(_values(preferences={"platform": "any"}), None))
+
+
+def test_the_strategy_card_names_the_starter_template_unless_there_is_none() -> None:
+    from idea_to_mvp.ui.view import strategy_markdown
+
+    base = {"mode": "agent_team", "reasoning": "Because.", "workstreams": [{"name": "api", "focus": "The API"}]}
+    assert "**Starter template:** `python-fastapi`" in strategy_markdown({**base, "template": "python-fastapi"})
+    assert "Starter template" not in strategy_markdown({**base, "template": "none"})
+    assert "Starter template" not in strategy_markdown(base)

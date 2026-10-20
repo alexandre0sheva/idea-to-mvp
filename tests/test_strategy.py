@@ -73,3 +73,43 @@ def test_strategy_node_passes_a_valid_fallback(fake_runtime, monkeypatch) -> Non
 
 def test_strategy_errors_are_not_swallowed_when_no_fallback_exists() -> None:
     assert issubclass(StructuredOutputError, RuntimeError)
+
+
+def test_strategy_node_offers_the_starter_templates_and_records_the_choice(fake_runtime, monkeypatch) -> None:
+    from idea_to_mvp.templates import template_names
+
+    chosen = ExecutionStrategy(
+        mode="agent_team",
+        reasoning="r",
+        workstreams=[Workstream(name="api", focus="API", deliverables="REST")],
+        template="python-fastapi",
+    )
+    seen: dict = {}
+
+    def fake_structured(runtime, messages, schema, *, fallback=None):
+        seen["prompt"] = "\n".join(str(m.content) for m in messages)
+        return chosen
+
+    monkeypatch.setattr(llm, "invoke_structured", fake_structured)
+    update = strategy_node(_state())
+    assert update["execution_strategy"]["template"] == "python-fastapi"
+    assert all(f"`{name}`" in seen["prompt"] for name in template_names()) and "`none`" in seen["prompt"]
+
+
+def test_the_fallback_strategy_uses_no_template() -> None:
+    assert fallback_strategy().template == "none"
+
+
+def test_a_template_the_model_invented_becomes_none() -> None:
+    strategy = ExecutionStrategy.model_validate(
+        {"mode": "subagents", "reasoning": "r", "workstreams": [{"name": "a", "focus": "f", "deliverables": "d"}], "template": "django"}
+    )
+    assert strategy.template == "none"
+
+
+def test_an_older_strategy_without_a_template_still_loads() -> None:
+    strategy = ExecutionStrategy.model_validate(
+        {"mode": "subagents", "reasoning": "r", "workstreams": [{"name": "a", "focus": "f", "deliverables": "d"}]}
+    )
+    assert strategy.template == "none"
+    assert "template" in ExecutionStrategy.model_json_schema()["required"]  # a model must always answer it

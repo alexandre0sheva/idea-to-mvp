@@ -64,7 +64,7 @@ The implementation stage needs `ANTHROPIC_API_KEY` (it drives the Claude Agent S
 ```
 Idea ─ (optional web research) ─→ Panel ─→ Summary + 5 MVP questions
   🔒 you answer  ─→ Architect: two options
-  🔒 you choose  ─→ Strategy ─→ Blueprint pack (PRD, architecture, plan, subagents, agent harness), reviewed by a critic
+  🔒 you choose  ─→ Strategy (and a starter template) ─→ Blueprint pack (PRD, architecture, plan, subagents, agent harness), reviewed by a critic
   🔒 you approve the blueprint and the spend
   ─→ Implementation (parallel tasks) ─→ Verification (4 lanes, fix loop) ─→ Delivery report
   🔁 ask for changes ─→ v0.2, same machinery

@@ -192,3 +192,25 @@ def test_offline_doctor_accepts_a_good_prices_file_and_says_nothing_without_one(
     checks = collect_checks(_settings(model_prices_file=good), runtime_for=_runtime_for, ping=lambda r: "OK", offline=True)
     assert next(check for check in checks if check.name == "model prices file").status == "ok"
     assert not [c for c in collect_checks(_settings(), runtime_for=_runtime_for, ping=lambda r: "OK", offline=True) if c.name == "model prices file"]
+
+
+def test_doctor_checks_the_toolchain_of_every_starter_template() -> None:
+    present = collect_checks(_settings(), runtime_for=_runtime_for, offline=True, which=lambda tool: f"/usr/bin/{tool}")
+    templates = [c for c in present if c.name.startswith("template ")]
+    assert templates and all(c.status == "ok" for c in templates)
+    assert {name for c in templates for name in c.name.removeprefix("template ").split(", ")} == {
+        "nextjs", "node-ts-express", "python-cli", "python-fastapi", "react-vite",
+    }
+
+    no_node = collect_checks(
+        _settings(), runtime_for=_runtime_for, offline=True, which=lambda tool: None if tool in ("node", "npm") else "/usr/bin/python3"
+    )
+    by_name = {c.name: c for c in no_node if c.name.startswith("template ")}
+    node = by_name["template nextjs, node-ts-express, react-vite"]
+    assert node.status == "warn" and "node, npm" in node.detail
+    assert by_name["template python-cli, python-fastapi"].status == "ok"
+
+
+def test_a_missing_template_toolchain_is_a_warning_not_a_failure(capsys) -> None:
+    assert run_doctor(_settings(), runtime_for=_runtime_for, offline=True) == 0
+    assert "template" in capsys.readouterr().out

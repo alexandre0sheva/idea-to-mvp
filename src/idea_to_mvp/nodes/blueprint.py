@@ -44,6 +44,7 @@ from idea_to_mvp.plan import (
 )
 from idea_to_mvp.schemas import ArchitectureProposal, render_option_markdown
 from idea_to_mvp.state import IdeaDiscussionState
+from idea_to_mvp.templates import with_template_commands
 from idea_to_mvp.usage import with_usage
 
 CRITIC_NOT_AVAILABLE = (
@@ -146,6 +147,8 @@ def generate_plan_node(state: DocInput) -> dict[str, Any]:
         )
         if len(validate_plan(repaired, prd_markdown=prd, workstreams=workstreams)) < len(problems):
             plan = repaired  # a repair that does not help is discarded
+    # A starter template's config files assume its commands: the plan runs exactly those (the writer was told).
+    plan = with_template_commands(plan, (strategy or {}).get("template"))
     return {
         "blueprint_docs": {
             PLAN_JSON_PATH: plan.model_dump_json(indent=2),

@@ -65,3 +65,13 @@ def test_the_core_modules_are_type_checked_strictly() -> None:
 def test_contributing_documents_live_tests_and_the_eval_script_once() -> None:
     text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     assert "pytest -m live" in text and text.count("scripts/eval_blueprint.py") == 1
+
+
+def test_ci_checks_every_starter_template_with_the_real_toolchain() -> None:
+    job = load_yaml(".github/workflows/ci.yml")["jobs"]["starter-templates"]
+    steps = " ".join(str(step.get("run", step.get("uses", ""))) for step in job["steps"])
+    assert "pytest -m scaffold" in steps and "actions/setup-node" in steps
+    # the main job (with the coverage gate) must not need node or the network for them
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "not scaffold" in config["tool"]["pytest"]["ini_options"]["addopts"]
+    assert "scaffold" in " ".join(config["tool"]["pytest"]["ini_options"]["markers"])

@@ -44,6 +44,8 @@ packages = ["src/idea_to_mvp"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# The starter templates are data for other projects (placeholders and all), not code of this one.
+extend-exclude = ["src/idea_to_mvp/templates/*/files"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "C4", "SIM", "RUF"]
@@ -57,8 +59,11 @@ ignore = [
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
-markers = ["live: calls real provider APIs (deselected by default; run with `pytest -m live`)"]
-addopts = "-m 'not live'"
+markers = [
+  "live: calls real provider APIs (deselected by default; run with `pytest -m live`)",
+  "scaffold: installs and checks each starter template with the real toolchain and network (deselected by default; run with `pytest -m scaffold`)",
+]
+addopts = "-m 'not live and not scaffold'"
 
 [tool.coverage.run]
 source = ["idea_to_mvp"]
@@ -77,7 +82,7 @@ check_untyped_defs = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 ignore_missing_imports = true
-exclude = ["tests/", "\\.venv/"]
+exclude = ["tests/", "\\.venv/", "src/idea_to_mvp/templates/.*/files/"]
 
 # The model-facing core is checked strictly: it is where a silent Any or a missing annotation hides a bug.
 [[tool.mypy.overrides]]

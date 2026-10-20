@@ -20,6 +20,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+from idea_to_mvp.templates import apply_template, pack_template, project_name
+
 LOGGER = logging.getLogger(__name__)
 
 GIT = "git"
@@ -120,7 +122,9 @@ def _commit(workspace: Path, message: str) -> bool:
 
 
 def prepare_workspace(bundle_dir: Path, projects_root: Path) -> Path:
-    """Copy a blueprint bundle into a fresh workspace and make it a git repository."""
+    """Copy a blueprint bundle into a fresh workspace and make it a git repository. When the bundle's strategy
+    names a starter template, its scaffold is laid down on top of the pack (the pack's files win) and
+    committed as `scaffold`, so the first task starts from a project that already installs, lints, and tests."""
     bundle_dir = Path(bundle_dir)
     projects_root = Path(projects_root)
     projects_root.mkdir(parents=True, exist_ok=True)
@@ -135,6 +139,10 @@ def prepare_workspace(bundle_dir: Path, projects_root: Path) -> Path:
     initialised = run_git(workspace, "init", "-q")
     if initialised is not None and initialised.returncode == 0:
         _commit(workspace, "blueprint")
+    if (template := pack_template(bundle_dir)) is not None:
+        laid = apply_template(template, workspace, project_name(bundle_dir.name))
+        LOGGER.info("Starter template %s laid down (%d files).", template.name, len(laid))
+        _commit(workspace, "scaffold")
     return workspace
 
 

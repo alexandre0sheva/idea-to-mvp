@@ -1,0 +1,16 @@
+name = "react-vite"
+title = "React + Vite + TypeScript single-page app"
+description = "A React 19 single-page app built with Vite and TypeScript, tested with vitest and Testing Library (jsdom), ESLint with typescript-eslint, and coverage."
+use_when = "The product is a browser app or dashboard with no server code of its own (it may call an external API)."
+toolchain = ["node", "npm"]
+notes = [
+  "`src/main.tsx` mounts `<App />` from `src/App.tsx`; add components as modules under `src/` with their tests beside them (`*.test.tsx`).",
+  "Tests run in jsdom with Testing Library and the jest-dom matchers (`src/setupTests.ts`); add dependencies in `package.json`.",
+]
+
+[commands]
+install = "npm install --no-audit --no-fund"
+test = "npm test"
+test_report = "npx vitest run --reporter=junit --outputFile=.idea-to-mvp/reports/junit.xml"
+lint = "npm run lint"
+run = "npm run dev"

@@ -21,6 +21,7 @@ from idea_to_mvp.harness_pack import AGENTS_MD, CHECK_SCRIPT, HARNESS_SPEC_PATH,
 from idea_to_mvp.plan import fallback_plan, load_plan, render_plan_markdown
 from idea_to_mvp.prompts_common import NO_CHANGE_REVISION
 from idea_to_mvp.roles import HARNESS_WRITER_SYSTEM, PLAN_WRITER_SYSTEM
+from idea_to_mvp.templates import prompt_block, with_template_commands
 
 # Upstream documents are injected into later prompts up to this many characters each.
 MAX_UPSTREAM_CHARS = 12_000
@@ -338,6 +339,7 @@ def write_bundle(
     specs = bundle_file_plan(strategy)
     # plan.json is the source of truth; a missing or broken one becomes a valid fallback plan.
     plan = load_plan(docs.get(PLAN_JSON_PATH)) or fallback_plan(strategy, docs.get("PRD.md") or "")
+    plan = with_template_commands(plan, (strategy or {}).get("template"))  # the scaffold's config assumes them
     agents_fallback = next(spec.fallback for spec in specs if spec.relative_path == AGENTS_MD)
     harness = pack_harness(docs.get(HARNESS_SPEC_PATH), plan, (docs.get(AGENTS_MD) or "").strip() or agents_fallback)
     for spec in specs:
@@ -399,6 +401,7 @@ def build_bundle_context(
     strategy_text = json.dumps(strategy, indent=2) if strategy else "No execution strategy available."
     details = chosen_option_details.strip()
     details_block = f"Chosen option details:\n{details}\n\n" if details else ""
+    template_block = prompt_block((strategy or {}).get("template"))
     return (
         f"Original idea:\n{user_idea.strip()}\n\n"
         f"{preferences}"
@@ -410,5 +413,6 @@ def build_bundle_context(
         f" (user notes: {choice.get('notes') or 'none'})\n\n"
         f"{details_block}"
         f"Execution strategy:\n{strategy_text}\n\n"
+        f"{template_block}"
         f"Extra planning guidance from user:\n{extra_guidance or 'No extra guidance beyond generating the execution pack.'}"
     )
