@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 
 from idea_to_mvp.implementation.events import ImplEvent, make_event, shorten, tool_detail
 from idea_to_mvp.implementation.ledger import (
+    CALL_KINDS,
     LEDGER_DIR,
     LedgerRow,
     SessionKind,
@@ -48,6 +49,7 @@ _ENTRY = re.compile(r"^\[(ACTION|OBSERVATION|TEXT|ERROR|RESULT)\](?: (.*))?$")
 _INDENT = "  "
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _LANE_LABEL = re.compile(r"lane-([a-z]+)")
+_PILOT_LABEL = re.compile(r"pilot-([a-z]+)")
 
 
 def model_label(settings: Settings, role: AgentRole) -> str:
@@ -266,8 +268,18 @@ def parse_trajectory(text: str) -> list[tuple[str, str]]:
     return [(tag, "\n".join(lines).strip("\n")) for tag, lines in entries]
 
 
+def pilot_arm(label: str) -> str:
+    """The harness a pilot session ran under (`base`, `inv`, `dom`), from its label (`pilot-inv`, `pilot-inv-tests`)."""
+    found = _PILOT_LABEL.search(label)
+    return found.group(1) if found else "base"
+
+
 def _task_id_of(row: LedgerRow) -> str | None:
-    """The console's name for a session: the plan task, or `verify:<lane>` / `verify:fix`."""
+    """The console's name for a session: the plan task, `verify:<lane>` / `verify:fix`, or `pilot:<arm>`."""
+    if row["kind"] == "pilot":
+        return f"pilot:{pilot_arm(row['label'])}"
+    if row["kind"] == "pilot_lane":
+        return f"pilot:{pilot_arm(row['label'])}:tests"
     if row["kind"] == "lane":
         found = _LANE_LABEL.search(row["label"])
         return f"verify:{found.group(1)}" if found else "verify:lane"
@@ -277,6 +289,10 @@ def _task_id_of(row: LedgerRow) -> str | None:
 
 
 def _title_of(row: LedgerRow, titles: Mapping[str, str]) -> str:
+    if row["kind"] == "pilot":
+        return f"Pilot {row['task_id']} ({pilot_arm(row['label'])} harness)"
+    if row["kind"] == "pilot_lane":
+        return f"Tests lane (pilot {pilot_arm(row['label'])})"
     if row["kind"] == "lane":
         found = _LANE_LABEL.search(row["label"])
         return f"{found.group(1).capitalize()} lane" if found else "Lane"
@@ -308,6 +324,8 @@ def events_from_trajectories(
     titles = titles or {}
     events: list[ImplEvent] = []
     for row in load_ledger(workspace):
+        if row["kind"] in CALL_KINDS:
+            continue  # a model call, not a session: nothing for the console
         task_id = _task_id_of(row)
         started, ended = row["started_at"], row["ended_at"]
         events.append({**make_event("task_start", task_id=task_id, label=_title_of(row, titles)), "ts": started})

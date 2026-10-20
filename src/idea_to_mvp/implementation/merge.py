@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import os
 import shutil
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -24,6 +25,9 @@ from idea_to_mvp.implementation.workspace import harden_git_dir, head_commit, ru
 
 WORKTREES_DIR = ".worktrees"
 _MARKER_PATTERN = r"^(<{7}|>{7})( |$)"
+# Adding and removing worktrees takes locks in the shared repository; branches that create them at the same time
+# (harness tuning's two probes) take turns.
+_WORKTREE_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -59,6 +63,11 @@ def _git_ok(workspace: Path, *args: str) -> bool:
 
 
 def _remove_worktree(workspace: Path, task_id: str) -> None:
+    with _WORKTREE_LOCK:
+        _remove_worktree_unlocked(workspace, task_id)
+
+
+def _remove_worktree_unlocked(workspace: Path, task_id: str) -> None:
     path = worktree_path(workspace, task_id)
     if (Path(workspace) / ".git").is_dir():
         run_git(workspace, "worktree", "remove", "--force", str(path))
@@ -91,6 +100,11 @@ async def remove_worktree(workspace: Path, task_id: str) -> None:
 
 
 def _create_worktree(workspace: Path, task_id: str) -> Path:
+    with _WORKTREE_LOCK:
+        return _create_worktree_unlocked(workspace, task_id)
+
+
+def _create_worktree_unlocked(workspace: Path, task_id: str) -> Path:
     harden_git_dir(workspace / ".git")
     _remove_worktree(workspace, task_id)  # a half-finished attempt of a killed run is discarded
     path = worktree_path(workspace, task_id)

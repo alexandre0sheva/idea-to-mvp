@@ -20,7 +20,7 @@ from idea_to_mvp import implementer
 from idea_to_mvp.implementation import merge
 from idea_to_mvp.implementation.events import ImplEvent, events_from_sdk_message, make_event
 from idea_to_mvp.implementation.integrity import IntegrityFinding, SessionWatch
-from idea_to_mvp.implementation.ledger import SessionOutcome
+from idea_to_mvp.implementation.ledger import SessionOutcome, tuning_spend
 from idea_to_mvp.implementation.options import SandboxUnavailableError
 from idea_to_mvp.implementation.progress import (
     TaskResult,
@@ -29,7 +29,7 @@ from idea_to_mvp.implementation.progress import (
     spent_in_iteration,
 )
 from idea_to_mvp.implementation.trajectory import SessionLog, model_label
-from idea_to_mvp.implementation.workspace import commit_workspace, head_commit
+from idea_to_mvp.implementation.workspace import commit_workspace, diff_stat, head_commit
 from idea_to_mvp.plan import Plan, PlanTask, execution_waves, iteration_of
 from idea_to_mvp.prompts_common import ANSWER_FREE, EVIDENCE_BOUNDARY, TEST_INTEGRITY
 
@@ -416,6 +416,70 @@ async def run_merge_resolver(
     return ResolverOutcome(success=outcome.success, summary=outcome.summary, cost_usd=outcome.cost_usd, integrity=findings)
 
 
+@dataclass
+class PilotRollout:
+    """One rollout of harness tuning's pilot task (`nodes/harness_tuning.py`)."""
+
+    success: bool
+    summary: str
+    cost_usd: float = 0.0
+    turns: int = 0
+    crashed: bool = False
+    commit: str | None = None  # the work, committed on the rollout's throwaway branch; None when nothing changed
+    changed: str = ""  # `git diff --stat` of that commit
+    trajectory: str = ""  # relative to the workspace
+
+
+async def run_pilot_rollout(
+    workspace: Path,
+    work_dir: Path,
+    task: PlanTask,
+    settings: Settings,
+    *,
+    arm: str,
+    budget_usd: float,
+    emit: Callable[[ImplEvent], None],
+    plan: Plan | None = None,
+    query_fn: Callable[..., AsyncIterator[Any]] | None = None,
+) -> PilotRollout:
+    """Build the pilot task in its own worktree (`work_dir`, made by the caller with the harness of this `arm` in
+    place) as a task session would, and commit the work on the worktree's branch. Recorded as a `pilot` session
+    (`pilot-<arm>`) in the workspace's ledger; nothing is recorded in `progress.json`, since the worktree is
+    thrown away. A crashing session is a failed rollout, never raised (a missing sandbox still is)."""
+    workspace, work_dir = Path(workspace), Path(work_dir)
+    name = f"pilot-{arm}"
+    log = SessionLog(workspace, kind="pilot", label=name, task_id=task.id, attempt=1, model=model_label(settings, "implementer"))
+    if settings.demo_mode:
+        outcome = await _run_demo_session(work_dir, task, log.tee(emit))
+    else:
+        outcome = await _run_session(
+            work_dir,
+            task,
+            settings,
+            prompt=build_task_prompt(task, plan, load_progress(workspace), in_worktree=True),
+            budget_usd=budget_usd,
+            emit=emit,
+            query_fn=query_fn,
+            log=log,
+        )
+    _finish_log(log, outcome)
+    commit = None
+    if outcome.success:
+        commit = await asyncio.to_thread(merge.commit_worktree, workspace, work_dir, name, f"pilot {task.id} ({arm} harness)")
+    changed = await asyncio.to_thread(diff_stat, workspace, commit) if commit else ""
+    trajectory = log.path.relative_to(workspace).as_posix() if log.path is not None else ""
+    return PilotRollout(
+        success=outcome.success,
+        summary=outcome.summary,
+        cost_usd=outcome.cost_usd,
+        turns=outcome.turns,
+        crashed=outcome.crashed,
+        commit=commit,
+        changed=changed,
+        trajectory=trajectory,
+    )
+
+
 def plan_is_runnable(plan: Plan | None) -> bool:
     """Whether the engine can schedule this plan: tasks exist, ids are unique, dependencies are known and acyclic."""
     if plan is None or not plan.tasks:
@@ -453,10 +517,13 @@ async def run_plan(
         if iteration is None
         else spent_in_iteration(progress, iteration)
     )
+    tuning = tuning_spend(workspace, iteration or 1)  # harness tuning's pilot sessions came out of the same budget
     if budget is None:
-        budget = BudgetTracker(max(0.0, settings.implementer_max_total_usd - spent))
+        budget = BudgetTracker(max(0.0, settings.implementer_max_total_usd - spent - tuning))
     if spent > 0:
         emit(make_event("cost", label="earlier runs", detail="spent before this run", cost_usd=spent))
+    # No cost event for the tuning: its sessions emitted their own on this thread's stream (or the console replays
+    # them from their ledger rows), so another would count them twice.
     tasks = {task.id: task for task in plan.tasks}
     order = [task_id for wave in execution_waves(plan) for task_id in wave]
     results: dict[str, TaskResult] = {}

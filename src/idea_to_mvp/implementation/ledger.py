@@ -1,8 +1,10 @@
 """The run ledger: one row per agent session, in `<workspace>/.idea-to-mvp/ledger.json`.
 
-Every session the orchestrator starts (a task, a merge resolver, a verification lane, a fix) appends a row
-when it ends, so what a run spent can be traced to the session that spent it, and the sum of the rows can
-be checked against the agent spend that `usage` reports (`check_ledger`). Like `progress.json` the file is
+Every session the orchestrator starts (a task, a merge resolver, a verification lane, a fix, a harness-tuning
+pilot rollout and its quick tests lane) appends a row when it ends, so what a run spent can be traced to the
+session that spent it, and the sum of the rows can be checked against the spend that `usage` reports
+(`check_ledger`). Harness tuning also records its model calls (two proposals, one composition) as rows, so
+its budget identity can be checked from the ledger alone (`nodes/harness_tuning.py`). Like `progress.json` the file is
 git-ignored, left out of the delivery zip, and off limits to agents (the tool guard protects the folder).
 """
 
@@ -20,12 +22,16 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.usage import UsageRecord
 
 LEDGER_DIR = ".idea-to-mvp"
-SessionKind = Literal["task", "resolver", "lane", "fix"]
+SessionKind = Literal["task", "resolver", "lane", "fix", "pilot", "pilot_lane", "proposal", "compose"]
 SessionOutcome = Literal["success", "failed", "crashed"]
 # The `usage` roles that are agent sessions (planning and panel calls are not in the ledger).
-AGENT_USAGE_ROLES = ("implementer", "resolver", "verifier", "fixer")
+AGENT_USAGE_ROLES = ("implementer", "resolver", "verifier", "fixer", "pilot")
+# Model calls the ledger records as well (harness tuning's), and the `usage` roles their spend is recorded under.
+CALL_KINDS = ("proposal", "compose")
+CALL_USAGE_ROLES = ("harness_editor", "harness_composer")
+TUNING_SESSION_KINDS = ("pilot", "pilot_lane")  # harness tuning's agent sessions: paid from the whole-run budget
 
-_KINDS = ("task", "resolver", "lane", "fix")
+_KINDS = ("task", "resolver", "lane", "fix", "pilot", "pilot_lane", "proposal", "compose")
 _OUTCOMES = ("success", "failed", "crashed")
 _TOLERANCE_USD = 1e-6
 _LOCK = threading.Lock()  # parallel tasks append from one event loop; sync callers may use threads
@@ -34,9 +40,9 @@ _LOCK = threading.Lock()  # parallel tasks append from one event loop; sync call
 class LedgerRow(TypedDict):
     kind: SessionKind
     label: str  # also the name of the trajectory file
-    task_id: str | None  # the plan task a task or resolver session worked on
+    task_id: str | None  # the plan task a task, resolver, or pilot session worked on
     iteration: int  # the version being built (1 = v0.1)
-    attempt: int  # task / resolver: nth session on that task; lane: verification round; fix: fix attempt
+    attempt: int  # task / resolver: nth session on that task; lane: verification round; fix: fix attempt; tuning: 1
     model: str
     cost_usd: float
     turns: int
@@ -110,14 +116,64 @@ def append_row(workspace: Path, row: LedgerRow) -> None:
             raise
 
 
+def record_call(
+    workspace: Path, *, kind: SessionKind, label: str, model: str, cost_usd: float, started_at: float, ended_at: float
+) -> LedgerRow:
+    """Add a model call (not an agent session: no trajectory, no turns) to the ledger."""
+    row: LedgerRow = {
+        "kind": kind,
+        "label": label,
+        "task_id": None,
+        "iteration": 1,
+        "attempt": 1,
+        "model": model,
+        "cost_usd": float(cost_usd),
+        "turns": 0,
+        "outcome": "success",
+        "session_id": None,
+        "trajectory": "",
+        "started_at": started_at,
+        "ended_at": max(ended_at, started_at),
+    }
+    append_row(workspace, row)
+    return row
+
+
 def ledger_total(rows: list[LedgerRow]) -> float:
-    """Everything the recorded sessions cost, whatever their outcome."""
+    """Everything the recorded sessions and calls cost, whatever their outcome."""
     return sum(row["cost_usd"] for row in rows)
 
 
+_TUNING_CACHE: dict[tuple[str, int], tuple[tuple[int, int, int], float]] = {}
+
+
+def tuning_spend(workspace: Path, iteration: int) -> float:
+    """What harness tuning's agent sessions of a version cost: the task engines deduct it from the whole-run budget.
+
+    The engines ask before every batch and merge, so the sum is kept until the ledger file changes (its inode, size,
+    and modification time: `append_row` replaces the file)."""
+    path = ledger_path(workspace)
+    try:
+        info = path.stat()
+    except OSError:
+        return 0.0
+    stamp = (info.st_ino, info.st_size, info.st_mtime_ns)
+    key = (str(path), iteration)
+    cached = _TUNING_CACHE.get(key)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+    total = sum(
+        row["cost_usd"] for row in load_ledger(workspace) if row["kind"] in TUNING_SESSION_KINDS and row["iteration"] == iteration
+    )
+    _TUNING_CACHE[key] = (stamp, total)
+    return total
+
+
 def agent_spend(usage: list[UsageRecord]) -> float:
-    """The dollars `usage` attributes to agent sessions (task, lane, and fix records)."""
-    return sum(record["cost_usd"] or 0.0 for record in usage if record["role"] in AGENT_USAGE_ROLES)
+    """The dollars `usage` attributes to what the ledger records: agent sessions (task, lane, fix, pilot records)
+    and harness tuning's model calls."""
+    roles = (*AGENT_USAGE_ROLES, *CALL_USAGE_ROLES)
+    return sum(record["cost_usd"] or 0.0 for record in usage if record["role"] in roles)
 
 
 @dataclass(frozen=True)

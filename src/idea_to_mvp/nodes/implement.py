@@ -20,7 +20,7 @@ from idea_to_mvp.config import Settings, get_settings
 from idea_to_mvp.implementation import executor
 from idea_to_mvp.implementation.events import ImplEvent
 from idea_to_mvp.implementation.integrity import IntegrityFinding
-from idea_to_mvp.implementation.ledger import load_ledger
+from idea_to_mvp.implementation.ledger import load_ledger, tuning_spend
 from idea_to_mvp.implementation.progress import TaskResult
 from idea_to_mvp.plan import Plan, iteration_of, load_plan
 from idea_to_mvp.roles import resolve_agent_model
@@ -58,7 +58,8 @@ def runnable_plan(workspace: Path) -> Plan | None:
     return plan
 
 
-def _agent_record(role: str, model: str, cost_usd: float) -> UsageRecord:
+def agent_record(role: str, model: str, cost_usd: float) -> UsageRecord:
+    """A usage record for an agent session (the SDK reports dollars, not tokens)."""
     return {
         "role": role,
         "provider": "anthropic",
@@ -90,9 +91,9 @@ def usage_records(
             continue
         spent = result["cost_usd"]
         resolver = min(sum(cost for cost, _ in resolvers.get(result["task_id"], [])), spent)
-        records.append(_agent_record("implementer", task_model, spent - resolver))
+        records.append(agent_record("implementer", task_model, spent - resolver))
         if resolver > 0:
-            records.append(_agent_record("resolver", resolvers[result["task_id"]][-1][1] or task_model, resolver))
+            records.append(agent_record("resolver", resolvers[result["task_id"]][-1][1] or task_model, resolver))
     return records
 
 
@@ -155,10 +156,19 @@ async def implementer_node(state: IdeaDiscussionState) -> dict[str, Any]:
 
     if builds_task_by_task(state):
         LOGGER.warning("No usable plan.json in %s; building with workstream sessions instead.", workspace)
+    # Harness tuning's pilot runs came out of this version's budget, as they do for the task engines.
+    left = settings.implementer_max_total_usd - tuning_spend(workspace, iteration)
+    if left <= 0:
+        LOGGER.warning("Harness tuning used up the whole-run budget; the lead session is not started.")
+        return {
+            "implementation_log": "Not started: harness tuning used up the whole-run budget (IMPLEMENTER_MAX_TOTAL_USD).",
+            "stage": "verification",
+        }
+    lead_settings = settings if left >= settings.implementer_max_total_usd else settings.model_copy(update={"implementer_max_total_usd": left})
     before = len(load_ledger(workspace))
-    log = await asyncio.to_thread(implementer.run_implementation, workspace, strategy, settings)
+    log = await asyncio.to_thread(implementer.run_implementation, workspace, strategy, lead_settings)
     await asyncio.to_thread(implementer.commit_workspace, workspace, "implementation")  # commits are the orchestrator's
     # The lead / workstream sessions just recorded in the ledger are this node's spend: count it in usage,
     # and so against the whole-run budget.
-    sessions = [_agent_record("implementer", row["model"], row["cost_usd"]) for row in load_ledger(workspace)[before:] if row["cost_usd"] > 0]
+    sessions = [agent_record("implementer", row["model"], row["cost_usd"]) for row in load_ledger(workspace)[before:] if row["cost_usd"] > 0]
     return {"implementation_log": log, "usage": sessions, "stage": "verification"}

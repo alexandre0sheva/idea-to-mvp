@@ -25,6 +25,7 @@ from idea_to_mvp.nodes.gates import (
     route_after_implement_gate,
     route_after_plan_gate,
 )
+from idea_to_mvp.nodes.harness_tuning import build_tuning_subgraph, route_after_acceptance
 from idea_to_mvp.nodes.implement import (
     implementer_node,
     prepare_workspace_node,
@@ -72,6 +73,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
     builder.add_node("implement_gate", implement_gate_node)
     builder.add_node("prepare_workspace", prepare_workspace_node)
     builder.add_node("acceptance_author", acceptance_author_node, retry_policy=LLM_RETRY)  # a no-op when off
+    builder.add_node("harness_tuning", build_tuning_subgraph())  # optional pilot runs; its model nodes retry
     builder.add_node("implementer", implementer_node)
     builder.add_node("implement_plan", build_implement_subgraph())  # parallel worktrees; its nodes carry their own policy
     builder.add_node("verify", verify_node)
@@ -102,8 +104,14 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
         {"prepare_workspace": "prepare_workspace", "__end__": END},
     )
     builder.add_edge("prepare_workspace", "acceptance_author")  # the held-out suite is written before T01
+    # Harness tuning runs once, before the first version's first task, when chosen at the implement gate.
     builder.add_conditional_edges(
         "acceptance_author",
+        route_after_acceptance,
+        {"harness_tuning": "harness_tuning", "implementer": "implementer", "implement_plan": "implement_plan"},
+    )
+    builder.add_conditional_edges(
+        "harness_tuning",
         route_after_workspace,
         {"implementer": "implementer", "implement_plan": "implement_plan"},
     )

@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import functools
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any, TypedDict
 
 from langchain_core.callbacks import get_usage_metadata_callback
@@ -74,28 +75,38 @@ def with_usage(
         @functools.wraps(node)
         def wrapper(state: Mapping[str, Any], *args: Any, **kwargs: Any) -> dict[str, Any]:
             role_key = role(state) if callable(role) else role
-            with get_usage_metadata_callback() as callback:
+            with recording_usage(role_key) as records:
                 update = node(state, *args, **kwargs)
-            if not callback.usage_metadata:
-                return update
-            provider = _provider_of(role_key)
-            demo, overrides = _pricing_context()
-            records: list[UsageRecord] = [
-                {
-                    "role": role_key,
-                    "provider": provider,
-                    "model": model,
-                    "input_tokens": int(usage.get("input_tokens") or 0),
-                    "output_tokens": int(usage.get("output_tokens") or 0),
-                    "cost_usd": _cost(model, usage, demo, overrides),
-                }
-                for model, usage in callback.usage_metadata.items()
-            ]
-            return {**update, "usage": records}
+            return {**update, "usage": records} if records else update
 
         return wrapper
 
     return decorate
+
+
+@contextmanager
+def recording_usage(role: str) -> Iterator[list[UsageRecord]]:
+    """Collect the model calls made inside the block as priced `UsageRecord`s under `role`; the list is filled when
+    the block ends. For a node that needs its own spend (harness tuning writes it to the ledger); every other node
+    uses `with_usage`."""
+    records: list[UsageRecord] = []
+    with get_usage_metadata_callback() as callback:
+        yield records
+    if not callback.usage_metadata:
+        return
+    provider = _provider_of(role)
+    demo, overrides = _pricing_context()
+    records += [
+        {
+            "role": role,
+            "provider": provider,
+            "model": model,
+            "input_tokens": int(usage.get("input_tokens") or 0),
+            "output_tokens": int(usage.get("output_tokens") or 0),
+            "cost_usd": _cost(model, usage, demo, overrides),
+        }
+        for model, usage in callback.usage_metadata.items()
+    ]
 
 
 def summarize_usage(records: list[UsageRecord]) -> dict[str, Any]:

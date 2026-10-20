@@ -29,6 +29,8 @@ JUDGE_PROMPTS = {
     "merge resolver": RESOLVER_PROMPT,
     "change planner": ROLES["change_planner"].system_prompt,
     "blueprint critic": ROLES["blueprint_critic"].system_prompt,
+    "harness editor": ROLES["harness_editor"].system_prompt,
+    "harness composer": ROLES["harness_composer"].system_prompt,
 }
 
 

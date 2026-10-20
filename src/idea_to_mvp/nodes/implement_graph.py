@@ -38,6 +38,7 @@ from langgraph.types import Send
 from idea_to_mvp.config import Settings, get_settings
 from idea_to_mvp.implementation import executor, merge
 from idea_to_mvp.implementation.events import make_event
+from idea_to_mvp.implementation.ledger import tuning_spend
 from idea_to_mvp.implementation.progress import (
     TaskResult,
     load_progress,
@@ -90,8 +91,8 @@ def _task_cap(settings: Settings) -> float:
 
 
 def _spent(workspace: Path, iteration: int, unrecorded: float = 0.0) -> float:
-    """What this version's tasks have cost (earlier versions have their own budget)."""
-    return spent_in_iteration(load_progress(workspace), iteration) + unrecorded
+    """What this version's tasks (and harness tuning's pilot runs) have cost; earlier versions have their own budget."""
+    return spent_in_iteration(load_progress(workspace), iteration) + tuning_spend(workspace, iteration) + unrecorded
 
 
 def _done_and_dead(workspace: Path, plan: Plan, current: dict[str, TaskResult]) -> tuple[set[str], set[str]]:

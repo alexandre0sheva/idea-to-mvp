@@ -51,6 +51,7 @@ class ImplementDecision(TypedDict):
     implement: bool
     notes: str
     parallel: NotRequired[int]  # tasks to run at once, chosen at the gate; 0 or absent = IMPLEMENTER_MAX_PARALLEL
+    harness_tuning: NotRequired[bool]  # tune the harness on a pilot task first; absent = the HARNESS_TUNING setting
 
 
 class IterateDecision(TypedDict):
@@ -121,6 +122,9 @@ class IdeaDiscussionState(TypedDict):
     integrity_test_count: int | None  # tests the last test report listed: a later drop is a finding
     # The held-out acceptance suite of the version being built: {iteration, dir, files, covers, note}; {} when off.
     acceptance: dict[str, Any]
+    # Behavioral Contrast on a pilot task (`nodes/harness_tuning.py`): {status, pilot, budget_usd, base, inv, dom,
+    # compose, adopted, commit, changed_files, ledger}; filled by parallel branches, {} until the stage runs.
+    harness_tuning: Annotated[dict[str, Any], merge_dicts]
     delivery_report: str
     delivery_zip: str  # the latest delivery bundle (a zip of the project)
     iteration: int  # the version being built: 1 = the first delivery (v0.1), 2 = v0.2, ...
@@ -178,6 +182,7 @@ def make_initial_state(
         "integrity_findings": {},
         "integrity_test_count": None,
         "acceptance": {},
+        "harness_tuning": {},
         "delivery_report": "",
         "delivery_zip": "",
         "iteration": 1,

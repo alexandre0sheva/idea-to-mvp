@@ -13,7 +13,12 @@ from idea_to_mvp.implementation.options import SandboxStatus, sandbox_status
 from idea_to_mvp.implementation.scheduler import dag_width
 from idea_to_mvp.model_catalog import AGENT_ROLES
 from idea_to_mvp.plan import load_plan
-from idea_to_mvp.pricing import estimate_run_cost, task_cost_history
+from idea_to_mvp.pricing import (
+    estimate_run_cost,
+    estimate_tuning_cost,
+    task_cost_history,
+    with_tuning,
+)
 from idea_to_mvp.roles import resolve_agent_model
 from idea_to_mvp.state import (
     ArchChoice,
@@ -152,9 +157,15 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
     status = sandbox_status(settings)
     task_count, width, shape = _plan_shape(state, settings.implementer_max_parallel)
     models = {role: resolve_agent_model(settings, role) for role in AGENT_ROLES}
-    estimate = estimate_run_cost(
-        settings, task_count, task_cost_history(settings.projects_dir, models["implementer"])
-    ).to_dict()
+    run_estimate = estimate_run_cost(settings, task_count, task_cost_history(settings.projects_dir, models["implementer"]))
+    estimate = run_estimate.to_dict()
+    # Harness tuning needs a plan to pick a pilot from; whether the workspace can host its worktrees is checked when
+    # it runs (it is skipped with a note otherwise).
+    tuning: dict[str, Any] = {
+        "available": task_count > 0,
+        "default": settings.harness_tuning == "pilot" and task_count > 0,
+        "estimate": estimate_tuning_cost(settings, run_estimate),
+    }
     lanes = "four" if settings.acceptance_enabled else "three"
     acceptance = (
         "Before the first task, one planning call writes held-out acceptance tests from the PRD; the fourth lane "
@@ -174,6 +185,11 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
         f"${settings.implementer_max_task_usd:.2f} per task). {acceptance}"
         f"Sandbox: {status.summary}. Permission mode: `{settings.implementer_permission_mode}`."
     )
+    if tuning["default"]:
+        question += (
+            " Harness tuning is on: before the first task, a pilot task is built three times (under the pack's agent "
+            "harness and two proposed edits of it) to choose the harness the rest is built with."
+        )
     review_notes = [
         str(issue.get("description") or "") for issue in (state.get("blueprint_review") or {}).get("issues") or []
     ]
@@ -201,9 +217,11 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
             "max_parallel": settings.implementer_max_parallel,
             "allowed_domains": list(settings.implementer_allowed_domains),
             "warning": _gate_warning(settings, status),
+            "harness_tuning": tuning,
         }
     )
     parallel = 0
+    tune = bool(tuning["default"])
     if isinstance(decision, dict):
         implement = bool(decision.get("implement"))
         notes = str(decision.get("notes") or "").strip()
@@ -211,10 +229,19 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
             parallel = max(0, int(decision.get("parallel") or 0))
         except (TypeError, ValueError):
             parallel = 0
+        if decision.get("harness_tuning") is not None:
+            tune = bool(decision.get("harness_tuning"))
     else:
         implement = bool(decision)
         notes = ""
-    implement_decision: ImplementDecision = {"implement": implement, "notes": notes, "parallel": parallel}
+    implement_decision: ImplementDecision = {
+        "implement": implement,
+        "notes": notes,
+        "parallel": parallel,
+        "harness_tuning": tune and bool(tuning["available"]),
+    }
+    if implement_decision["harness_tuning"]:  # the pilot runs are agent spend: the dashboard compares against both
+        estimate = with_tuning(estimate, tuning["estimate"], settings.implementer_max_total_usd)
     return {
         "implement_decision": implement_decision,
         "cost_estimate": estimate,

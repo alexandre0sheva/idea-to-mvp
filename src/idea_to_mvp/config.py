@@ -142,6 +142,12 @@ class Settings(BaseSettings):
     # before each version is built, kept outside the workspace, and run by a fourth verification lane. Unset: on,
     # except in demo mode.
     acceptance_tests: Literal["on", "off"] | None = None
+    # Behavioral Contrast (nodes/harness_tuning.py): before the first version is built, run one pilot task under the
+    # pack's agent harness and under two proposed edits of it (how the agent works; what a practitioner of the stack
+    # knows), then keep the base or adopt what the trajectories show helped. `pilot` turns it on for every run; the
+    # implement gate shows its extra cost and can switch it for one run. Its sessions are paid from the whole-run
+    # budget, at most half of it.
+    harness_tuning: Literal["off", "pilot"] = "off"
     # How many versions a project may go through: after the first delivery the user can request changes, and
     # each round builds the next version (v0.2, ...) in the same workspace. 1 = no iteration gate at all.
     max_iterations: int = Field(default=5, ge=1)

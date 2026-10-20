@@ -227,6 +227,12 @@ def test_an_overrun_is_called_an_overrun(tmp_path: Path) -> None:
     assert "under" in stat_value(render_dashboard(state(tmp_path, usage=under, cost_estimate=ESTIMATE)), "estimate")
 
 
+def test_a_tuned_runs_estimate_says_it_includes_the_pilot_runs(tmp_path: Path) -> None:
+    pilot = [*SPENT, {**SPENT[0], "role": "pilot", "cost_usd": 1.5}]  # $2.70 in all, within $1.00–$3.00
+    value = stat_value(render_dashboard(state(tmp_path, usage=pilot, cost_estimate={**ESTIMATE, "harness_tuning": True})), "estimate")
+    assert "estimated (incl. harness tuning)" in value and "$2.70" in value and "within" in value
+
+
 def test_there_is_no_estimate_figure_without_an_estimate_or_after_the_first_version(tmp_path: Path) -> None:
     assert "stat-estimate" not in render_dashboard(state(tmp_path, usage=SPENT))
     assert "stat-estimate" not in render_dashboard(state(tmp_path, usage=SPENT, cost_estimate=ESTIMATE, iteration=2))

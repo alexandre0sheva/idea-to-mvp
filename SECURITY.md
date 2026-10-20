@@ -103,6 +103,15 @@ red warning when the sandbox is off or unavailable or the permission mode is `by
   judge's instructions. Claude Code also reads `CLAUDE.md` files in the folders above the session's folder; keep
   `OUTPUT_DIR` (outside the repository by default) free of them. The orchestrator never runs the pack's check
   script itself; the agents run it inside the sandbox.
+- **Harness tuning writes model output, derived from agent trajectories, into the harness.** With
+  `HARNESS_TUNING=pilot` the harness editor and composer read what pilot sessions did (tool output and file text an
+  agent produced, possibly web text) and their edit becomes instructions, and possibly a helper script under
+  `scripts/`, for every later session. Their prompts carry the evidence boundary, and the edit must pass the harness
+  validator: harness paths only, never the check script (the one the verification lanes run) or
+  `.claude/settings.json`, every base guardrail kept, at most four files. That limits an injected instruction to
+  what a task session could already write into `AGENTS.md` or a skill; it runs only inside the sandbox, the
+  orchestrator never runs a script it wrote, and the verification lanes load none of it. The pilot sessions run in
+  throwaway worktrees under the same sandbox and guard as task sessions.
 - **Model API keys stay in the orchestrator process**, and `OUTPUT_DIR/sessions.db` holds every session's
   ideas and transcript; neither is reachable by agents through the sandbox's credential list.
 - **Residual git risk:** an agent could plant a `.gitattributes` file or other in-tree content aimed at

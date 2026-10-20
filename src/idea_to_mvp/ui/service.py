@@ -40,7 +40,7 @@ from idea_to_mvp.ui.console import (
     running_tasks,
 )
 from idea_to_mvp.ui.dashboard import render_dashboard
-from idea_to_mvp.ui.gates import GATES, gate_outputs
+from idea_to_mvp.ui.gates import GATES, PAYLOAD_INPUT, gate_outputs
 from idea_to_mvp.ui.render import (
     architect_block,
     moderator_banner,
@@ -494,7 +494,7 @@ class SubmitService:
             values = {}
         elif (kind := str((interrupt_payload or {}).get("kind") or "")) in GATES:
             spec = GATES[kind]
-            inputs = dict(gate_inputs or {})
+            inputs = {**dict(gate_inputs or {}), PAYLOAD_INPUT: interrupt_payload or {}}
             if problem := spec.validate(inputs, interrupt_payload or {}):
                 yield await self._render(thread_id, status=problem)
                 return

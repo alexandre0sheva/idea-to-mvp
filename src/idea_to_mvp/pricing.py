@@ -182,11 +182,64 @@ class CostRange:
         }  # fmt: skip
 
 
+def _typical_session(settings: Settings, role: Any, overrides: dict[str, Price], catalog: ModelCatalog) -> float | None:
+    """The catalog's typical session of an agent role, priced on the model it runs on (None: unpriced)."""
+    from idea_to_mvp.roles import resolve_agent_model
+
+    shape = catalog.typical_run.get(role) or catalog.typical_run["implementer"]
+    price = price_for(resolve_agent_model(settings, role), overrides, catalog)
+    if price is None:
+        return None
+    return price.cost(shape.input_tokens, shape.output_tokens, round(shape.input_tokens * shape.cached_fraction))
+
+
+def estimate_tuning_cost(settings: Settings, estimate: CostRange) -> dict[str, Any]:
+    """What harness tuning adds to a run (`nodes/harness_tuning.py`): three pilot task sessions at the run estimate's
+    per-task cost and band, a quick tests lane after each, and three calls on the harness editor's model (two
+    proposals, one composition). The sessions never cost more than their share of the whole-run budget.
+    `low` / `high` are None when a model has no price; `sessions_low` / `sessions_high` are the agent sessions alone
+    (what the dashboard sets against the agent spend; the calls are planning spend)."""
+    from idea_to_mvp.harness_tuning import TUNING_SHARE
+    from idea_to_mvp.roles import resolve_role_model
+
+    catalog = get_catalog()
+    try:
+        overrides = settings_overrides(settings)
+    except PricingError:
+        overrides = {}
+    rollouts, calls = 3, 3
+    lane = _typical_session(settings, "verifier", overrides, catalog)
+    shape = catalog.typical_run["architect"]
+    price = price_for(resolve_role_model(settings, "harness_editor")[1], overrides, catalog)
+    call = price.cost(shape.input_tokens, shape.output_tokens, round(shape.input_tokens * shape.cached_fraction)) if price else None
+    cap = settings.implementer_max_total_usd * TUNING_SHARE
+    result: dict[str, Any] = {
+        "low": None, "high": None, "sessions_low": None, "sessions_high": None, "rollouts": rollouts, "calls": calls, "cap": cap,
+    }  # fmt: skip
+    if estimate.per_task is None or lane is None:
+        return result
+    band = HISTORY_BAND if estimate.basis == "history" else CATALOG_BAND
+    result["sessions_low"] = min(rollouts * estimate.per_task * band[0] + rollouts * lane, cap)
+    result["sessions_high"] = min(rollouts * estimate.per_task * band[1] + rollouts * lane, cap)
+    if call is not None:
+        result["low"] = result["sessions_low"] + calls * call
+        result["high"] = result["sessions_high"] + calls * call
+    return result
+
+
+def with_tuning(estimate: dict[str, Any], tuning: dict[str, Any], cap: float) -> dict[str, Any]:
+    """A run estimate (`CostRange.to_dict()`) with harness tuning's agent sessions added, so the dashboard sets the
+    agent spend of a tuned run against both. Still capped by the whole-run budget, which the tuning shares."""
+    low, high = estimate.get("low"), estimate.get("high")
+    extra_low, extra_high = tuning.get("sessions_low"), tuning.get("sessions_high")
+    if low is None or high is None or extra_low is None or extra_high is None:
+        return {**estimate, "harness_tuning": True}
+    return {**estimate, "low": min(low + extra_low, cap), "high": min(high + extra_high, cap), "harness_tuning": True}
+
+
 def estimate_run_cost(settings: Settings, task_count: int, history: list[float] | None = None) -> CostRange:
     """The dollar range of building `task_count` tasks, verifying once, and (high end only) fixing up to
     `MAX_FIX_ATTEMPTS` times; `history` is `task_cost_history` for the task model."""
-    from idea_to_mvp.roles import resolve_agent_model
-
     catalog = get_catalog()
     try:
         overrides = settings_overrides(settings)
@@ -196,11 +249,7 @@ def estimate_run_cost(settings: Settings, task_count: int, history: list[float] 
     fixes = settings.max_fix_attempts
 
     def session(role: Any) -> float | None:
-        shape = catalog.typical_run.get(role) or catalog.typical_run["implementer"]
-        price = price_for(resolve_agent_model(settings, role), overrides, catalog)
-        if price is None:
-            return None
-        return price.cost(shape.input_tokens, shape.output_tokens, round(shape.input_tokens * shape.cached_fraction))
+        return _typical_session(settings, role, overrides, catalog)
 
     task_session, lane, hard = session("implementer"), session("verifier"), session("escalation")
     needed = {"implementer": task_session, "verifier": lane, **({"escalation": hard} if fixes else {})}

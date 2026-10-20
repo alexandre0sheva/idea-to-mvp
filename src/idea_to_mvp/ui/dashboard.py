@@ -279,8 +279,9 @@ def _estimate_stat(estimate: Mapping[str, Any], summary: Mapping[str, Any], iter
         return _stat("estimate", "Estimate vs actual", f"estimate unpriced · ${summary['agent_cost_usd']:.2f} actual")
     actual = float(summary["agent_cost_usd"])
     verdict = "under" if actual < low else "over" if actual > high else "within"
+    tuned = " (incl. harness tuning)" if estimate.get("harness_tuning") else ""
     return _stat(
-        "estimate", "Estimate vs actual", f"${low:.2f}–${high:.2f} estimated · ${actual:.2f} actual ({verdict})"
+        "estimate", "Estimate vs actual", f"${low:.2f}–${high:.2f} estimated{tuned} · ${actual:.2f} actual ({verdict})"
     )
 
 

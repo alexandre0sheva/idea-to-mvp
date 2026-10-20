@@ -18,6 +18,7 @@ from idea_to_mvp.state import make_initial_state
 from idea_to_mvp.ui.gates import (
     BLUEPRINT_FILES,
     GATES,
+    PAYLOAD_INPUT,
     gate_layout,
     gate_outputs,
     pack_inputs,
@@ -320,9 +321,65 @@ def test_starting_carries_the_notes_and_the_chosen_parallelism_into_the_node(mon
     for choice, expected in (("Sequential", 1), ("Parallel 3", 3), (None, 0)):
         resume = spec.build_resume({"action": "start", "notes": "go", "parallel": choice})
         written = resume_through(monkeypatch, gate_nodes, gate_nodes.implement_gate_node, base_state(project_bundle_dir=str(bundle)), resume)
-        assert written["implement_decision"] == {"implement": True, "notes": "go", "parallel": expected}
+        assert written["implement_decision"] == {"implement": True, "notes": "go", "parallel": expected, "harness_tuning": False}
     stop = spec.build_resume({"action": "skip", "notes": "", "parallel": "Parallel 3"})
     assert resume_through(monkeypatch, gate_nodes, gate_nodes.implement_gate_node, base_state(project_bundle_dir=str(bundle)), stop)["implement_decision"]["implement"] is False
+
+
+def test_the_implement_gate_offers_harness_tuning_with_its_extra_cost(monkeypatch: pytest.MonkeyPatch, bundle: Path) -> None:
+    off = implement_payload(monkeypatch, bundle)
+    assert off["harness_tuning"]["available"] is True and off["harness_tuning"]["default"] is False
+    view = GATES["implement_gate"].render(off).updates
+    assert view["tuning"] == {"value": False, "interactive": True, "visible": True}
+    assert "Harness tuning" in view["summary"]["value"] and "+$" in view["summary"]["value"]
+    on = implement_payload(monkeypatch, bundle, {"HARNESS_TUNING": "pilot"})
+    assert GATES["implement_gate"].render(on).updates["tuning"]["value"] is True
+    assert "Harness tuning is on" in on["question"]
+
+
+def test_the_tuning_checkbox_decides_and_an_absent_one_leaves_it_to_the_setting(monkeypatch: pytest.MonkeyPatch, bundle: Path) -> None:
+    spec = GATES["implement_gate"]
+    payload = implement_payload(monkeypatch, bundle, {"HARNESS_TUNING": "pilot"})
+    state = base_state(project_bundle_dir=str(bundle))
+    for checked, expected in ((False, False), (True, True), (None, True)):
+        resume = spec.build_resume({"action": "start", "notes": "", "parallel": None, "tuning": checked, PAYLOAD_INPUT: payload})
+        assert ("harness_tuning" in resume) is (checked is not None)
+        written = resume_through(monkeypatch, gate_nodes, gate_nodes.implement_gate_node, state, resume)
+        assert written["implement_decision"]["harness_tuning"] is expected
+
+
+def test_a_gate_paused_before_the_choice_existed_leaves_tuning_to_the_setting(monkeypatch: pytest.MonkeyPatch, bundle: Path) -> None:
+    old = {key: value for key, value in implement_payload(monkeypatch, bundle).items() if key != "harness_tuning"}
+    assert GATES["implement_gate"].render(old).updates["tuning"]["visible"] is False  # the form hides the box ...
+    resume = GATES["implement_gate"].build_resume({"action": "start", "notes": "", "parallel": None, "tuning": False, PAYLOAD_INPUT: old})
+    assert "harness_tuning" not in resume  # ... so its False is not a choice
+    monkeypatch.setenv("HARNESS_TUNING", "pilot")
+    clear_settings_cache()
+    written = resume_through(monkeypatch, gate_nodes, gate_nodes.implement_gate_node, base_state(project_bundle_dir=str(bundle)), resume)
+    assert written["implement_decision"]["harness_tuning"] is True
+
+
+def test_a_tuned_run_is_estimated_with_its_pilot_sessions(monkeypatch: pytest.MonkeyPatch, bundle: Path) -> None:
+    payload = implement_payload(monkeypatch, bundle)
+    state = base_state(project_bundle_dir=str(bundle))
+    plain = resume_through(monkeypatch, gate_nodes, gate_nodes.implement_gate_node, state, {"implement": True, "harness_tuning": False})
+    tuned = resume_through(monkeypatch, gate_nodes, gate_nodes.implement_gate_node, state, {"implement": True, "harness_tuning": True})
+    sessions = payload["harness_tuning"]["estimate"]
+    assert "harness_tuning" not in plain["cost_estimate"] and tuned["cost_estimate"]["harness_tuning"] is True
+    assert tuned["cost_estimate"]["low"] == pytest.approx(plain["cost_estimate"]["low"] + sessions["sessions_low"])
+    assert tuned["cost_estimate"]["high"] <= payload["max_total_usd"]  # the tuning shares the whole-run cap
+
+
+def test_harness_tuning_is_not_offered_without_a_plan(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    empty = tmp_path / "pack"
+    empty.mkdir()
+    payload = implement_payload(monkeypatch, empty, {"HARNESS_TUNING": "pilot"})
+    assert payload["harness_tuning"]["available"] is False and payload["harness_tuning"]["default"] is False
+    assert GATES["implement_gate"].render(payload).updates["tuning"]["visible"] is False
+    written = resume_through(
+        monkeypatch, gate_nodes, gate_nodes.implement_gate_node, base_state(project_bundle_dir=str(empty)), {"implement": True, "harness_tuning": True}
+    )
+    assert written["implement_decision"]["harness_tuning"] is False
 
 
 def test_unsaved_blueprint_edits_block_the_start(bundle: Path) -> None:

@@ -69,6 +69,10 @@ _RUNNING: dict[str, tuple[str, str]] = {
     ),
     "prepare_workspace": ("Workspace", "Preparing the project workspace (copying the pack, initialising git)..."),
     "acceptance_author": ("Acceptance author", "Writing held-out acceptance tests from the PRD and the contracts..."),
+    "harness_tuning": (
+        "Harness tuner",
+        "Tuning the agent harness: a pilot task is built under the pack's harness and two proposed edits of it...",
+    ),
     "implementer": ("Implementer", "Implementation agents are building the project. This can take a while..."),
     "verify": ("Verifier", "Verifying in parallel lanes: tests, quality, requirement coverage, and acceptance tests when there are any..."),
     "fix": ("Fixer", "Fixing what verification found..."),
@@ -246,6 +250,55 @@ def strategy_markdown(strategy: Mapping[str, Any]) -> str:
     return "\n".join(lines).strip()
 
 
+_ADOPTED = {
+    "keep_base": "kept the pack's harness",
+    "adopt_inv": "adopted the INV edit (how the agent works)",
+    "adopt_dom": "adopted the DOM edit (what a practitioner of the stack knows)",
+    "merge": "merged the INV and DOM edits",
+}
+
+
+def _run_line(probe: Mapping[str, Any]) -> str:
+    tests = probe.get("tests") or {}
+    verdict = "tests not run" if not tests.get("ran") else "tests passed" if tests.get("passed") else "tests failed"
+    delivered = "delivered" if probe.get("delivered") else "delivered nothing"
+    return f"{delivered}, {verdict} · ${float(probe.get('cost_usd') or 0):.2f}"
+
+
+def tuning_markdown(record: Mapping[str, Any]) -> str:
+    """The chat's short account of harness tuning ('' before it ran): the outcome, the three runs, the composer."""
+    status = record.get("status")
+    if status == "skipped":
+        reason = str(record.get("note") or "").removeprefix("Skipped:").strip().rstrip(".")
+        return f"**Harness tuning** skipped: {reason or 'no reason recorded'}."
+    if status != "done":
+        return ""
+    pilot = record.get("pilot") or {}
+    compose = record.get("compose") or {}
+    lines = [
+        f"**Harness tuning** on pilot task `{pilot.get('id', '')}` ({pilot.get('title', '')}): "
+        f"{_ADOPTED.get(str(record.get('adopted')), str(record.get('adopted')))}.",
+        "",  # a list must not run into the paragraph above it
+    ]
+    lines.append(f"- Base harness: {_run_line(record.get('base') or {})}")
+    for kind in ("inv", "dom"):
+        candidate = record.get(kind) or {}
+        summary = str(candidate.get("summary") or "").strip() or "no edit"
+        if candidate.get("inherited"):
+            summary = "no usable edit (the base harness ran)"
+        lines.append(f"- {kind.upper()} edit: {summary} — {_run_line(candidate.get('probe') or {})}")
+    if rationale := str(compose.get("rationale") or "").strip():
+        lines.append(f"\n{rationale}")
+    if overruled := str(compose.get("overruled") or "").strip():
+        lines.append(f"\nThe composer chose `{compose.get('proposed')}`, overruled: {overruled}.")
+    ledger = record.get("ledger") or {}
+    if ledger and not ledger.get("ok"):
+        lines.append("\nThe ledger did not add up, so the base harness was kept: " + "; ".join(ledger.get("problems") or []) + ".")
+    if record.get("commit"):
+        lines.append(f"\nCommitted as `harness: tuned (pilot {pilot.get('id', '')})` ({record['commit']}).")
+    return "\n".join(lines)
+
+
 def panel_running(values: Mapping[str, Any]) -> tuple[str, str]:
     """The in-progress indicator for the panel: parallel openings first, then one speaker at a time."""
     if values.get("panel_mode", "moderated") == "moderated" and not values.get("turn_count"):
@@ -256,14 +309,22 @@ def panel_running(values: Mapping[str, Any]) -> tuple[str, str]:
 
 _CONSOLE_ACTIONS = 8
 _VERIFY_PREFIX = "verify:"  # task ids of the verification lanes and the fix session (implementation/verify.py)
+_PILOT_PREFIX = "pilot:"  # task ids of harness tuning's pilot runs and their tests lanes (nodes/harness_tuning.py)
+
+
+def _by_title(task_id: str) -> bool:
+    """Whether a working unit is named by its title alone (a lane, a fix, a pilot run), not as a plan task."""
+    return task_id.startswith((_VERIFY_PREFIX, _PILOT_PREFIX))
 
 
 def _who(task_id: str, label: str) -> str:
-    """How a working unit is named: a plan task by id and title, a verification lane by its title."""
-    return label if task_id.startswith(_VERIFY_PREFIX) else f"{task_id} {label}"
+    """How a working unit is named: a plan task by id and title, a verification lane or a pilot run by its title."""
+    return label if _by_title(task_id) else f"{task_id} {label}"
 
 
 def _verb(task_ids: Sequence[str]) -> str:
+    if task_ids and all(task_id.startswith(_PILOT_PREFIX) for task_id in task_ids):
+        return "Tuning the harness"
     if task_ids and all(task_id == f"{_VERIFY_PREFIX}fix" for task_id in task_ids):
         return "Fixing"
     if task_ids and all(task_id.startswith(_VERIFY_PREFIX) for task_id in task_ids):
@@ -306,16 +367,16 @@ def implementation_progress(events: Sequence[ImplEvent], *, total_budget: float)
         return "", ""
     money = f"${spent:.2f} of ${total_budget:.2f}"
     if not running:
-        named = last_label if last_task.startswith(_VERIFY_PREFIX) else last_task
+        named = last_label if _by_title(last_task) else last_task
         return f"{_verb([last_task])}: {named} finished · {money}", "\n".join(finished[-_CONSOLE_ACTIONS:])
     names = [(tid, start["label"], start["detail"]) for tid, start in running.items()]
     verb = _verb([tid for tid, _, _ in names])
     if len(names) == 1:
         tid, label, position = names[0]
-        head = f"{verb} {tid}" if not tid.startswith(_VERIFY_PREFIX) else verb
+        head = f"{verb} {tid}" if not _by_title(tid) else verb
         status = f"{head}{f' ({position})' if position else ''}: {label}"
     else:
-        noun = "lanes" if verb == "Verifying" else "tasks"
+        noun = {"Verifying": "lanes", "Tuning the harness": "runs"}.get(verb, "tasks")
         status = f"{verb} {len(names)} {noun} in parallel ({', '.join(_who(tid, label) for tid, label, _ in names)})"
     tools = [a for a in actions[names[-1][0]] if a["kind"] == "tool"] if len(names) == 1 else []
     latest = tools[-1] if tools else (last_tool if len(names) > 1 else None)
@@ -472,6 +533,9 @@ def transcript_from_state(
         label = IMPL_CHOICE_START if implement_decision.get("implement") else IMPL_CHOICE_SKIP
         notes = str(implement_decision.get("notes") or "")
         entries.append(ViewEntry("implement_decision", "You", with_notes(label, notes)))
+
+    if tuning := tuning_markdown(values.get("harness_tuning") or {}):
+        entries.append(ViewEntry("harness_tuning", "Harness tuner", tuning, data=values.get("harness_tuning")))
 
     for number, request in enumerate(values.get("change_requests") or [], start=2):
         entries.append(ViewEntry("change_request", "You", f"Change request (v0.{number}): {request}"))

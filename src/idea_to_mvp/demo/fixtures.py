@@ -18,6 +18,7 @@ from idea_to_mvp import blueprints
 from idea_to_mvp.blueprint_review import CritiqueReport
 from idea_to_mvp.evals import CriterionScore, JudgeScores
 from idea_to_mvp.harness_pack import HarnessSpec, SkillSpec
+from idea_to_mvp.harness_tuning import ComposeNote, Composition, HarnessEdit, HarnessFile
 from idea_to_mvp.implementation.acceptance import ACCEPTANCE_REPORT, AcceptanceFile, AcceptanceSuite
 from idea_to_mvp.plan import (
     DEFAULT_WORKSTREAM,
@@ -475,6 +476,56 @@ def harness_spec(messages: list[BaseMessage]) -> HarnessSpec:
     )
 
 
+DEMO_INV_SKILL = HarnessFile(
+    path=".claude/skills/start-a-task/SKILL.md",
+    content=(
+        "---\nname: start-a-task\ndescription: \"Use when you start a task: see where the project stands before you "
+        "change it.\"\n---\n\n"
+        "1. Run `bash scripts/check.sh` once and note which tests already pass.\n"
+        "2. Read the task's acceptance criteria and the files it names.\n"
+        "3. Make the change, then run `bash scripts/check.sh` again before you finish.\n"
+    ),
+)
+DEMO_DOM_SKILL = HarnessFile(
+    path=".claude/skills/write-a-unittest/SKILL.md",
+    content=(
+        "---\nname: write-a-unittest\ndescription: \"Use when you add a test: the standard-library unittest "
+        "conventions of this project.\"\n---\n\n"
+        "1. Put the test in `tests/test_<module>.py`, in a `unittest.TestCase` subclass.\n"
+        "2. Name it `test_<behaviour>` and give every assertion a message in product terms.\n"
+        "3. Run `bash scripts/check.sh test`.\n"
+    ),
+)
+
+
+def harness_edit(messages: list[BaseMessage]) -> HarnessEdit:
+    """One edit per kind: a skill that starts a task from the checks (INV), and one for the stack's tests (DOM)."""
+    prompt = str(messages[-1].content) if messages else ""
+    if "Edit kind: DOM" in prompt:
+        return HarnessEdit(
+            summary="Add a skill for writing tests the way this project does.",
+            evidence=["[ACTION] Write tests/test_core.py: the session had to work out the test layout itself."],
+            files=[DEMO_DOM_SKILL],
+        )
+    return HarnessEdit(
+        summary="Start every task by running the checks.",
+        evidence=["[TEXT] Implementing (simulated): the session started editing before it knew which tests passed."],
+        files=[DEMO_INV_SKILL],
+    )
+
+
+def composition(messages: list[BaseMessage]) -> Composition:
+    return Composition(
+        decision="merge",
+        files=[DEMO_INV_SKILL, DEMO_DOM_SKILL],
+        notes=[
+            ComposeNote(verdict="kept", edit="INV: start-a-task skill", evidence="Demo: every run delivered and its tests passed."),
+            ComposeNote(verdict="kept", edit="DOM: write-a-unittest skill", evidence="Demo: every run delivered and its tests passed."),
+        ],
+        rationale="Demo mode: both edits are small and every run delivered, so both are kept.",
+    )
+
+
 def critique(messages: list[BaseMessage]) -> CritiqueReport:
     return CritiqueReport(approved=True, issues=[])
 
@@ -553,6 +604,8 @@ STRUCTURED: dict[type[BaseModel], Callable[[list[BaseMessage]], Any]] = {
     ChangePlan: change_plan,
     AcceptanceSuite: acceptance_suite,
     HarnessSpec: harness_spec,
+    HarnessEdit: harness_edit,
+    Composition: composition,
     CritiqueReport: critique,
     QuestionSet: question_set,
     ArchitectureProposal: architecture_proposal,

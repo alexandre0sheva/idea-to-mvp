@@ -99,6 +99,11 @@ class GateSpec:
     wire: Callable[[dict[str, Any], GateRuntime], None] = field(default=_no_wiring)
 
 
+# `SubmitService` adds the pending gate's payload to the form inputs under this key, so a resume can tell a field the
+# form offered from one it hid (a hidden checkbox still submits False).
+PAYLOAD_INPUT = "__payload__"
+
+
 def _text(inputs: GateInputs, name: str) -> str:
     return str(inputs.get(name) or "").strip()
 
@@ -367,6 +372,20 @@ def _cost_cell(estimate: Mapping[str, Any]) -> str:
     )
 
 
+def _tuning_cell(tuning: Mapping[str, Any]) -> str:
+    """What harness tuning would add to the run, for the summary table."""
+    estimate = tuning.get("estimate") or {}
+    if estimate.get("low") is None or estimate.get("high") is None:
+        cost = "unpriced (a model has no price)"
+    else:
+        cost = f"<strong>+${float(estimate['low']):.2f}–${float(estimate['high']):.2f}</strong>"
+    return (
+        f"{cost} <span class='gate-note'>(a pilot task built three times, under the pack's harness and two proposed "
+        f"edits of it, each with a tests lane, plus three planning calls; at most ${float(estimate.get('cap') or 0):.2f} "
+        "of the budget)</span>"
+    )
+
+
 def _parallel_choices(payload: Mapping[str, Any]) -> tuple[list[str], str | None, bool]:
     """(choices, default, whether it can be changed): Sequential, or Parallel 2..width of the plan."""
     if payload.get("strategy_mode") != "agent_team":
@@ -392,6 +411,7 @@ def _models_cell(payload: Mapping[str, Any]) -> str:
 
 def _implement_view(payload: dict[str, Any]) -> GateView:
     sandbox = payload.get("sandbox") or {}
+    tuning = payload.get("harness_tuning") or {}
     table = (
         "<table class='gate-table'><tbody>"
         + _row("Models", _models_cell(payload))
@@ -402,6 +422,7 @@ def _implement_view(payload: dict[str, Any]) -> GateView:
         + _row("Budget", f"${float(payload.get('max_total_usd') or 0):.2f} total, ${float(payload.get('max_task_usd') or 0):.2f} per task")
         + _row("Estimated sessions", _e(_estimate(payload)))
         + (_row("Estimated cost", _cost_cell(payload["cost_estimate"])) if payload.get("cost_estimate") else "")
+        + (_row("Harness tuning", _tuning_cell(tuning)) if tuning.get("available") else "")
         + "</tbody></table>"
     )
     warning = str(payload.get("warning") or "").strip()
@@ -421,6 +442,7 @@ def _implement_view(payload: dict[str, Any]) -> GateView:
                 else "",
             },
             "parallel": {"choices": choices, "value": default, "interactive": interactive},
+            "tuning": {"value": bool(tuning.get("default")), "interactive": bool(tuning.get("available")), "visible": bool(tuning.get("available"))},
             "file": {"choices": list(BLUEPRINT_FILES), "value": BLUEPRINT_FILES[0]},
             "editor": {"value": read_blueprint_file(bundle, BLUEPRINT_FILES[0])},
             "save_status": {"value": ""},
@@ -438,11 +460,17 @@ def _parallel_of(choice: Any) -> int:
 
 
 def _implement_resume(inputs: GateInputs) -> dict[str, Any]:
-    return {
+    resume = {
         "implement": inputs.get("action") == "start",
         "notes": _text(inputs, "notes"),
         "parallel": _parallel_of(inputs.get("parallel")),
     }
+    # Only a choice the form offered is sent; otherwise (a gate paused before the choice existed, or no plan to tune)
+    # the HARNESS_TUNING setting decides.
+    offered = (inputs.get(PAYLOAD_INPUT) or {}).get("harness_tuning") or {}
+    if offered.get("available") and inputs.get("tuning") is not None:
+        resume["harness_tuning"] = bool(inputs.get("tuning"))
+    return resume
 
 
 def _implement_validate(inputs: GateInputs, payload: dict[str, Any]) -> str | None:
@@ -463,6 +491,11 @@ def _implement_build() -> dict[str, Any]:
     widgets["summary"] = gr.HTML()
     widgets["review"] = gr.HTML(visible=False)
     widgets["parallel"] = gr.Dropdown(choices=[SEQUENTIAL], value=SEQUENTIAL, label="Parallelism", info="Tasks that can run at the same time, each in its own git worktree.")
+    widgets["tuning"] = gr.Checkbox(
+        value=False,
+        label="Tune the agent harness on a pilot task first",
+        info="Builds one task three times (the pack's harness and two proposed edits) and keeps what helped; costs the extra shown above.",
+    )
     with gr.Accordion("Blueprint: read and edit before building", open=False):
         widgets["file"] = gr.Dropdown(choices=list(BLUEPRINT_FILES), value=BLUEPRINT_FILES[0], label="Document")
         widgets["editor"] = gr.Code(label="Contents", language="markdown", lines=18, interactive=True)
@@ -572,7 +605,7 @@ GATES: dict[str, GateSpec] = {
     "implement_gate": GateSpec(
         kind="implement_gate",
         mode=MODE_IMPL_GATE,
-        fields=("banner", "summary", "review", "parallel", "file", "editor", "save_status", "notes"),
+        fields=("banner", "summary", "review", "parallel", "tuning", "file", "editor", "save_status", "notes"),
         actions=(GateAction("start", "Start implementation", "primary"), GateAction("skip", "Stop here (blueprint only)")),
         build=_implement_build,
         render=_implement_view,

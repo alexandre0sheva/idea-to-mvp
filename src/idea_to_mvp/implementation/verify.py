@@ -455,12 +455,16 @@ async def run_lane(
     iteration: int = 1,
     attempt: int = 1,
     acceptance_dir: Path | None = None,
+    work_dir: Path | None = None,
+    log: SessionLog | None = None,
     query_fn: Callable[..., AsyncIterator[Any]] | None = None,
 ) -> LaneOutcome:
     """Run one verification lane in `workspace` and return its validated report (never raises for a bad lane).
 
     `attempt` is the verification round (1 = before any fix) and `iteration` the version being built; they
     name the lane's trajectory and ledger row. The acceptance lane runs the suite saved in `acceptance_dir`.
+    Harness tuning checks a pilot rollout with the tests lane in the rollout's worktree (`work_dir`, where the
+    session runs and its report is read) and records it under its own `log`; both stay in `workspace`'s ledger.
     """
     workspace = Path(workspace)
     if lane == ACCEPTANCE:
@@ -470,7 +474,7 @@ async def run_lane(
         )  # fmt: skip
     task_id, label = f"verify:{lane}", f"{lane.capitalize()} lane"
     emit(make_event("task_start", task_id=task_id, label=label))
-    log = SessionLog(
+    log = log or SessionLog(
         workspace,
         kind="lane",
         label=log_name(iteration, f"lane-{lane}-{attempt}"),
@@ -478,23 +482,22 @@ async def run_lane(
         attempt=attempt,
         model=model_label(settings, "verifier"),
     )
-    plan = plan or load_plan(_read(workspace / "plan.json"))
+    cwd = Path(work_dir) if work_dir is not None else workspace
+    plan = plan or load_plan(_read(cwd / "plan.json"))
     if lane == "tests":
-        clear_reports(workspace)  # whatever is in the folder afterwards was written by this round's run
+        clear_reports(cwd)  # whatever is in the folder afterwards was written by this round's run
     if settings.demo_mode:
         from idea_to_mvp.demo.implementer import demo_verify_lane
 
         await asyncio.sleep(0)
-        outcome = LaneOutcome(await asyncio.to_thread(demo_verify_lane, workspace, lane))
+        outcome = LaneOutcome(await asyncio.to_thread(demo_verify_lane, cwd, lane))
         log.event(make_event("text", task_id=task_id, label="agent", detail=outcome.report.summary))
         log.finish(outcome="success", cost_usd=0.0, turns=0, session_id=None)
     else:
         session = await _run_session(
-            workspace,
+            cwd,
             settings,
-            prompt=build_lane_prompt(
-                lane, plan, _read(workspace / "PRD.md"), check_script=(workspace / CHECK_SCRIPT).is_file()
-            ),
+            prompt=build_lane_prompt(lane, plan, _read(cwd / "PRD.md"), check_script=(cwd / CHECK_SCRIPT).is_file()),
             task_id=task_id,
             max_turns=settings.verifier_max_turns,
             budget_usd=budget_usd,
@@ -508,7 +511,7 @@ async def run_lane(
         _finish_log(log, session)
         outcome = LaneOutcome(_lane_report_from(lane, session), session.cost_usd, session.turns)
     if lane == "tests":
-        outcome.report = check_test_report(workspace, plan, outcome.report)
+        outcome.report = check_test_report(cwd, plan, outcome.report)
     detail = "passed" if outcome.report.passed else f"failed: {outcome.report.failures[0][:120] if outcome.report.failures else 'see report'}"
     emit(make_event("task_end", task_id=task_id, label=label, detail=detail))
     return outcome

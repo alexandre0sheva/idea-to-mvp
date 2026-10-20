@@ -172,7 +172,7 @@ async def test_implement_gate_accept_builds_verifies_and_reports(fake_pipeline, 
     assert [i.value["kind"] for i in _interrupts(events)] == ["iterate_gate"]
     snapshot = await g.aget_state(config)
     assert snapshot.next == ("iterate_gate",)
-    assert snapshot.values["implement_decision"] == {"implement": True, "notes": "go", "parallel": 0}
+    assert snapshot.values["implement_decision"] == {"implement": True, "notes": "go", "parallel": 0, "harness_tuning": False}
     assert snapshot.values["workspace_dir"] == str(workspace)
     assert snapshot.values["implementation_log"] == "Implemented everything."
     assert snapshot.values["verification"]["passed"] is True
@@ -198,7 +198,7 @@ def test_implement_gate_decline_ends_run(fake_pipeline) -> None:
     assert not _interrupts(events)
     snapshot = g.get_state(config)
     assert snapshot.next == ()
-    assert snapshot.values["implement_decision"] == {"implement": False, "notes": "", "parallel": 0}
+    assert snapshot.values["implement_decision"] == {"implement": False, "notes": "", "parallel": 0, "harness_tuning": False}
     assert snapshot.values["workspace_dir"] == ""
     assert snapshot.values["stage"] == "done"
 
