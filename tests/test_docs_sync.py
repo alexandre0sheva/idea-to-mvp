@@ -174,7 +174,7 @@ def test_the_version_is_released_and_matches_the_changelog() -> None:
     version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"][
         "version"
     ]
-    assert version == "0.3.0"
+    assert version == "0.4.0"
     headings = re.findall(
         r"^## \[([^\]]+)\]", (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), re.MULTILINE
     )

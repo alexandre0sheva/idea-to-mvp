@@ -93,6 +93,8 @@ The implementation stage needs `ANTHROPIC_API_KEY` (it drives the Claude Agent S
 
 ![The delivery dashboard: verdict per lane, requirements table, cost and time](docs/assets/delivery-dashboard.png)
 
+**A verdict the agents cannot write themselves.** The orchestrator reads the test reports itself, flags a session that deleted or skipped a test, and fix attempts see what the earlier ones tried. Every blueprint pack carries an agent harness (a `CLAUDE.md`, one check script, project skills), which can optionally be tuned on a pilot task (`HARNESS_TUNING=pilot`), and each delivery adds a lesson to an experience library that the next project of the same stack reads.
+
 ## How it compares
 
 An approach comparison, not a quality ranking: what each project's own README says it does, read on 2026-10-21 (they change, so check them). The measured results for this project are in [Benchmark](#benchmark).

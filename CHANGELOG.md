@@ -2,9 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## [0.4.0] - 2026-10-21
+
+The verdict is now evidence the orchestrator checks itself (parsed test reports, a test-integrity guard, held-out acceptance tests, a fix loop that reads its own earlier attempts), the pipeline learns (an agent harness in every pack, optional tuning on a pilot task, an experience library per stack), and it runs without the UI (`run`, `resume`, `sessions`, `publish`, `bench`, `mcp`). Models are priced from a catalog, and every kind of agent session has its own model. The first live benchmark is under `docs/benchmarks/2026-10-21-22ccfe6/`.
+
+### Upgrade notes
+
+- **New defaults that change a run.** `TEST_INTEGRITY=block`: weakening a test (deleting it, adding `skip` / `xfail` / `.only`, removing assertions) fails the verdict until the fix session restores it or justifies it in `quality/TEST_CHANGES.md`; `warn` reports only, `off` disables it. `ACCEPTANCE_TESTS=on` outside demo mode: one extra planning call per version (the acceptance author, on the architect's model) and a fourth verification lane; the suites are kept in `OUTPUT_DIR/acceptance/`, outside the project. The tests lane now trusts the test report, not the agent's claim, so a plan without `commands.test_report` is marked "agent-reported". `EXPERIENCE_LIBRARY` is on outside demo mode (a few cents per delivery for the reflection); `HARNESS_TUNING` stays `off`.
+- **Agent sessions load the project's harness.** Task, fix, and merge-resolver sessions read the generated `CLAUDE.md` and `.claude/skills/` (Claude Code's *project* setting source), where 0.3 loaded nothing from the workspace. The orchestrator restores a fixed `.claude/settings.json` before each session and the guard refuses writes to `.claude/settings*.json` and `.mcp.json`. See `SECURITY.md`.
+- **Models.** `IMPLEMENTER_MODEL` now drives task sessions only; `VERIFIER_MODEL` and `ESCALATION_MODEL` are new. An `.env` copied from 0.3 that pins `IMPLEMENTER_MODEL`, `PM_MODEL`, `MODERATOR_MODEL`, `ARCHITECT_MODEL`, or any other `*_MODEL` / `*_PROVIDER` keeps the pinned model: remove those lines to get the new defaults. `idea-to-mvp doctor` warns about pinned models the catalog does not know.
+- **Cost.** `balanced` plans on Opus 5.5, and planning documents are no longer cut short, so planning is most of a run's cost: the measured benchmark run cost $8.06 against the catalog's $3.43 estimate (`fast`: $0.25). Set `IMPLEMENTER_MAX_TOTAL_USD` before a real run; it caps agent sessions, not planning.
+- **Agent sessions start only on an explicit yes**: `--implement` on the command line, `confirm_spend: true` over MCP, the implement gate in the UI.
+- **Optional extra.** `idea-to-mvp mcp` needs `pip install idea-to-mvp[mcp]`.
+- **Files in a project.** Agent trajectories and the run ledger are written to `.idea-to-mvp/` in the project and stay out of the delivery zip. A fix attempt leaves `.idea-to-mvp/fix/attempt-<n>/`.
+- The tree is formatted with `ruff format` (line length 100) in a commit of its own; `git blame` can skip it with `--ignore-rev`.
 
 ### UI
+- **Fixed: the cards, forms, board, and dashboard rendered unstyled.** The stepper change of this release dropped the stylesheet rules of the chat cards, gate forms, task board, console, and delivery dashboard; they are restored, and a test names the structural classes that must keep a rule.
 - **A cleaner stage stepper.** The steps above the chat now have one height and one style: each is numbered, a finished step shows a check mark, a failed one a cross, and the current one a filled, ringed marker with its name in bold; connector lines join the steps and fill the row. Before, Gradio's list styles gave every step but the last a bottom margin (so "Done" was taller), and a step with a time grew a second line. The running or failed step shows its time inline, a finished one in its tooltip. The token and cost badges stay beside the steps when there is room and move to a row of their own otherwise; on a phone the steps are one row you swipe sideways and the badges wrap.
 
 ### Models

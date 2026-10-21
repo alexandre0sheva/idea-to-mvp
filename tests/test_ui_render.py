@@ -278,3 +278,17 @@ def test_the_stepper_is_sticky_and_the_chat_gets_no_fixed_pixel_height() -> None
 
 def test_dark_mode_is_keyed_on_gradios_dark_class() -> None:
     assert any(".dark" in selector for selector, _ in rules(CSS))
+
+
+# The classes whose rules a cleanup of the stylesheet once dropped (cards, gate forms, task board, console,
+# dashboard): without them those parts render as unstyled text.
+_STRUCTURAL_CLASSES = (
+    "speaker-card", "speaker-head", "speaker-body", "opening-row", "arch-card", "arch-grid", "gate-table",
+    "gate-banner", "cost-meter", "task-board", "board-col", "task-card", "badge", "console", "console-line",
+    "dashboard", "dashboard-head", "dashboard-verdict", "lane-grid", "lane-card", "req-table", "diffstat",
+)  # fmt: skip
+
+
+@pytest.mark.parametrize("name", _STRUCTURAL_CLASSES)
+def test_the_stylesheet_styles_the_structural_classes_of_the_html_renderers(name: str) -> None:
+    assert re.search(rf"\.{re.escape(name)}\b[^{{]*{{", CSS), name
