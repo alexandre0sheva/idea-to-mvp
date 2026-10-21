@@ -32,7 +32,14 @@ async def run_and_cancel(service: Any, hold: SlowArchitect, thread: str) -> None
     """Start the answers submit, wait until the architect is running, then cancel the run as Gradio would."""
 
     async def consume() -> None:
-        answers = {"action": "submit", "answer_1": "Solo climbers.", "answer_2": "", "answer_3": "", "answer_4": "", "answer_5": ""}
+        answers = {
+            "action": "submit",
+            "answer_1": "Solo climbers.",
+            "answer_2": "",
+            "answer_3": "",
+            "answer_4": "",
+            "answer_5": "",
+        }
         async for _ in service.handle_submit("", 1, thread, gate_inputs=answers):
             pass
 
@@ -43,7 +50,9 @@ async def run_and_cancel(service: Any, hold: SlowArchitect, thread: str) -> None
         await task
 
 
-async def test_stopping_a_run_keeps_its_progress_and_offers_to_continue(demo_service: Any, monkeypatch: Any) -> None:
+async def test_stopping_a_run_keeps_its_progress_and_offers_to_continue(
+    demo_service: Any, monkeypatch: Any
+) -> None:
     service, graphs = demo_service
     hold = SlowArchitect(monkeypatch)
     thread = "stop-1"
@@ -54,16 +63,22 @@ async def test_stopping_a_run_keeps_its_progress_and_offers_to_continue(demo_ser
     view = await service.stop_run(thread)
 
     assert await mode_of(service, thread) == MODE_INTERRUPTED
-    assert "Stopped" in str(update_value(view[POS_STATUS], "value")) and "Continue" in str(update_value(view[POS_STATUS], "value"))
+    assert "Stopped" in str(update_value(view[POS_STATUS], "value")) and "Continue" in str(
+        update_value(view[POS_STATUS], "value")
+    )
     assert update_value(view[POS_BUTTON], "value") == "Continue"
     graph = await graphs.get()
     snapshot = await graph.aget_state({"configurable": {"thread_id": thread}})
     assert snapshot.next == ("architect",)  # the step that was running is the one to redo
-    assert snapshot.values["user_answers"].startswith("1. Solo climbers")  # what was decided is kept
+    assert snapshot.values["user_answers"].startswith(
+        "1. Solo climbers"
+    )  # what was decided is kept
     assert snapshot.values["architecture"] == ""  # and nothing half-done was written
 
 
-async def test_a_stopped_run_continues_to_the_next_gate(demo_service: Any, monkeypatch: Any) -> None:
+async def test_a_stopped_run_continues_to_the_next_gate(
+    demo_service: Any, monkeypatch: Any
+) -> None:
     service, graphs = demo_service
     hold = SlowArchitect(monkeypatch)
     thread = "stop-2"
@@ -88,7 +103,9 @@ async def test_stopping_while_the_run_waits_at_a_gate_changes_nothing(demo_servi
     assert "Stopped" not in str(update_value(view[POS_STATUS], "value"))
 
 
-async def test_autopilot_switched_on_while_stopped_applies_when_the_run_continues(demo_service: Any, monkeypatch: Any) -> None:
+async def test_autopilot_switched_on_while_stopped_applies_when_the_run_continues(
+    demo_service: Any, monkeypatch: Any
+) -> None:
     from idea_to_mvp.ui.view import MODE_IMPL_GATE
 
     service, graphs = demo_service
@@ -101,4 +118,6 @@ async def test_autopilot_switched_on_while_stopped_applies_when_the_run_continue
     await submit(service, "", "", thread, autopilot=True)  # Continue, with the switch now on
     assert await mode_of(service, thread) == MODE_IMPL_GATE
     graph = await graphs.get()
-    assert (await graph.aget_state({"configurable": {"thread_id": thread}})).values["autopilot"] is True
+    assert (await graph.aget_state({"configurable": {"thread_id": thread}})).values[
+        "autopilot"
+    ] is True

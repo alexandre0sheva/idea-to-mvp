@@ -55,14 +55,20 @@ def _pricing_context() -> tuple[bool, dict[str, Price]]:
     return False, {}
 
 
-def _cost(model: str, usage: Mapping[str, Any], demo: bool, overrides: dict[str, Price]) -> float | None:
+def _cost(
+    model: str, usage: Mapping[str, Any], demo: bool, overrides: dict[str, Price]
+) -> float | None:
     """Dollars for the calls of one model (a demo run calls no model, so it costs nothing)."""
     if demo:
         return 0.0
     details = usage.get("input_token_details") or {}
     cached = int(details.get("cache_read") or 0) if isinstance(details, Mapping) else 0
     return call_cost(
-        model, int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0), cached, overrides=overrides
+        model,
+        int(usage.get("input_tokens") or 0),
+        int(usage.get("output_tokens") or 0),
+        cached,
+        overrides=overrides,
     )
 
 

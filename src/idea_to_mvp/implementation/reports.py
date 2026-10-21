@@ -97,12 +97,18 @@ def _case_result(case: ElementTree.Element) -> CaseResult:
     failure, error = case.find("failure"), case.find("error")
     node = failure if failure is not None else error
     if node is not None:
-        detail = node.get("message") or node.get("type") or "failed"  # never the body: a traceback quotes the test
+        detail = (
+            node.get("message") or node.get("type") or "failed"
+        )  # never the body: a traceback quotes the test
         return CaseResult(_case_name(case), "failed", clip(detail, _MESSAGE_LIMIT))
-    return CaseResult(_case_name(case), "skipped" if case.find("skipped") is not None else "passed", "")
+    return CaseResult(
+        _case_name(case), "skipped" if case.find("skipped") is not None else "passed", ""
+    )
 
 
-def _count_junit(root: ElementTree.Element, into: ReportedTests, cases: list[CaseResult] | None = None) -> None:
+def _count_junit(
+    root: ElementTree.Element, into: ReportedTests, cases: list[CaseResult] | None = None
+) -> None:
     for case in root.iter("testcase"):
         if cases is not None and len(cases) < MAX_CASES:
             cases.append(_case_result(case))
@@ -182,8 +188,14 @@ def evidence_failures(evidence: ReportedTests) -> list[str]:
     broken = evidence.failed + evidence.errors
     if broken:
         listed = "; ".join(evidence.failures)
-        more = f" (and {broken - len(evidence.failures)} more)" if broken > len(evidence.failures) else ""
-        return [f"The test report shows {broken} test(s) failed or errored out of {evidence.tests}: {listed}{more}"]
+        more = (
+            f" (and {broken - len(evidence.failures)} more)"
+            if broken > len(evidence.failures)
+            else ""
+        )
+        return [
+            f"The test report shows {broken} test(s) failed or errored out of {evidence.tests}: {listed}{more}"
+        ]
     if evidence.tests == 0:
         return ["The test report lists no tests: the suite collected nothing."]
     if evidence.passed == 0:

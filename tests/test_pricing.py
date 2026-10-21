@@ -28,7 +28,9 @@ def prices_file(tmp_path: Path, text: str) -> Path:
     return path
 
 
-def ledger_row(task_id: str, cost: float, model: str, *, kind: str = "task", outcome: str = "success") -> LedgerRow:
+def ledger_row(
+    task_id: str, cost: float, model: str, *, kind: str = "task", outcome: str = "success"
+) -> LedgerRow:
     return {
         "kind": kind, "label": task_id, "task_id": task_id, "iteration": 1, "attempt": 1, "model": model,
         "cost_usd": cost, "turns": 3, "outcome": outcome, "session_id": None,
@@ -65,22 +67,41 @@ def test_a_model_the_catalog_does_not_know_stays_unpriced() -> None:
 
 
 def test_a_prices_file_replaces_the_catalog_price_of_a_listed_model(tmp_path: Path) -> None:
-    path = prices_file(tmp_path, f'[prices."{SONNET}"]\ninput_per_mtok = 1.0\noutput_per_mtok = 5.0\ncached_input_per_mtok = 0.1\n')
+    path = prices_file(
+        tmp_path,
+        f'[prices."{SONNET}"]\ninput_per_mtok = 1.0\noutput_per_mtok = 5.0\ncached_input_per_mtok = 0.1\n',
+    )
     overrides = load_price_overrides(path)
     assert call_cost(SONNET, 1_000_000, 1_000_000, overrides=overrides) == pytest.approx(6.0)
-    assert call_cost(SONNET, 1_000_000, 0, cached_tokens=1_000_000, overrides=overrides) == pytest.approx(0.1)
-    assert call_cost("claude-opus-5-5", 1_000_000, 0, overrides=overrides) == call_cost("claude-opus-5-5", 1_000_000, 0)
+    assert call_cost(
+        SONNET, 1_000_000, 0, cached_tokens=1_000_000, overrides=overrides
+    ) == pytest.approx(0.1)
+    assert call_cost("claude-opus-5-5", 1_000_000, 0, overrides=overrides) == call_cost(
+        "claude-opus-5-5", 1_000_000, 0
+    )
 
 
 def test_a_prices_file_can_price_a_model_the_catalog_does_not_list(tmp_path: Path) -> None:
-    overrides = load_price_overrides(prices_file(tmp_path, '[prices."in-house-model"]\ninput_per_mtok = 1.0\noutput_per_mtok = 2.0\n'))
-    assert call_cost("in-house-model", 1_000_000, 1_000_000, overrides=overrides) == pytest.approx(3.0)
-    assert call_cost("in-house-model-20260101", 1_000_000, 0, overrides=overrides) == pytest.approx(1.0)  # snapshots too
+    overrides = load_price_overrides(
+        prices_file(
+            tmp_path, '[prices."in-house-model"]\ninput_per_mtok = 1.0\noutput_per_mtok = 2.0\n'
+        )
+    )
+    assert call_cost("in-house-model", 1_000_000, 1_000_000, overrides=overrides) == pytest.approx(
+        3.0
+    )
+    assert call_cost("in-house-model-20260101", 1_000_000, 0, overrides=overrides) == pytest.approx(
+        1.0
+    )  # snapshots too
 
 
 def test_an_override_without_a_cached_rate_charges_cached_tokens_as_input(tmp_path: Path) -> None:
-    overrides = load_price_overrides(prices_file(tmp_path, '[prices."m"]\ninput_per_mtok = 4.0\noutput_per_mtok = 8.0\n'))
-    assert call_cost("m", 1_000_000, 0, cached_tokens=500_000, overrides=overrides) == pytest.approx(4.0)
+    overrides = load_price_overrides(
+        prices_file(tmp_path, '[prices."m"]\ninput_per_mtok = 4.0\noutput_per_mtok = 8.0\n')
+    )
+    assert call_cost(
+        "m", 1_000_000, 0, cached_tokens=500_000, overrides=overrides
+    ) == pytest.approx(4.0)
 
 
 @pytest.mark.parametrize(
@@ -93,7 +114,9 @@ def test_an_override_without_a_cached_rate_charges_cached_tokens_as_input(tmp_pa
         ("[other]\nx = 1\n", "[prices"),
     ],
 )
-def test_a_bad_prices_file_is_refused_with_a_reason(tmp_path: Path, text: str, complaint: str) -> None:
+def test_a_bad_prices_file_is_refused_with_a_reason(
+    tmp_path: Path, text: str, complaint: str
+) -> None:
     with pytest.raises(PricingError, match=complaint.replace("[", r"\[")):
         load_price_overrides(prices_file(tmp_path, text))
 
@@ -111,11 +134,17 @@ def test_the_history_is_the_cost_of_each_earlier_task_on_the_same_model(tmp_path
     second = tmp_path / "20260102-second"
     append_row(first, ledger_row("T01", 1.0, SONNET))
     append_row(first, ledger_row("T02", 2.0, SONNET))
-    append_row(first, ledger_row("T02", 0.5, SONNET, outcome="failed"))  # a failed attempt still cost money
+    append_row(
+        first, ledger_row("T02", 0.5, SONNET, outcome="failed")
+    )  # a failed attempt still cost money
     append_row(first, ledger_row("T03", 9.0, "claude-opus-5-5"))  # another model: not comparable
     append_row(second, ledger_row("T01", 3.0, SONNET))
-    append_row(second, ledger_row("T01", 4.0, SONNET, kind="resolver"))  # a resolver is not the task's own session
-    append_row(second, ledger_row("T02", 0.7, SONNET, outcome="failed"))  # never succeeded: not a finished task
+    append_row(
+        second, ledger_row("T01", 4.0, SONNET, kind="resolver")
+    )  # a resolver is not the task's own session
+    append_row(
+        second, ledger_row("T02", 0.7, SONNET, outcome="failed")
+    )  # never succeeded: not a finished task
     assert sorted(task_cost_history(tmp_path, SONNET)) == [1.0, 2.5, 3.0]
 
 
@@ -132,15 +161,28 @@ def test_hidden_folders_and_corrupt_ledgers_are_ignored(tmp_path: Path) -> None:
 
 
 def test_without_history_the_range_comes_from_the_catalogs_typical_task_session() -> None:
-    s = settings(implementer_model=SONNET, verifier_model=SONNET, escalation_model="claude-opus-5-5", max_fix_attempts=2)
+    s = settings(
+        implementer_model=SONNET,
+        verifier_model=SONNET,
+        escalation_model="claude-opus-5-5",
+        max_fix_attempts=2,
+    )
     estimate = estimate_run_cost(s, task_count=4, history=[])
     shape = get_catalog().typical_run["implementer"]
     entry = get_catalog().find(SONNET)
     assert entry
-    per_task = entry.cost(shape.input_tokens, shape.output_tokens, round(shape.input_tokens * shape.cached_fraction))
-    assert estimate.basis == "catalog" and estimate.samples == 0 and estimate.per_task == pytest.approx(per_task)
+    per_task = entry.cost(
+        shape.input_tokens, shape.output_tokens, round(shape.input_tokens * shape.cached_fraction)
+    )
+    assert (
+        estimate.basis == "catalog"
+        and estimate.samples == 0
+        and estimate.per_task == pytest.approx(per_task)
+    )
     assert estimate.low is not None and estimate.high is not None
-    assert estimate.low >= 4 * per_task * 0.5 and estimate.high > estimate.low  # tasks plus one verification round at least
+    assert (
+        estimate.low >= 4 * per_task * 0.5 and estimate.high > estimate.low
+    )  # tasks plus one verification round at least
     assert estimate.high <= s.implementer_max_total_usd
 
 
@@ -179,7 +221,9 @@ def test_a_session_model_without_a_price_makes_the_whole_estimate_unpriced() -> 
 def test_a_prices_file_changes_the_estimate(tmp_path: Path) -> None:
     base = {"implementer_model": SONNET, "verifier_model": SONNET, "escalation_model": SONNET}
     plain = estimate_run_cost(settings(**base), task_count=3, history=[])
-    path = prices_file(tmp_path, f'[prices."{SONNET}"]\ninput_per_mtok = 0.2\noutput_per_mtok = 1.0\n')
+    path = prices_file(
+        tmp_path, f'[prices."{SONNET}"]\ninput_per_mtok = 0.2\noutput_per_mtok = 1.0\n'
+    )
     cheap = estimate_run_cost(settings(model_prices_file=path, **base), task_count=3, history=[])
     assert cheap.high is not None and plain.high is not None and cheap.high < plain.high / 3
 
@@ -187,7 +231,10 @@ def test_a_prices_file_changes_the_estimate(tmp_path: Path) -> None:
 def test_the_range_serialises_for_the_checkpoint() -> None:
     s = settings(implementer_model=SONNET, verifier_model=SONNET)
     data = estimate_run_cost(s, task_count=2, history=[]).to_dict()
-    assert set(data) == {"low", "high", "per_task", "basis", "samples", "tasks", "unpriced"} and data["tasks"] == 2
+    assert (
+        set(data) == {"low", "high", "per_task", "basis", "samples", "tasks", "unpriced"}
+        and data["tasks"] == 2
+    )
 
 
 def test_no_plan_is_estimated_as_one_session() -> None:
@@ -196,11 +243,18 @@ def test_no_plan_is_estimated_as_one_session() -> None:
 
 
 def test_the_acceptance_lane_adds_one_lane_to_every_verification_round() -> None:
-    base = {"implementer_model": SONNET, "verifier_model": SONNET, "escalation_model": SONNET, "max_fix_attempts": 0}
+    base = {
+        "implementer_model": SONNET,
+        "verifier_model": SONNET,
+        "escalation_model": SONNET,
+        "max_fix_attempts": 0,
+    }
     shape = get_catalog().typical_run["verifier"]
     entry = get_catalog().find(SONNET)
     assert entry
-    lane = entry.cost(shape.input_tokens, shape.output_tokens, round(shape.input_tokens * shape.cached_fraction))
+    lane = entry.cost(
+        shape.input_tokens, shape.output_tokens, round(shape.input_tokens * shape.cached_fraction)
+    )
     off = estimate_run_cost(settings(acceptance_tests="off", **base), task_count=3, history=[])
     on = estimate_run_cost(settings(acceptance_tests="on", **base), task_count=3, history=[])
     assert (on.low or 0) - (off.low or 0) == pytest.approx(lane)

@@ -36,7 +36,11 @@ def read_view(root: Path, domain: str | None) -> LibraryView:
 
 def entry_label(entry: Entry) -> str:
     lesson = entry["lesson"] or {}
-    what = f"lesson: {lesson.get('cue', '')[:70]}" if lesson else f"{len(entry['edits'])} edit row(s), no lesson"
+    what = (
+        f"lesson: {lesson.get('cue', '')[:70]}"
+        if lesson
+        else f"{len(entry['edits'])} edit row(s), no lesson"
+    )
     return f"{entry['id']} — {what}"
 
 
@@ -46,15 +50,25 @@ def entry_choices(entries: Sequence[Entry]) -> list[tuple[str, str]]:
 
 
 def _rows(entry: Entry) -> str:
-    rows = "".join(f"\n  - `{row['edit']}`: {row['effect']} — {row['evidence']}" for row in entry["edits"])
+    rows = "".join(
+        f"\n  - `{row['edit']}`: {row['effect']} — {row['evidence']}" for row in entry["edits"]
+    )
     return f"- `{entry['id']}` ({project_name(entry)} v0.{entry['iteration']}){rows}"
 
 
 def library_markdown(view: LibraryView, *, enabled: bool = True) -> str:
     """The panel's text: the stack's index plus every entry's edit rows (the index lists lessons, not all rows)."""
-    note = "" if enabled else "*The library is off (`EXPERIENCE_LIBRARY=off`): runs neither read nor write it.*\n\n"
+    note = (
+        ""
+        if enabled
+        else "*The library is off (`EXPERIENCE_LIBRARY=off`): runs neither read nor write it.*\n\n"
+    )
     if view.domain is None:  # `read_view` picks a stack whenever there is one
         return note + EMPTY
     judged = [entry for entry in view.entries if entry["edits"]]
     rows = "\n\n## Edit rows\n\n" + "\n".join(_rows(entry) for entry in judged) if judged else ""
-    return note + render_index(view.domain, view.entries).replace("# Experience library: ", "### ", 1) + rows
+    return (
+        note
+        + render_index(view.domain, view.entries).replace("# Experience library: ", "### ", 1)
+        + rows
+    )

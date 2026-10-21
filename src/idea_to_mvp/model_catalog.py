@@ -34,7 +34,8 @@ _TOKENS_PER_MTOK = 1_000_000
 # Current generations reject (Claude Opus 4.7+/5.x, GPT-5.x reasoning) or discourage (Gemini 3.x) custom sampling
 # parameters. Used only for a model the catalog does not list; a listed model says so itself.
 _UNLISTED_NO_SAMPLING = re.compile(
-    r"^(claude-(opus-(5|4-[78])|sonnet-5|haiku-5|fable|mythos)|gemini-3|gpt-[5-9])", flags=re.IGNORECASE
+    r"^(claude-(opus-(5|4-[78])|sonnet-5|haiku-5|fable|mythos)|gemini-3|gpt-[5-9])",
+    flags=re.IGNORECASE,
 )
 
 
@@ -89,9 +90,17 @@ class ModelEntry(BaseModel):
         """Dollars for a call (`cached_tokens` is the part of the input served from the cache); None if unpriced."""
         if self.input_per_mtok is None or self.output_per_mtok is None:
             return None
-        cached_rate = self.input_per_mtok if self.cached_input_per_mtok is None else self.cached_input_per_mtok
+        cached_rate = (
+            self.input_per_mtok
+            if self.cached_input_per_mtok is None
+            else self.cached_input_per_mtok
+        )
         fresh = max(input_tokens - cached_tokens, 0)
-        total = fresh * self.input_per_mtok + cached_tokens * cached_rate + output_tokens * self.output_per_mtok
+        total = (
+            fresh * self.input_per_mtok
+            + cached_tokens * cached_rate
+            + output_tokens * self.output_per_mtok
+        )
         return total / _TOKENS_PER_MTOK
 
 
@@ -148,7 +157,9 @@ class ModelCatalog(BaseModel):
         for model_id, item in self.models.items():
             for name in item.names:
                 if name in seen and seen[name] != model_id:
-                    raise ValueError(f"alias or id {name!r} of {model_id!r} is already used by {seen[name]!r}")
+                    raise ValueError(
+                        f"alias or id {name!r} of {model_id!r} is already used by {seen[name]!r}"
+                    )
                 seen[name] = model_id
         role_sets = {frozenset(roles) for roles in self.profiles.values()}
         if len(role_sets) > 1:
@@ -156,7 +167,9 @@ class ModelCatalog(BaseModel):
         for profile, roles in self.profiles.items():
             for role, model_id in roles.items():
                 if model_id not in self.models:
-                    raise ValueError(f"profile {profile!r} gives role {role!r} the unknown model {model_id!r}")
+                    raise ValueError(
+                        f"profile {profile!r} gives role {role!r} the unknown model {model_id!r}"
+                    )
         known_roles = set(next(iter(self.profiles.values()), {})) | set(AGENT_ROLES)
         stray = set(self.typical_run) - known_roles
         if stray:
@@ -172,7 +185,10 @@ class ModelCatalog(BaseModel):
 
     def profile_choices(self, profile: str) -> dict[str, tuple[Provider, str]]:
         """Role -> (provider, model) for a profile; each model's provider comes from its own entry."""
-        return {role: (self.models[model_id].provider, model_id) for role, model_id in self.profiles[profile].items()}
+        return {
+            role: (self.models[model_id].provider, model_id)
+            for role, model_id in self.profiles[profile].items()
+        }
 
     def estimate_run(self, profile: str, models: Mapping[str, str] | None = None) -> RunEstimate:
         """The cost of a typical run on `profile`'s models; `models` (role -> model id) replaces some of them.
@@ -229,9 +245,15 @@ def accepts_sampling(model: str, catalog: ModelCatalog | None = None) -> bool:
 
 
 class ParsedModelId(NamedTuple):
-    family: tuple[str, ...]  # the name tokens: ("claude", "sonnet"), ("gpt", "mini"), ("gemini", "flash")
-    version: tuple[int, ...]  # the numbers in order: claude-sonnet-5-5 -> (5, 5), gpt-6.1-sol -> (6, 1)
-    preview: bool  # a preview / latest / experimental build, which never counts as the newer release
+    family: tuple[
+        str, ...
+    ]  # the name tokens: ("claude", "sonnet"), ("gpt", "mini"), ("gemini", "flash")
+    version: tuple[
+        int, ...
+    ]  # the numbers in order: claude-sonnet-5-5 -> (5, 5), gpt-6.1-sol -> (6, 1)
+    preview: (
+        bool  # a preview / latest / experimental build, which never counts as the newer release
+    )
 
 
 _DATE_SUFFIX = re.compile(r"-(?:\d{8}|\d{4}-\d{2}-\d{2})$")
@@ -337,16 +359,22 @@ def check_models(
             if provider not in unavailable:
                 unavailable.add(provider)
                 affected = [r for (p, _), rs in grouped.items() if p == provider for r in rs]
-                findings.append(Finding("unavailable", provider, affected, f"could not list models: {listing}"))
+                findings.append(
+                    Finding("unavailable", provider, affected, f"could not list models: {listing}")
+                )
             continue
         listed = set(listing)
         item = catalog.find(model)
         names = item.names if item else {model}
         if not names & listed:
-            findings.append(Finding("unknown", model, roles, f"{provider} does not list this model"))
+            findings.append(
+                Finding("unknown", model, roles, f"{provider} does not list this model")
+            )
         if item and (item.status == "deprecated" or item.retired(today)):
             when = f" (retires {item.retires})" if item.retires else ""
-            findings.append(Finding("deprecated", model, roles, f"the catalog marks it deprecated{when}"))
+            findings.append(
+                Finding("deprecated", model, roles, f"the catalog marks it deprecated{when}")
+            )
         mine = parse_model_id(model)
         newer = [
             candidate
@@ -357,5 +385,9 @@ def check_models(
         ]
         if newer:
             best = max(newer, key=lambda candidate: parse_model_id(candidate).version)
-            findings.append(Finding("outdated", model, roles, f"a newer model of the same family exists: {best}"))
+            findings.append(
+                Finding(
+                    "outdated", model, roles, f"a newer model of the same family exists: {best}"
+                )
+            )
     return findings

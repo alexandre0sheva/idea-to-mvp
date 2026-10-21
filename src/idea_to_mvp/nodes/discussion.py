@@ -74,4 +74,3 @@ def discussion_node(state: IdeaDiscussionState) -> dict[str, Any]:
         "turn_count": state["turn_count"] + 1,
         "stage": "discussion",
     }
-

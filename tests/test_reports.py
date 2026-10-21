@@ -66,7 +66,13 @@ def lane(passed: bool = True, failures: list[str] | None = None) -> LaneReport:
 def test_a_junit_report_is_counted_from_its_test_cases(tmp_path: Path) -> None:
     write_reports(tmp_path, junit_xml=PYTEST_XML)
     evidence = read_evidence(tmp_path)
-    assert (evidence.tests, evidence.passed, evidence.failed, evidence.errors, evidence.skipped) == (4, 2, 1, 0, 1)
+    assert (
+        evidence.tests,
+        evidence.passed,
+        evidence.failed,
+        evidence.errors,
+        evidence.skipped,
+    ) == (4, 2, 1, 0, 1)
     assert evidence.problem == "" and evidence.coverage_percent is None
     assert evidence.failures == ["tests.test_core::test_total: assert 3 == 4"]
 
@@ -81,7 +87,9 @@ def test_coverage_comes_from_cobertura_xml_or_coverage_json(tmp_path: Path) -> N
     write_reports(tmp_path, junit_xml=VITEST_XML, coverage_xml=COBERTURA_XML)
     assert read_evidence(tmp_path).coverage_percent == pytest.approx(87.31)
     other = tmp_path / "other"
-    write_reports(other, junit_xml=VITEST_XML, coverage_json='{"totals": {"percent_covered": 91.5}}')
+    write_reports(
+        other, junit_xml=VITEST_XML, coverage_json='{"totals": {"percent_covered": 91.5}}'
+    )
     assert read_evidence(other).coverage_percent == pytest.approx(91.5)
 
 
@@ -100,7 +108,9 @@ def test_an_unreadable_coverage_file_is_ignored_not_fatal(tmp_path: Path) -> Non
         ('<!DOCTYPE x [<!ENTITY a "aaaa">]><testsuites>&a;</testsuites>', "DOCTYPE"),
     ],
 )
-def test_a_missing_or_unusable_report_is_a_problem_with_a_reason(tmp_path: Path, content: str | None, reason: str) -> None:
+def test_a_missing_or_unusable_report_is_a_problem_with_a_reason(
+    tmp_path: Path, content: str | None, reason: str
+) -> None:
     write_reports(tmp_path, **({} if content is None else {"junit_xml": content}))
     problem = read_evidence(tmp_path).problem
     assert reason in problem
@@ -110,7 +120,9 @@ def test_no_reports_folder_at_all_is_a_problem(tmp_path: Path) -> None:
     assert "no JUnit report" in read_evidence(tmp_path).problem
 
 
-def test_a_huge_report_is_refused_instead_of_parsed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_huge_report_is_refused_instead_of_parsed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr("idea_to_mvp.implementation.reports.MAX_REPORT_BYTES", 100)
     write_reports(tmp_path, junit_xml=PYTEST_XML)
     assert "too large" in read_evidence(tmp_path).problem
@@ -130,8 +142,14 @@ def test_a_clean_report_adds_no_failures() -> None:
 
 
 def test_failures_and_errors_name_the_tests_that_failed() -> None:
-    reasons = evidence_failures(ReportedTests(tests=3, passed=1, failed=1, errors=1, failures=["a::x: boom", "b::y: oops"]))
-    assert len(reasons) == 1 and "2 test(s) failed or errored" in reasons[0] and "a::x: boom" in reasons[0]
+    reasons = evidence_failures(
+        ReportedTests(tests=3, passed=1, failed=1, errors=1, failures=["a::x: boom", "b::y: oops"])
+    )
+    assert (
+        len(reasons) == 1
+        and "2 test(s) failed or errored" in reasons[0]
+        and "a::x: boom" in reasons[0]
+    )
 
 
 def test_zero_collected_tests_is_a_failure() -> None:
@@ -145,24 +163,35 @@ def test_only_skipped_tests_is_a_failure_too() -> None:
 
 
 def test_a_problem_with_the_report_is_the_failure() -> None:
-    assert evidence_failures(ReportedTests(problem="no JUnit report was found")) == ["no JUnit report was found"]
+    assert evidence_failures(ReportedTests(problem="no JUnit report was found")) == [
+        "no JUnit report was found"
+    ]
 
 
 def test_the_agents_pass_is_overridden_by_a_failing_report() -> None:
-    result = apply_evidence(lane(True), ReportedTests(tests=3, passed=2, failed=1, failures=["t::x: boom"]))
+    result = apply_evidence(
+        lane(True), ReportedTests(tests=3, passed=2, failed=1, failures=["t::x: boom"])
+    )
     assert result.passed is False and "t::x: boom" in result.failures[0]
     assert result.evidence is not None and result.evidence["failed"] == 1
 
 
 def test_the_agents_pass_is_overridden_by_a_missing_report() -> None:
-    result = apply_evidence(lane(True), ReportedTests(problem="no JUnit report was found in .idea-to-mvp/reports"))
+    result = apply_evidence(
+        lane(True), ReportedTests(problem="no JUnit report was found in .idea-to-mvp/reports")
+    )
     assert result.passed is False and "no JUnit report" in result.failures[0]
 
 
 def test_a_clean_report_keeps_the_lanes_pass_and_records_the_counts() -> None:
-    result = apply_evidence(lane(True), ReportedTests(tests=5, passed=4, skipped=1, coverage_percent=88.0))
+    result = apply_evidence(
+        lane(True), ReportedTests(tests=5, passed=4, skipped=1, coverage_percent=88.0)
+    )
     assert result.passed is True and result.failures == []
-    assert result.evidence == ReportedTests(tests=5, passed=4, skipped=1, coverage_percent=88.0).model_dump()
+    assert (
+        result.evidence
+        == ReportedTests(tests=5, passed=4, skipped=1, coverage_percent=88.0).model_dump()
+    )
 
 
 def test_a_clean_report_does_not_rescue_a_lane_that_reported_failures() -> None:

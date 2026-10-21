@@ -19,7 +19,9 @@ _WORDS_PER_CHUNK = 4  # how coarsely a demo answer streams
 def _pieces(text: str) -> list[str]:
     """`text` cut into a few words per piece, losing nothing (joined, the pieces are the text)."""
     words = re.findall(r"\S+\s*|\s+", text)
-    return ["".join(words[i : i + _WORDS_PER_CHUNK]) for i in range(0, len(words), _WORDS_PER_CHUNK)]
+    return [
+        "".join(words[i : i + _WORDS_PER_CHUNK]) for i in range(0, len(words), _WORDS_PER_CHUNK)
+    ]
 
 
 class DemoChatModel(BaseChatModel):
@@ -52,7 +54,9 @@ class DemoChatModel(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         text, usage = self._reply(messages)
-        message = AIMessage(content=text, usage_metadata=usage, response_metadata={"model_name": "demo"})
+        message = AIMessage(
+            content=text, usage_metadata=usage, response_metadata={"model_name": "demo"}
+        )
         return ChatResult(generations=[ChatGeneration(message=message)])
 
     def _stream(

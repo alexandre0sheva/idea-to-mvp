@@ -64,13 +64,17 @@ def test_issues_are_formatted_for_a_revision_prompt() -> None:
 
 
 def test_deterministic_plan_problems_become_blockers_on_the_plan() -> None:
-    issues = plan_issues_as_issues(["cycle: T01 -> T02 -> T01", "task T03 uses unknown workstream 'x'"])
+    issues = plan_issues_as_issues(
+        ["cycle: T01 -> T02 -> T01", "task T03 uses unknown workstream 'x'"]
+    )
     assert [(i.severity, i.file) for i in issues] == [("blocker", "plan.md")] * 2
     assert issues[0].description.startswith("cycle")
 
 
 def test_the_review_document_lists_blockers_before_warnings() -> None:
-    text = render_review_markdown([warning("PRD.md", "vague metric"), blocker("plan.md", "T02 cycle")])
+    text = render_review_markdown(
+        [warning("PRD.md", "vague metric"), blocker("plan.md", "T02 cycle")]
+    )
     assert text.startswith("# Blueprint review")
     assert text.index("T02 cycle") < text.index("vague metric")
     assert "`plan.md`" in text and "`PRD.md`" in text

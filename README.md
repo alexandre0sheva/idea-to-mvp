@@ -1,5 +1,10 @@
 # Idea-to-MVP Orchestrator
 
+[![CI](https://github.com/alexandre0sheva/idea-to-mvp/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandre0sheva/idea-to-mvp/actions/workflows/ci.yml)
+![coverage](https://img.shields.io/badge/coverage-%E2%89%A580%25%20CI%20gate-brightgreen)
+![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Turn a rough product idea into a **built, tested first version**. A LangGraph pipeline runs every stage with a dedicated agent: a multi-LLM panel debates the idea, an architect proposes options, a planner writes an agent-ready blueprint, and Claude Agent SDK agents implement the project in parallel and verify it. You approve every gate, and nothing that spends money runs without your say-so.
 
 ![The panel: three agents open in parallel, then debate; the stepper tracks the run](docs/assets/panel.png)
@@ -12,6 +17,16 @@ You need [uv](https://docs.astral.sh/uv/); it installs the right Python (3.11 to
 uv sync
 DEMO_MODE=true uv run idea-to-mvp
 ```
+
+To try it without cloning (once a release is on PyPI; until then add `--from git+https://github.com/alexandre0sheva/idea-to-mvp` after `uvx`, or after `pipx install` use the same URL in place of the name):
+
+```bash
+uvx idea-to-mvp                       # starts the UI; DEMO_MODE=true uvx idea-to-mvp for the offline walk-through
+uvx idea-to-mvp run "a habit tracker" --autopilot
+pipx install idea-to-mvp              # or install it once and keep the `idea-to-mvp` command
+```
+
+Settings come from the environment or a `.env` in the folder you run it from (the `.env.example` of this repository lists them all).
 
 Demo mode walks the whole pipeline (panel, gates, blueprint pack, a stand-in implementation, verification, delivery report) with canned outputs: no API keys, no spend. Type an idea, or open **Settings** and switch **Autopilot** on to ride through the gates.
 
@@ -39,6 +54,20 @@ Publishing is opt-in too: set `GITHUB_TOKEN` (or sign in with `gh`), then use th
 Agents are only started with an explicit `--implement`. `--answers FILE` and `--arch 1|2` answer those gates yourself; `resume <session> --implement --feedback "..."` builds the next version.
 
 To measure a configuration end to end, `idea-to-mvp bench` runs the eight golden ideas headless and scores them (verified deliveries, acceptance pass rate, fix attempts, cost, wall time); `bench --compare runA runB` sets two runs side by side. It spends money, so a real run needs `--live --max-total-usd N` (`--dry-run` prices it first); `DEMO_MODE=true uv run idea-to-mvp bench --name smoke` runs it offline. See `CONTRIBUTING.md`.
+
+Other agents can drive the pipeline too: `idea-to-mvp mcp` is an [MCP](https://modelcontextprotocol.io) server (stdio) with five tools, `start_run`, `get_status`, `answer_gate`, `list_sessions`, and `get_delivery`. Runs go on in the background, each gate is answered by naming it, and agent sessions start only when `answer_gate` gets `confirm_spend: true` at the implement gate, after the caller has shown you the cost estimate. Sessions are shared with the UI and the CLI.
+
+```bash
+claude mcp add idea-to-mvp -- uv run --directory /path/to/idea-to-mvp idea-to-mvp mcp      # Claude Code
+```
+
+For Claude Desktop add the same command to `claude_desktop_config.json`:
+
+```json
+{ "mcpServers": { "idea-to-mvp": { "command": "uv", "args": ["run", "--directory", "/path/to/idea-to-mvp", "idea-to-mvp", "mcp"] } } }
+```
+
+Add `"env": { "DEMO_MODE": "true" }` to try it offline. Keep your client's tool approval on for `answer_gate`; see `SECURITY.md`.
 
 The implementation stage needs `ANTHROPIC_API_KEY` (it drives the Claude Agent SDK). Everything the app writes goes under `OUTPUT_DIR` (default `~/idea-to-mvp`, outside this repository).
 

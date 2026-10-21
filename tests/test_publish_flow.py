@@ -35,7 +35,9 @@ RECORD = {
 @pytest.fixture()
 def cwd(demo_env: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(demo_env)  # never pick up the developer's real .env
-    monkeypatch.setattr(publish.shutil, "which", lambda name: None)  # whatever the developer has installed
+    monkeypatch.setattr(
+        publish.shutil, "which", lambda name: None
+    )  # whatever the developer has installed
     for name in ("GITHUB_TOKEN", "GH_TOKEN", "GITHUB_OWNER", "PUBLISH_VISIBILITY"):
         monkeypatch.delenv(name, raising=False)
     from idea_to_mvp.config import clear_settings_cache
@@ -48,8 +50,12 @@ async def delivered(settings: Any) -> str:
     """A demo run built and verified, waiting at the iterate gate: its thread id."""
     async with open_graph(settings) as graph:
         summary = await run_idea(
-            graph, SessionRegistry(settings.checkpoint_path), "a habit tracker", HeadlessOptions(autopilot=True, implement=True),
-            settings=settings, progress=lambda line: None,
+            graph,
+            SessionRegistry(settings.checkpoint_path),
+            "a habit tracker",
+            HeadlessOptions(autopilot=True, implement=True),
+            settings=settings,
+            progress=lambda line: None,
         )
     return summary.thread_id
 
@@ -62,7 +68,9 @@ async def view(settings: Any, thread: str) -> Any:
 # ------------------------------------------------------------------- state
 
 
-async def test_the_iterate_gate_tells_the_ui_what_publishing_offers(cwd: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_iterate_gate_tells_the_ui_what_publishing_offers(
+    cwd: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", TOKEN)
     from idea_to_mvp.config import clear_settings_cache
 
@@ -76,7 +84,9 @@ async def test_the_iterate_gate_tells_the_ui_what_publishing_offers(cwd: Path, m
     assert gate["publish"]["repo"].endswith("habit-tracker")
 
 
-async def test_recording_a_publication_keeps_the_gate_pending_and_shows_it_in_the_payload(cwd: Path) -> None:
+async def test_recording_a_publication_keeps_the_gate_pending_and_shows_it_in_the_payload(
+    cwd: Path,
+) -> None:
     settings = get_settings()
     thread = await delivered(settings)
     async with open_graph(settings) as graph:
@@ -87,11 +97,15 @@ async def test_recording_a_publication_keeps_the_gate_pending_and_shows_it_in_th
     assert after.interrupt is not None and after.interrupt["kind"] == "iterate_gate"
     assert after.next_nodes == ("iterate_gate",)
     assert after.values["publication"] == RECORD
-    assert after.interrupt["publish"]["published"] == RECORD  # the gate's payload was rebuilt from the new state
+    assert (
+        after.interrupt["publish"]["published"] == RECORD
+    )  # the gate's payload was rebuilt from the new state
     assert after.values["workspace_dir"] == before.values["workspace_dir"]
 
 
-async def test_recording_after_a_reflection_does_not_reflect_again(cwd: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_recording_after_a_reflection_does_not_reflect_again(
+    cwd: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """With the experience library on, `reflect` is the last node before the gate: the update must not re-run it."""
     monkeypatch.setenv("EXPERIENCE_LIBRARY", "on")
     from idea_to_mvp.config import clear_settings_cache
@@ -105,9 +119,17 @@ async def test_recording_after_a_reflection_does_not_reflect_again(cwd: Path, mo
         entries = sorted(path.name for path in settings.library_dir.rglob("*") if path.is_file())
         await update_thread(graph, thread, {"publication": RECORD})
         after = await read_thread(graph, thread)
-    assert after.interrupt is not None and after.interrupt["kind"] == "iterate_gate" and after.next_nodes == ("iterate_gate",)
-    assert after.values["reflection"] == before.values["reflection"] and len(after.values["usage"]) == len(before.values["usage"])
-    assert sorted(path.name for path in settings.library_dir.rglob("*") if path.is_file()) == entries
+    assert (
+        after.interrupt is not None
+        and after.interrupt["kind"] == "iterate_gate"
+        and after.next_nodes == ("iterate_gate",)
+    )
+    assert after.values["reflection"] == before.values["reflection"] and len(
+        after.values["usage"]
+    ) == len(before.values["usage"])
+    assert (
+        sorted(path.name for path in settings.library_dir.rglob("*") if path.is_file()) == entries
+    )
 
 
 async def test_a_finished_session_can_record_a_publication_too(cwd: Path) -> None:
@@ -140,20 +162,32 @@ async def test_a_publish_that_cannot_be_noted_in_the_session_still_reports_the_r
     async with open_graph(settings) as graph:
         values = (await read_thread(graph, thread)).values
         plan = await asyncio.to_thread(publish.plan_publish, values, settings, hub)
-        record, unrecorded = await headless.publish_and_record(graph, thread, plan, hub, confirm=plan.fingerprint)
-    assert record["url"].startswith("https://github.com/alex/") and "locked" in unrecorded and len(hub.created) == 1
+        record, unrecorded = await headless.publish_and_record(
+            graph, thread, plan, hub, confirm=plan.fingerprint
+        )
+    assert (
+        record["url"].startswith("https://github.com/alex/")
+        and "locked" in unrecorded
+        and len(hub.created) == 1
+    )
 
 
 # --------------------------------------------------------------- dashboard
 
 
 def dashboard(**fields: Any) -> str:
-    return render_dashboard({"verification": {"passed": True, "lanes": []}, "iteration": 1, **fields})
+    return render_dashboard(
+        {"verification": {"passed": True, "lanes": []}, "iteration": 1, **fields}
+    )
 
 
 def test_the_dashboard_links_the_published_repository() -> None:
     html = dashboard(publication=RECORD)
-    assert "Published" in html and "href='https://github.com/alex/habit-tracker'" in html and "private" in html
+    assert (
+        "Published" in html
+        and "href='https://github.com/alex/habit-tracker'" in html
+        and "private" in html
+    )
     assert "v0.1" in html and "abc1234" in html
 
 
@@ -185,19 +219,37 @@ def run_publish(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, st
     return code, captured.out, captured.err
 
 
-def test_a_dry_run_shows_the_plan_and_creates_nothing(cwd: Path, hub: FakeGitHub, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_dry_run_shows_the_plan_and_creates_nothing(
+    cwd: Path, hub: FakeGitHub, capsys: pytest.CaptureFixture[str]
+) -> None:
     thread = asyncio.run(delivered(get_settings()))
     code, out, _err = run_publish(capsys, thread, "--dry-run")
     assert code == 0 and "alex/" in out and "private" in out and "main" in out and "v0.1" in out
-    assert hub.created == [] and (asyncio.run(view(get_settings(), thread))).values["publication"] == {}
+    assert (
+        hub.created == []
+        and (asyncio.run(view(get_settings(), thread))).values["publication"] == {}
+    )
 
 
-def test_json_output_of_a_dry_run_is_the_plan(cwd: Path, hub: FakeGitHub, capsys: pytest.CaptureFixture[str]) -> None:
+def test_json_output_of_a_dry_run_is_the_plan(
+    cwd: Path, hub: FakeGitHub, capsys: pytest.CaptureFixture[str]
+) -> None:
     thread = asyncio.run(delivered(get_settings()))
-    code, out, _err = run_publish(capsys, thread, "--dry-run", "--json", "--repo", "acme/tracker", "--visibility", "public")
+    code, out, _err = run_publish(
+        capsys, thread, "--dry-run", "--json", "--repo", "acme/tracker", "--visibility", "public"
+    )
     plan = json.loads(out)
-    assert code == 0 and plan["ok"] is True and plan["full_name"] == "acme/tracker" and plan["visibility"] == "public"
-    assert plan["tags"] == ["v0.1"] and plan["fingerprint"] and ".idea-to-mvp" not in " ".join(plan["files"])
+    assert (
+        code == 0
+        and plan["ok"] is True
+        and plan["full_name"] == "acme/tracker"
+        and plan["visibility"] == "public"
+    )
+    assert (
+        plan["tags"] == ["v0.1"]
+        and plan["fingerprint"]
+        and ".idea-to-mvp" not in " ".join(plan["files"])
+    )
 
 
 def test_declining_at_the_prompt_publishes_nothing(
@@ -209,10 +261,15 @@ def test_declining_at_the_prompt_publishes_nothing(
     monkeypatch.setattr("sys.stdin", stdin)
     code, out, err = run_publish(capsys, thread)
     assert code == 3 and "Nothing was pushed" in err and out == ""
-    assert hub.created == [] and (asyncio.run(view(get_settings(), thread))).values["publication"] == {}
+    assert (
+        hub.created == []
+        and (asyncio.run(view(get_settings(), thread))).values["publication"] == {}
+    )
 
 
-def test_without_a_terminal_publishing_needs_yes(cwd: Path, hub: FakeGitHub, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_without_a_terminal_publishing_needs_yes(
+    cwd: Path, hub: FakeGitHub, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     thread = asyncio.run(delivered(get_settings()))
     monkeypatch.setattr("sys.stdin", io.StringIO(""))  # not a terminal
     code, _out, err = run_publish(capsys, thread)
@@ -235,13 +292,19 @@ def test_confirming_publishes_pushes_and_records_the_repository_in_the_session(
     assert ".idea-to-mvp" not in git(bare, "ls-tree", "-r", "--name-only", "main")
     after = asyncio.run(view(get_settings(), thread))
     assert after.values["publication"]["url"] == "https://github.com/alex/tracker"
-    assert after.interrupt is not None and after.interrupt["kind"] == "iterate_gate"  # the session can still iterate
+    assert (
+        after.interrupt is not None and after.interrupt["kind"] == "iterate_gate"
+    )  # the session can still iterate
 
-    code, _out, err = run_publish(capsys, thread, "--yes")  # a second time: already published, nothing created
+    code, _out, err = run_publish(
+        capsys, thread, "--yes"
+    )  # a second time: already published, nothing created
     assert code == 1 and "already published" in err and len(hub.created) == 1
 
 
-def test_yes_confirms_the_plan_it_printed(cwd: Path, hub: FakeGitHub, capsys: pytest.CaptureFixture[str]) -> None:
+def test_yes_confirms_the_plan_it_printed(
+    cwd: Path, hub: FakeGitHub, capsys: pytest.CaptureFixture[str]
+) -> None:
     thread = asyncio.run(delivered(get_settings()))
     code, out, _err = run_publish(capsys, thread, "--yes", "--json", "--visibility", "public")
     record = json.loads(out)
@@ -249,14 +312,18 @@ def test_yes_confirms_the_plan_it_printed(cwd: Path, hub: FakeGitHub, capsys: py
     assert TOKEN not in out
 
 
-def test_publishing_without_github_access_explains_how(cwd: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_publishing_without_github_access_explains_how(
+    cwd: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     thread = asyncio.run(delivered(get_settings()))
     monkeypatch.setattr(publish, "make_client", lambda settings, **kwargs: None)
     code, _out, err = run_publish(capsys, thread, "--yes")
     assert code == 1 and "GITHUB_TOKEN" in err
 
 
-def test_an_unknown_session_is_an_error(cwd: Path, hub: FakeGitHub, capsys: pytest.CaptureFixture[str]) -> None:
+def test_an_unknown_session_is_an_error(
+    cwd: Path, hub: FakeGitHub, capsys: pytest.CaptureFixture[str]
+) -> None:
     code, _out, err = run_publish(capsys, "no-such-session", "--dry-run")
     assert code == 1 and "no-such-session" in err
 

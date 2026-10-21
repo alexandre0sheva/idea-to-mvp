@@ -20,7 +20,9 @@ def assistant(*blocks) -> AssistantMessage:
 
 
 def test_a_tool_use_becomes_a_tool_event_with_the_file_it_touches() -> None:
-    message = assistant(ToolUseBlock(id="1", name="Write", input={"file_path": "src/app.py", "content": "x" * 5000}))
+    message = assistant(
+        ToolUseBlock(id="1", name="Write", input={"file_path": "src/app.py", "content": "x" * 5000})
+    )
     (event,) = events_from_sdk_message(message, "T01")
     assert event["kind"] == "tool" and event["label"] == "Write"
     assert event["detail"] == "src/app.py" and event["task_id"] == "T01"
@@ -31,7 +33,11 @@ def test_a_tool_use_becomes_a_tool_event_with_the_file_it_touches() -> None:
 def test_tool_details_come_from_the_most_telling_input_and_are_truncated() -> None:
     bash = assistant(ToolUseBlock(id="1", name="Bash", input={"command": "pytest -q " + "x" * 400}))
     (event,) = events_from_sdk_message(bash, None)
-    assert event["detail"].startswith("pytest -q") and len(event["detail"]) <= 160 and event["detail"].endswith("…")
+    assert (
+        event["detail"].startswith("pytest -q")
+        and len(event["detail"]) <= 160
+        and event["detail"].endswith("…")
+    )
     grep = assistant(ToolUseBlock(id="2", name="Grep", input={"pattern": "TODO", "path": "src"}))
     assert events_from_sdk_message(grep, None)[0]["detail"] == "TODO"
     unknown = assistant(ToolUseBlock(id="3", name="Mystery", input={"weird": 1}))
@@ -59,16 +65,34 @@ def test_several_blocks_keep_their_order() -> None:
 
 def test_the_result_message_reports_the_sessions_cost() -> None:
     result = ResultMessage(
-        subtype="success", duration_ms=1, duration_api_ms=1, is_error=False, num_turns=7, session_id="s", total_cost_usd=0.4321
+        subtype="success",
+        duration_ms=1,
+        duration_api_ms=1,
+        is_error=False,
+        num_turns=7,
+        session_id="s",
+        total_cost_usd=0.4321,
     )
     (event,) = events_from_sdk_message(result, "T01")
     assert event["kind"] == "cost" and event["cost_usd"] == 0.4321 and "7 turns" in event["detail"]
-    free = ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1, is_error=False, num_turns=1, session_id="s")
+    free = ResultMessage(
+        subtype="success",
+        duration_ms=1,
+        duration_api_ms=1,
+        is_error=False,
+        num_turns=1,
+        session_id="s",
+    )
     assert events_from_sdk_message(free, None) == []  # no cost reported, nothing to show
 
 
 def test_other_messages_produce_no_events() -> None:
-    assert events_from_sdk_message(UserMessage(content=[ToolResultBlock(tool_use_id="1", content="ok")]), None) == []
+    assert (
+        events_from_sdk_message(
+            UserMessage(content=[ToolResultBlock(tool_use_id="1", content="ok")]), None
+        )
+        == []
+    )
     assert events_from_sdk_message(SystemMessage(subtype="init", data={}), None) == []
     assert events_from_sdk_message("not a message", None) == []
 
@@ -104,7 +128,9 @@ def test_progress_shows_the_current_task_the_last_action_and_the_running_total()
 
 def test_progress_before_any_task_and_with_no_events() -> None:
     assert implementation_progress([], total_budget=25.0) == ("", "")
-    status, _ = implementation_progress([ev("task_start", task_id="T01", label="Setup", detail="")], total_budget=10.0)
+    status, _ = implementation_progress(
+        [ev("task_start", task_id="T01", label="Setup", detail="")], total_budget=10.0
+    )
     assert status.startswith("Implementing T01: Setup") and "$0.00 of $10.00" in status
 
 
@@ -133,7 +159,10 @@ def test_parallel_tasks_are_reported_together() -> None:
         ev("cost", task_id="T02", label="session", cost_usd=1.0),
     ]
     status, console = implementation_progress(events, total_budget=25.0)
-    assert status == "Implementing 2 tasks in parallel (T02 Left, T03 Right) · Bash pytest -q · $1.00 of $25.00"
+    assert (
+        status
+        == "Implementing 2 tasks in parallel (T02 Left, T03 Right) · Bash pytest -q · $1.00 of $25.00"
+    )
     lines = console.splitlines()
     assert "T02 Left — working" in lines and "T03 Right — working" in lines
     assert "  Write left.py" in lines and "  Bash pytest -q" in lines
@@ -159,13 +188,18 @@ def test_verification_lanes_are_reported_as_verifying_not_implementing() -> None
         ev("tool", task_id="verify:tests", label="Bash", detail="pytest -q"),
     ]
     status, console = implementation_progress(events, total_budget=25.0)
-    assert status == "Verifying 3 lanes in parallel (Tests lane, Quality lane, Requirements lane) · Bash pytest -q · $0.00 of $25.00"
+    assert (
+        status
+        == "Verifying 3 lanes in parallel (Tests lane, Quality lane, Requirements lane) · Bash pytest -q · $0.00 of $25.00"
+    )
     assert "Tests lane — working" in console.splitlines() and "verify:" not in console
 
 
 def test_a_single_lane_and_the_fix_session_are_worded_for_what_they_do() -> None:
     running = [ev("task_start", task_id="verify:quality", label="Quality lane")]
-    assert implementation_progress(running, total_budget=5.0)[0].startswith("Verifying: Quality lane")
+    assert implementation_progress(running, total_budget=5.0)[0].startswith(
+        "Verifying: Quality lane"
+    )
     fixing = [ev("task_start", task_id="verify:fix", label="Fix", detail="2 failure(s)")]
     assert implementation_progress(fixing, total_budget=5.0)[0].startswith("Fixing (2 failure(s))")
     done = [*fixing, ev("task_end", task_id="verify:fix", label="Fix", detail="done")]

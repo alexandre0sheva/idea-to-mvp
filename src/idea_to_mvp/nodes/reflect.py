@@ -99,9 +99,13 @@ def lanes_section(verification: Mapping[str, Any]) -> str:
             else ""
         )
         if name == _ACCEPTANCE:
-            parts.append(f"- acceptance: {verdict}{counts} (held-out tests; their names and messages are not shown)")
+            parts.append(
+                f"- acceptance: {verdict}{counts} (held-out tests; their names and messages are not shown)"
+            )
             continue
-        failures = "".join(f"\n  - {_line(failure)}" for failure in (lane.get("failures") or [])[:_FAILURES_LISTED])
+        failures = "".join(
+            f"\n  - {_line(failure)}" for failure in (lane.get("failures") or [])[:_FAILURES_LISTED]
+        )
         parts.append(f"- {name}: {verdict}{counts}. {_line(lane.get('summary') or '')}{failures}")
     return "\n".join(parts) or "- (verification did not run)"
 
@@ -147,7 +151,9 @@ def tuning_section(record: Mapping[str, Any]) -> str:
         for note in compose.get("notes") or []
     ]
     for arm in ("base", *EDIT_KINDS):
-        probe = (record.get("base") if arm == "base" else (record.get(arm) or {}).get("probe")) or None
+        probe = (
+            record.get("base") if arm == "base" else (record.get(arm) or {}).get("probe")
+        ) or None
         if probe:
             title = "the base harness" if arm == "base" else KIND_TITLES[arm]  # type: ignore[index]
             parts.append(f"### Pilot run under {title}\n{probe_lines(probe)}")
@@ -172,11 +178,15 @@ def trajectories_section(workspace: Path, rows: Sequence[LedgerRow]) -> str:
     for row in _excerpt_rows(rows):
         text = read_text(workspace / row["trajectory"])
         if text.strip():
-            parts.append(f"### {row['label']} ({row['kind']}, {row['outcome']})\n{fenced(excerpt(text, TRAJECTORY_CHARS))}")
+            parts.append(
+                f"### {row['label']} ({row['kind']}, {row['outcome']})\n{fenced(excerpt(text, TRAJECTORY_CHARS))}"
+            )
     return "\n\n".join(parts) or "(no trajectory recorded)"
 
 
-def edits_to_judge(record: Mapping[str, Any], library: Mapping[str, Any], iteration: int) -> dict[str, str]:
+def edits_to_judge(
+    record: Mapping[str, Any], library: Mapping[str, Any], iteration: int
+) -> dict[str, str]:
     """edit id -> what it was: harness tuning's edits that changed something, and the lessons the run was given. Only
     the first version tried them (later versions only build their change on top), so later reflections judge none."""
     if iteration != 1:
@@ -200,12 +210,17 @@ def edits_to_judge(record: Mapping[str, Any], library: Mapping[str, Any], iterat
     return edits
 
 
-def reflection_prompt(state: IdeaDiscussionState, workspace: Path, domain: str, index: str, edits: Mapping[str, str]) -> str:
+def reflection_prompt(
+    state: IdeaDiscussionState, workspace: Path, domain: str, index: str, edits: Mapping[str, str]
+) -> str:
     iteration = int(state.get("iteration") or 1)
     verification = state.get("verification") or {}
     rows = [row for row in load_ledger(workspace) if row["iteration"] == iteration]
     passed = "passed" if verification.get("passed") else "did not pass"
-    judge = "\n".join(f"- `{edit}`: {about}" for edit, about in edits.items()) or "(none: return an empty `edits` list)"
+    judge = (
+        "\n".join(f"- `{edit}`: {about}" for edit, about in edits.items())
+        or "(none: return an empty `edits` list)"
+    )
     return (
         f"## The delivery\nStack (library domain): `{domain}`. Version v0.{iteration}; verification {passed} after "
         f"{int(verification.get('attempts') or 0)} fix attempt(s).\n"
@@ -227,11 +242,18 @@ def reflection_prompt(state: IdeaDiscussionState, workspace: Path, domain: str, 
 
 def _call(prompt: str, ids: list[str]) -> tuple[Reflection, list[str]]:
     return structured_with_repair(
-        "reflector", [HumanMessage(content=prompt)], Reflection, no_entry, lambda answer: reflection_problems(answer, ids), keep_first=True
+        "reflector",
+        [HumanMessage(content=prompt)],
+        Reflection,
+        no_entry,
+        lambda answer: reflection_problems(answer, ids),
+        keep_first=True,
     )
 
 
-def _adopted_harness(record: Mapping[str, Any], iteration: int) -> tuple[dict[str, Any] | None, dict[str, str]]:
+def _adopted_harness(
+    record: Mapping[str, Any], iteration: int
+) -> tuple[dict[str, Any] | None, dict[str, str]]:
     """The harness edit tuning adopted ({decision, summary, files}) and its files, or (None, {}) when it kept the
     base or did not run."""
     adopted = str(record.get("adopted") or "keep_base")
@@ -243,7 +265,9 @@ def _adopted_harness(record: Mapping[str, Any], iteration: int) -> tuple[dict[st
         if str(item.get("content") or "").strip()
     }
     kinds = list(EDIT_KINDS) if adopted == "merge" else [adopted.removeprefix("adopt_")]
-    summary = "; ".join(f"{kind.upper()}: {_line((record.get(kind) or {}).get('summary') or '')}" for kind in kinds)
+    summary = "; ".join(
+        f"{kind.upper()}: {_line((record.get(kind) or {}).get('summary') or '')}" for kind in kinds
+    )
     return {"decision": adopted, "summary": summary, "files": sorted(files)}, files
 
 
@@ -256,7 +280,9 @@ def reflect_node(state: IdeaDiscussionState) -> dict[str, Any]:
         return {"reflection": {"status": "skipped", "note": "There is no workspace to reflect on."}}
     library = dict(state.get("library") or {})
     domain = str(library.get("domain") or "") or domain_for(
-        state.get("execution_strategy"), state.get("architecture_proposal"), state.get("arch_choice")
+        state.get("execution_strategy"),
+        state.get("architecture_proposal"),
+        state.get("arch_choice"),
     )
     root = settings.library_dir
     edits = edits_to_judge(state.get("harness_tuning") or {}, library, iteration)
@@ -269,10 +295,24 @@ def reflect_node(state: IdeaDiscussionState) -> dict[str, Any]:
     except Exception as exc:
         if is_transient(exc):
             raise  # retried with backoff; the run can be continued if it still fails
-        LOGGER.warning("The reflection failed, so the library gets nothing from this delivery: %s: %s", type(exc).__name__, exc)
-        return {"reflection": {"status": "failed", "domain": domain, "entry": "", "note": f"The reflection failed: {exc}."}}
+        LOGGER.warning(
+            "The reflection failed, so the library gets nothing from this delivery: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+        return {
+            "reflection": {
+                "status": "failed",
+                "domain": domain,
+                "entry": "",
+                "note": f"The reflection failed: {exc}.",
+            }
+        }
     if problems:
-        LOGGER.warning("The reflection still has problems (%s); keeping only its usable parts.", "; ".join(problems))
+        LOGGER.warning(
+            "The reflection still has problems (%s); keeping only its usable parts.",
+            "; ".join(problems),
+        )
     rows = usable_rows(answer, list(edits))
     lesson = usable_lesson(answer)
     dropped: list[str] = []
@@ -303,7 +343,14 @@ def reflect_node(state: IdeaDiscussionState) -> dict[str, Any]:
         "rationale": rationale,
     }
     if lesson is None and not kept and harness is None:
-        return {"reflection": {**base, "status": "no_entry", "entry": "", "note": "Nothing from this delivery to record."}}
+        return {
+            "reflection": {
+                **base,
+                "status": "no_entry",
+                "entry": "",
+                "note": "Nothing from this delivery to record.",
+            }
+        }
     entry: Entry = {
         "id": entry_id(workspace, iteration),
         "domain": domain,
@@ -319,8 +366,22 @@ def reflect_node(state: IdeaDiscussionState) -> dict[str, Any]:
         write_entry(root, entry, files, forbidden=forbidden)
     except LibraryLeak as error:  # the checks above should have caught it: store nothing
         LOGGER.error("The experience library refused the entry: %s.", error)
-        return {"reflection": {**base, "status": "refused", "entry": "", "note": f"Nothing was recorded: {error}."}}
+        return {
+            "reflection": {
+                **base,
+                "status": "refused",
+                "entry": "",
+                "note": f"Nothing was recorded: {error}.",
+            }
+        }
     except (OSError, ValueError) as error:
         LOGGER.exception("Could not write the experience library entry for %s", workspace)
-        return {"reflection": {**base, "status": "refused", "entry": "", "note": f"Nothing was recorded: {error}."}}
+        return {
+            "reflection": {
+                **base,
+                "status": "refused",
+                "entry": "",
+                "note": f"Nothing was recorded: {error}.",
+            }
+        }
     return {"reflection": {**base, "status": "recorded", "entry": entry["id"], "note": ""}}

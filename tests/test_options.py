@@ -59,19 +59,36 @@ def sandbox_available(monkeypatch: pytest.MonkeyPatch) -> None:
 # ----------------------------------------------------------------- env scrub
 
 
-def test_secrets_are_blanked_with_empty_strings_because_the_sdk_merges_env_over_the_inherited_one() -> None:
+def test_secrets_are_blanked_with_empty_strings_because_the_sdk_merges_env_over_the_inherited_one() -> (
+    None
+):
     env = scrubbed_env({**SECRETS, **KEEP})
     assert env == dict.fromkeys(SECRETS, "")  # every secret blanked, nothing else touched or added
     assert all(name not in env for name in KEEP)
 
 
 def test_github_credentials_are_blanked_so_publishing_stays_with_the_orchestrator() -> None:
-    env = scrubbed_env({"GITHUB_TOKEN": "ghp_x", "GH_TOKEN": "ghp_y", "GITHUB_PAT": "ghp_z", "GH_PAT": "ghp_w", "GITHUB_OWNER": "acme"})
-    assert env == {"GITHUB_TOKEN": "", "GH_TOKEN": "", "GITHUB_PAT": "", "GH_PAT": ""}  # the owner is not a secret
+    env = scrubbed_env(
+        {
+            "GITHUB_TOKEN": "ghp_x",
+            "GH_TOKEN": "ghp_y",
+            "GITHUB_PAT": "ghp_z",
+            "GH_PAT": "ghp_w",
+            "GITHUB_OWNER": "acme",
+        }
+    )
+    assert env == {
+        "GITHUB_TOKEN": "",
+        "GH_TOKEN": "",
+        "GITHUB_PAT": "",
+        "GH_PAT": "",
+    }  # the owner is not a secret
 
 
 def test_the_agents_own_anthropic_credentials_survive() -> None:
-    assert "ANTHROPIC_API_KEY" not in scrubbed_env(KEEP) and "CLAUDE_CODE_OAUTH_TOKEN" not in scrubbed_env(KEEP)
+    assert "ANTHROPIC_API_KEY" not in scrubbed_env(
+        KEEP
+    ) and "CLAUDE_CODE_OAUTH_TOKEN" not in scrubbed_env(KEEP)
 
 
 def test_scrubbing_reads_the_real_environment_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -89,37 +106,55 @@ def test_options_carry_cwd_model_budget_turns_and_isolation(workspace: Path) -> 
     assert Path(str(options.cwd)) == workspace
     assert options.model == "claude-x" and options.max_turns == 7 and options.max_budget_usd == 3.5
     assert options.permission_mode == "acceptEdits"  # the new, safer default
-    assert options.setting_sources == ["project"]  # the pack's CLAUDE.md and skills; never the user's settings
+    assert options.setting_sources == [
+        "project"
+    ]  # the pack's CLAUDE.md and skills; never the user's settings
     assert options.skills == "all"
     assert {"WebFetch", "WebSearch"} <= set(options.disallowed_tools)
 
 
 def test_each_session_kind_runs_on_its_own_model(workspace: Path) -> None:
-    settings = settings_with(implementer_model="m-task", verifier_model="m-verify", escalation_model="m-hard")
+    settings = settings_with(
+        implementer_model="m-task", verifier_model="m-verify", escalation_model="m-hard"
+    )
     models = {
-        role: build_agent_options(workspace=workspace, settings=settings, max_turns=3, role=role).model
+        role: build_agent_options(
+            workspace=workspace, settings=settings, max_turns=3, role=role
+        ).model
         for role in ("implementer", "verifier", "escalation")
     }
     assert models == {"implementer": "m-task", "verifier": "m-verify", "escalation": "m-hard"}
-    assert build_agent_options(workspace=workspace, settings=settings, max_turns=3).model == "m-task"
+    assert (
+        build_agent_options(workspace=workspace, settings=settings, max_turns=3).model == "m-task"
+    )
 
 
-def test_task_sessions_load_the_project_harness_and_verification_lanes_do_not(workspace: Path) -> None:
+def test_task_sessions_load_the_project_harness_and_verification_lanes_do_not(
+    workspace: Path,
+) -> None:
     settings = settings_with()
     for role in ("implementer", "escalation"):
-        options = build_agent_options(workspace=workspace, settings=settings, max_turns=3, role=role)
+        options = build_agent_options(
+            workspace=workspace, settings=settings, max_turns=3, role=role
+        )
         assert options.setting_sources == ["project"] and options.skills == "all", role
     lane = build_agent_options(workspace=workspace, settings=settings, max_turns=3, role="verifier")
     # a lane judges the work: CLAUDE.md and skills an agent may have rewritten must not become its instructions
     assert lane.setting_sources == [] and lane.skills is None
 
 
-def test_the_project_settings_are_restored_before_a_session_that_loads_them(workspace: Path) -> None:
+def test_the_project_settings_are_restored_before_a_session_that_loads_them(
+    workspace: Path,
+) -> None:
     settings_file = workspace / ".claude" / "settings.json"
     settings_file.parent.mkdir()
-    settings_file.write_text(json.dumps({"hooks": {"Stop": []}, "permissions": {"allow": ["Bash(*)"]}}))
+    settings_file.write_text(
+        json.dumps({"hooks": {"Stop": []}, "permissions": {"allow": ["Bash(*)"]}})
+    )
     build_agent_options(workspace=workspace, settings=settings_with(), max_turns=3, role="verifier")
-    assert "hooks" in settings_file.read_text()  # a lane does not load them, so it does not touch them
+    assert (
+        "hooks" in settings_file.read_text()
+    )  # a lane does not load them, so it does not touch them
     build_agent_options(workspace=workspace, settings=settings_with(), max_turns=3)
     assert json.loads(settings_file.read_text()) == PROJECT_SETTINGS
 
@@ -127,21 +162,32 @@ def test_the_project_settings_are_restored_before_a_session_that_loads_them(work
 def test_the_budget_and_agents_can_be_overridden_per_call(workspace: Path) -> None:
     sentinel = {"backend": object()}
     options = build_agent_options(
-        workspace=workspace, settings=settings_with(), max_turns=3, agents=sentinel, max_budget_usd=1.25
+        workspace=workspace,
+        settings=settings_with(),
+        max_turns=3,
+        agents=sentinel,
+        max_budget_usd=1.25,
     )
     assert options.max_budget_usd == 1.25 and options.agents is sentinel
-    assert build_agent_options(workspace=workspace, settings=settings_with(), max_turns=3).agents is None
+    assert (
+        build_agent_options(workspace=workspace, settings=settings_with(), max_turns=3).agents
+        is None
+    )
 
 
 def test_the_os_sandbox_confines_shell_commands(workspace: Path) -> None:
     domains = ["pypi.org", "registry.npmjs.org"]
     options = build_agent_options(
-        workspace=workspace, settings=settings_with(implementer_allowed_domains=domains), max_turns=5
+        workspace=workspace,
+        settings=settings_with(implementer_allowed_domains=domains),
+        max_turns=5,
     )
     sandbox = options.sandbox
     assert sandbox["enabled"] is True
     assert sandbox["autoAllowBashIfSandboxed"] is True
-    assert sandbox["allowUnsandboxedCommands"] is False  # no escape hatch via dangerouslyDisableSandbox
+    assert (
+        sandbox["allowUnsandboxedCommands"] is False
+    )  # no escape hatch via dangerouslyDisableSandbox
     assert sandbox["network"]["allowedDomains"] == domains
 
 
@@ -150,7 +196,9 @@ def test_the_sandbox_denies_reading_credentials_and_the_orchestrators_dotenv(
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.chdir(tmp_path)
-    denied = build_agent_options(workspace=workspace, settings=settings_with(), max_turns=5).sandbox["filesystem"]["denyRead"]
+    denied = build_agent_options(
+        workspace=workspace, settings=settings_with(), max_turns=5
+    ).sandbox["filesystem"]["denyRead"]
     home = tmp_path / "home"
     for secret in (".ssh", ".aws", ".gnupg", ".config/gh", ".netrc", ".kube"):
         assert str(home / secret) in denied, secret
@@ -167,15 +215,23 @@ def test_the_pre_tool_use_hook_is_registered_for_the_guarded_tools_and_bound_to_
     (hook,) = matcher.hooks
     import asyncio
 
-    denied = asyncio.run(hook({"tool_name": "Read", "tool_input": {"file_path": "/etc/passwd"}, "cwd": "/"}, "1", {}))
+    denied = asyncio.run(
+        hook({"tool_name": "Read", "tool_input": {"file_path": "/etc/passwd"}, "cwd": "/"}, "1", {})
+    )
     assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
     allowed = asyncio.run(
-        hook({"tool_name": "Read", "tool_input": {"file_path": "x.py"}, "cwd": "/somewhere/else"}, "2", {})
+        hook(
+            {"tool_name": "Read", "tool_input": {"file_path": "x.py"}, "cwd": "/somewhere/else"},
+            "2",
+            {},
+        )
     )
     assert allowed == {}  # relative path resolved against the bound workspace, not the reported cwd
 
 
-def test_the_agent_environment_has_secrets_blanked(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_agent_environment_has_secrets_blanked(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-real")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp")
     env = build_agent_options(workspace=workspace, settings=settings_with(), max_turns=5).env
@@ -185,7 +241,9 @@ def test_the_agent_environment_has_secrets_blanked(workspace: Path, monkeypatch:
 
 def test_bypass_permissions_stays_selectable(workspace: Path) -> None:
     options = build_agent_options(
-        workspace=workspace, settings=settings_with(implementer_permission_mode="bypassPermissions"), max_turns=5
+        workspace=workspace,
+        settings=settings_with(implementer_permission_mode="bypassPermissions"),
+        max_turns=5,
     )
     assert options.permission_mode == "bypassPermissions"
     assert options.sandbox["enabled"] is True and options.hooks  # still sandboxed and guarded
@@ -199,7 +257,9 @@ def test_sandbox_off_builds_no_sandbox_but_keeps_the_guard_and_says_so_loudly(
 ) -> None:
     with caplog.at_level(logging.WARNING):
         options = build_agent_options(
-            workspace=workspace, settings=Settings(_env_file=None, implementer_sandbox="off"), max_turns=5
+            workspace=workspace,
+            settings=Settings(_env_file=None, implementer_sandbox="off"),
+            max_turns=5,
         )
     assert options.sandbox is None and options.hooks
     assert "sandbox" in caplog.text.lower() and "off" in caplog.text.lower()
@@ -211,7 +271,9 @@ def test_auto_falls_back_with_a_loud_warning_when_the_platform_has_no_sandbox(
     monkeypatch.setattr(opts, "sandbox_supported", lambda *a, **k: False)
     with caplog.at_level(logging.WARNING):
         options = build_agent_options(
-            workspace=workspace, settings=Settings(_env_file=None, implementer_sandbox="auto"), max_turns=5
+            workspace=workspace,
+            settings=Settings(_env_file=None, implementer_sandbox="auto"),
+            max_turns=5,
         )
     assert options.sandbox is None and options.hooks
     assert "not supported" in caplog.text and "container" in caplog.text
@@ -219,12 +281,16 @@ def test_auto_falls_back_with_a_loud_warning_when_the_platform_has_no_sandbox(
 
 def test_auto_enables_the_sandbox_where_it_is_supported(workspace: Path) -> None:
     options = build_agent_options(
-        workspace=workspace, settings=Settings(_env_file=None, implementer_sandbox="auto"), max_turns=5
+        workspace=workspace,
+        settings=Settings(_env_file=None, implementer_sandbox="auto"),
+        max_turns=5,
     )
     assert options.sandbox and options.sandbox["enabled"] is True
 
 
-def test_on_refuses_to_run_without_sandbox_support(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_on_refuses_to_run_without_sandbox_support(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(opts, "sandbox_supported", lambda *a, **k: False)
     with pytest.raises(SandboxUnavailableError, match="IMPLEMENTER_SANDBOX"):
         build_agent_options(workspace=workspace, settings=settings_with(), max_turns=5)
@@ -241,15 +307,24 @@ def test_on_refuses_to_run_without_sandbox_support(workspace: Path, monkeypatch:
         ("win32", {"bwrap", "socat", "sandbox-exec"}, False),
     ],
 )
-def test_sandbox_support_per_platform(platform: str, tools: set[str], expected: bool, monkeypatch) -> None:
+def test_sandbox_support_per_platform(
+    platform: str, tools: set[str], expected: bool, monkeypatch
+) -> None:
     monkeypatch.undo()  # drop the autouse "always supported" patch
-    assert sandbox_supported(platform=platform, which=lambda name: f"/bin/{name}" if name in tools else None) is expected
+    assert (
+        sandbox_supported(
+            platform=platform, which=lambda name: f"/bin/{name}" if name in tools else None
+        )
+        is expected
+    )
 
 
 # ----------------------------------------------------------------- status
 
 
-def test_the_status_states_the_truth_for_the_implement_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_status_states_the_truth_for_the_implement_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     on = sandbox_status(settings_with(implementer_allowed_domains=["pypi.org"]))
     assert on.enabled and "pypi.org" in on.summary and "workspace" in on.summary
     off = sandbox_status(Settings(_env_file=None, implementer_sandbox="off"))
@@ -262,4 +337,14 @@ def test_the_status_states_the_truth_for_the_implement_gate(monkeypatch: pytest.
 
 
 def test_scrubbed_env_never_blanks_variables_it_does_not_recognise_as_secrets() -> None:
-    assert scrubbed_env({"EDITOR": "vim", "TERM": "xterm", "KEYBOARD_LAYOUT": "us", "TOKENIZERS_PARALLELISM": "false"}) == {}
+    assert (
+        scrubbed_env(
+            {
+                "EDITOR": "vim",
+                "TERM": "xterm",
+                "KEYBOARD_LAYOUT": "us",
+                "TOKENIZERS_PARALLELISM": "false",
+            }
+        )
+        == {}
+    )

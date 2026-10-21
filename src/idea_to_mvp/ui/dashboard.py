@@ -21,7 +21,9 @@ from idea_to_mvp.ui.components import compact_count, format_elapsed, repo_link
 from idea_to_mvp.usage import summarize_usage
 
 _LANE_ORDER = ("tests", "quality", "requirements", "acceptance")
-_RUN_HEADING = re.compile(r"^(#{1,4})\s*(?:run|running|quick\s*start|usage|getting\s*started)\b.*$", re.IGNORECASE)
+_RUN_HEADING = re.compile(
+    r"^(#{1,4})\s*(?:run|running|quick\s*start|usage|getting\s*started)\b.*$", re.IGNORECASE
+)
 _HEADING = re.compile(r"^(#{1,6})\s")
 _REQUIREMENT_ID = re.compile(r"\bR\d+\b")
 
@@ -127,7 +129,11 @@ def _lane_card(lane: Mapping[str, Any]) -> str:
         f"<p>{_e(lane.get('summary'))}</p>"
         + _evidence_line(lane)
         + (f"<p class='lane-label'>Commands</p><ul>{commands}</ul>" if commands else "")
-        + (f"<p class='lane-label'>Failures</p><ul class='lane-failures'>{failures}</ul>" if failures else "")
+        + (
+            f"<p class='lane-label'>Failures</p><ul class='lane-failures'>{failures}</ul>"
+            if failures
+            else ""
+        )
         + "</section>"
     )
 
@@ -150,7 +156,11 @@ def _integrity_card(findings: Mapping[str, Any], mode: str, iteration: int) -> s
     for finding in entries:
         status = str(finding.get("status") or "open")
         version = f"v0.{int(finding.get('iteration') or 1)} · " if iteration > 1 else ""
-        why = f"<br><span class='integrity-reason'>Why: {_e(finding.get('reason'))}</span>" if status == "justified" else ""
+        why = (
+            f"<br><span class='integrity-reason'>Why: {_e(finding.get('reason'))}</span>"
+            if status == "justified"
+            else ""
+        )
         items.append(
             f"<li class='integrity-{_e(status)}'><strong>{_e(_INTEGRITY_STATUS.get(status, status))}</strong> · "
             f"{_e(version)}{_e(finding.get('detail'))}{why}</li>"
@@ -204,7 +214,9 @@ def _fix_history_card(verification: Mapping[str, Any]) -> str:
     passed = bool(verification.get("passed"))
     environment = str(verification.get("environment") or "")
     stopped = (
-        f"<p class='lane-label'>Stopped: the environment, not the project, is at fault. {_e(environment)}</p>" if environment else ""
+        f"<p class='lane-label'>Stopped: the environment, not the project, is at fault. {_e(environment)}</p>"
+        if environment
+        else ""
     )
     return (
         f"<section class='lane-card fix-history {'passed' if passed else 'failed'}' data-fix-attempts='{len(entries)}'>"
@@ -218,7 +230,11 @@ def _fix_history_card(verification: Mapping[str, Any]) -> str:
 
 
 def _requirement_rows(
-    prd: str, plan: Plan | None, results: Mapping[str, TaskResult], flagged: set[str], acceptance: Mapping[str, str] | None = None
+    prd: str,
+    plan: Plan | None,
+    results: Mapping[str, TaskResult],
+    flagged: set[str],
+    acceptance: Mapping[str, str] | None = None,
 ) -> str:
     """One row per PRD requirement; with an acceptance lane, also how its held-out tests did (`acceptance`)."""
     requirements = parse_requirements(prd)
@@ -244,7 +260,9 @@ def _requirement_rows(
         held_out = ""
         if acceptance is not None:
             verdict = str(acceptance.get(rid) or "no test")
-            held_out = f"<td class='req-acceptance {_e(verdict.replace(' ', '-'))}'>{_e(verdict)}</td>"
+            held_out = (
+                f"<td class='req-acceptance {_e(verdict.replace(' ', '-'))}'>{_e(verdict)}</td>"
+            )
         rows.append(
             f"<tr class='req-row {state}' data-req='{_e(rid)}'><th>{_e(rid)}</th><td>{_e(requirements[rid] or '—')}</td>"
             f"<td>{_e(', '.join(tasks) or '—')}</td><td class='req-status'>{state}</td>{held_out}</tr>"
@@ -267,7 +285,11 @@ def published_line(publication: Mapping[str, Any]) -> str:
     target = repo_link(url, str(publication.get("repo") or url))
     tags = ", ".join(str(tag) for tag in publication.get("tags") or [])
     commit = str(publication.get("commit") or "")[:7]
-    detail = ", ".join(part for part in (str(publication.get("visibility") or ""), commit and f"commit {commit}", tags) if part)
+    detail = ", ".join(
+        part
+        for part in (str(publication.get("visibility") or ""), commit and f"commit {commit}", tags)
+        if part
+    )
     return f"<p class='dashboard-published'><strong>Published:</strong> {target}{f' ({_e(detail)})' if detail else ''}</p>"
 
 
@@ -288,16 +310,24 @@ def _estimate_stat(estimate: Mapping[str, Any], summary: Mapping[str, Any], iter
         return ""
     low, high = estimate.get("low"), estimate.get("high")
     if low is None or high is None:
-        return _stat("estimate", "Estimate vs actual", f"estimate unpriced · ${summary['agent_cost_usd']:.2f} actual")
+        return _stat(
+            "estimate",
+            "Estimate vs actual",
+            f"estimate unpriced · ${summary['agent_cost_usd']:.2f} actual",
+        )
     actual = float(summary["agent_cost_usd"])
     verdict = "under" if actual < low else "over" if actual > high else "within"
     tuned = " (incl. harness tuning)" if estimate.get("harness_tuning") else ""
     return _stat(
-        "estimate", "Estimate vs actual", f"${low:.2f}–${high:.2f} estimated{tuned} · ${actual:.2f} actual ({verdict})"
+        "estimate",
+        "Estimate vs actual",
+        f"${low:.2f}–${high:.2f} estimated{tuned} · ${actual:.2f} actual ({verdict})",
     )
 
 
-def render_dashboard(state: Mapping[str, Any], *, elapsed: Mapping[str, float] | None = None) -> str:
+def render_dashboard(
+    state: Mapping[str, Any], *, elapsed: Mapping[str, float] | None = None
+) -> str:
     """The delivery dashboard for a finished run (`elapsed`: seconds per pipeline step, when known)."""
     verification = state.get("verification") or {}
     passed = bool(verification.get("passed"))
@@ -306,9 +336,17 @@ def render_dashboard(state: Mapping[str, Any], *, elapsed: Mapping[str, float] |
     workspace_dir = str(state.get("workspace_dir") or "")
     workspace = Path(workspace_dir) if workspace_dir else None
     plan = load_plan(_read(workspace / "plan.json")) if workspace else None
-    results: Mapping[str, TaskResult] = state.get("task_results") or (load_progress(workspace) if workspace else {})
+    results: Mapping[str, TaskResult] = state.get("task_results") or (
+        load_progress(workspace) if workspace else {}
+    )
     lanes = [lane for lane in verification.get("lanes") or [] if isinstance(lane, Mapping)]
-    lanes.sort(key=lambda lane: _LANE_ORDER.index(lane.get("lane")) if lane.get("lane") in _LANE_ORDER else len(_LANE_ORDER))
+    lanes.sort(
+        key=lambda lane: (
+            _LANE_ORDER.index(lane.get("lane"))
+            if lane.get("lane") in _LANE_ORDER
+            else len(_LANE_ORDER)
+        )
+    )
 
     header = (
         f"<header class='dashboard-head'><h3>Delivery report — v0.{iteration}</h3>"
@@ -319,26 +357,42 @@ def render_dashboard(state: Mapping[str, Any], *, elapsed: Mapping[str, float] |
         lane_html = f"<div class='lane-grid'>{''.join(_lane_card(lane) for lane in lanes)}</div>"
     else:
         lane_html = f"<p class='dashboard-note'>{_e(verification.get('report') or 'No verification report.')}</p>"
-    lane_html += _integrity_card(state.get("integrity_findings") or {}, str(verification.get("integrity") or ""), iteration)
+    lane_html += _integrity_card(
+        state.get("integrity_findings") or {}, str(verification.get("integrity") or ""), iteration
+    )
     lane_html += _fix_history_card(verification)
 
     flagged: set[str] = set()
     for lane in lanes:
         if lane.get("lane") == "requirements" and not lane.get("passed"):
-            flagged.update(_REQUIREMENT_ID.findall(" ".join(str(f) for f in lane.get("failures") or [])))
+            flagged.update(
+                _REQUIREMENT_ID.findall(" ".join(str(f) for f in lane.get("failures") or []))
+            )
     acceptance = next(
-        (lane.get("evidence") for lane in lanes if lane.get("lane") == "acceptance" and isinstance(lane.get("evidence"), Mapping)),
+        (
+            lane.get("evidence")
+            for lane in lanes
+            if lane.get("lane") == "acceptance" and isinstance(lane.get("evidence"), Mapping)
+        ),
         None,
     )
     held_out = acceptance.get("requirements") if isinstance(acceptance, Mapping) else None
     table = _requirement_rows(
-        _read(workspace / "PRD.md") if workspace else "", plan, results, flagged, held_out if isinstance(held_out, Mapping) else None
+        _read(workspace / "PRD.md") if workspace else "",
+        plan,
+        results,
+        flagged,
+        held_out if isinstance(held_out, Mapping) else None,
     )
     requirements_html = f"<h4>Requirements</h4>{table}" if table else ""
 
     summary = summarize_usage(state.get("usage") or [])
     tasks_total = len(plan.tasks) if plan else len(results)
-    tasks_done = sum(1 for task_id, r in results.items() if r["status"] == "done" and (plan is None or any(t.id == task_id for t in plan.tasks)))
+    tasks_done = sum(
+        1
+        for task_id, r in results.items()
+        if r["status"] == "done" and (plan is None or any(t.id == task_id for t in plan.tasks))
+    )
     took = sum((elapsed or {}).values())
     estimate_html = _estimate_stat(state.get("cost_estimate") or {}, summary, iteration)
     stats = "".join(
@@ -346,7 +400,9 @@ def render_dashboard(state: Mapping[str, Any], *, elapsed: Mapping[str, float] |
             _stat("planning", "Planning cost", _planning_cost(summary)),
             _stat("cost", "Agent cost", f"${summary['agent_cost_usd']:.2f}"),
             estimate_html,
-            _stat("tokens", "Model tokens", f"{compact_count(int(summary['total_tokens']))} tokens"),
+            _stat(
+                "tokens", "Model tokens", f"{compact_count(int(summary['total_tokens']))} tokens"
+            ),
             _stat("time", "Time", format_elapsed(took) if took > 0 else "—"),
             _stat("tasks", "Tasks", f"{tasks_done} of {tasks_total} tasks"),
         ]
@@ -354,12 +410,19 @@ def render_dashboard(state: Mapping[str, Any], *, elapsed: Mapping[str, float] |
 
     steps = run_instructions(workspace, plan) if workspace else []
     if steps:
-        run_html = "".join(f"<p class='run-label'>{_e(label)}</p><pre class='run-block'>{_e(command)}</pre>" for label, command in steps)
+        run_html = "".join(
+            f"<p class='run-label'>{_e(label)}</p><pre class='run-block'>{_e(command)}</pre>"
+            for label, command in steps
+        )
     else:
         run_html = "<p>See <code>README.md</code> in the workspace.</p>"
     archive = str(state.get("delivery_zip") or "")
     where = (
-        (f"<p><strong>Project:</strong> <code>{_e(workspace_dir)}</code></p>" if workspace_dir else "")
+        (
+            f"<p><strong>Project:</strong> <code>{_e(workspace_dir)}</code></p>"
+            if workspace_dir
+            else ""
+        )
         + (f"<p><strong>Download:</strong> <code>{_e(archive)}</code></p>" if archive else "")
         + published_line(state.get("publication") or {})
     )

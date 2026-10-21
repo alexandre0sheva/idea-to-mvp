@@ -38,17 +38,26 @@ def _files(workspace: Path, include_git: bool) -> list[Path]:
         dirs[:] = sorted(
             d
             for d in dirs
-            if not (Path(root, d).is_symlink() or (_skipped(d) and not (include_git and d == ".git")))
+            if not (
+                Path(root, d).is_symlink() or (_skipped(d) and not (include_git and d == ".git"))
+            )
         )
         for name in sorted(files):
             path = Path(root, name)
-            if path.is_symlink() or name in _SKIPPED_FILES or name.endswith(_SKIPPED_SUFFIXES) or is_secret_env(name):
+            if (
+                path.is_symlink()
+                or name in _SKIPPED_FILES
+                or name.endswith(_SKIPPED_SUFFIXES)
+                or is_secret_env(name)
+            ):
                 continue
             found.append(path)
     return found
 
 
-def make_delivery_zip(workspace: Path, dest_dir: Path, *, label: str = "", include_git: bool = False) -> Path:
+def make_delivery_zip(
+    workspace: Path, dest_dir: Path, *, label: str = "", include_git: bool = False
+) -> Path:
     """Zip the project into `dest_dir` as `<workspace>[-<label>].zip` (replaced when it already exists).
 
     The archive holds the project under a folder named like the workspace. The git history is left out
@@ -62,7 +71,9 @@ def make_delivery_zip(workspace: Path, dest_dir: Path, *, label: str = "", inclu
     try:
         with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for path in _files(workspace, include_git):
-                archive.write(path, arcname=f"{workspace.name}/{path.relative_to(workspace).as_posix()}")
+                archive.write(
+                    path, arcname=f"{workspace.name}/{path.relative_to(workspace).as_posix()}"
+                )
         temporary.replace(target)
     finally:
         temporary.unlink(missing_ok=True)
@@ -83,6 +94,11 @@ def tag_iteration(workspace: Path, iteration: int) -> str:
     commit_workspace(workspace, tag)  # also hardens the repository's config and hooks
     done = run_git(workspace, "tag", "-f", tag)
     if done is None or done.returncode != 0:
-        LOGGER.warning("Could not tag %s in %s: %s", tag, workspace, (done.stderr if done else "git unavailable").strip())
+        LOGGER.warning(
+            "Could not tag %s in %s: %s",
+            tag,
+            workspace,
+            (done.stderr if done else "git unavailable").strip(),
+        )
         return ""
     return tag

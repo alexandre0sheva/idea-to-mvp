@@ -86,7 +86,11 @@ class ResearchBrief(BaseModel):
             url = http_url(item.get("url") if isinstance(item, dict) else getattr(item, "url", ""))
             if not url:
                 continue
-            linked.append({**item, "url": url} if isinstance(item, dict) else item.model_copy(update={"url": url}))
+            linked.append(
+                {**item, "url": url}
+                if isinstance(item, dict)
+                else item.model_copy(update={"url": url})
+            )
         return linked[:MAX_COMPETITORS]
 
     @field_validator("market_notes", "gaps", mode="before")
@@ -156,7 +160,9 @@ class ArchitectureOption(BaseModel):
     security_baseline: str
     tradeoffs: list[str]
     limits: str
-    anchored_constraints: list[str]  # constraints from the user's answers this option is built around
+    anchored_constraints: list[
+        str
+    ]  # constraints from the user's answers this option is built around
 
 
 class ArchitectureProposal(BaseModel):
@@ -199,7 +205,9 @@ def render_option_markdown(proposal: ArchitectureProposal, key: str) -> str:
 
 def render_architecture_markdown(proposal: ArchitectureProposal) -> str:
     shared = "\n".join(f"- {item}" for item in proposal.shared_components) or "- (none)"
-    rollout = "\n".join(f"{i}. {step}" for i, step in enumerate(proposal.rollout, start=1)) or "- (none)"
+    rollout = (
+        "\n".join(f"{i}. {step}" for i, step in enumerate(proposal.rollout, start=1)) or "- (none)"
+    )
     return (
         f"{render_option_markdown(proposal, 'A')}\n"
         f"{render_option_markdown(proposal, 'B')}\n"
@@ -257,7 +265,8 @@ class ExecutionStrategy(BaseModel):
         usable = [
             item
             for item in value
-            if (isinstance(item, dict) and str(item.get("name") or "").strip()) or isinstance(item, Workstream)
+            if (isinstance(item, dict) and str(item.get("name") or "").strip())
+            or isinstance(item, Workstream)
         ]
         return usable[:MAX_WORKSTREAMS]
 

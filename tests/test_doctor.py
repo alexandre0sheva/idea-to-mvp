@@ -19,7 +19,8 @@ def _runtime_for(role: str):
     spec = ROLES[role]
     settings = Settings(_env_file=None)
     return SimpleNamespace(
-        provider=getattr(settings, spec.provider_setting), model=getattr(settings, spec.model_setting)
+        provider=getattr(settings, spec.provider_setting),
+        model=getattr(settings, spec.model_setting),
     )
 
 
@@ -41,7 +42,9 @@ def test_all_roles_ok_when_pings_succeed() -> None:
 
     checks = collect_checks(_settings(), runtime_for=_runtime_for, ping=ping)
     by_role = _by_name(checks)
-    roles = [role for role in ROLES if role != "researcher"]  # only checked when research is enabled
+    roles = [
+        role for role in ROLES if role != "researcher"
+    ]  # only checked when research is enabled
     assert all(by_role[role].status == "ok" for role in roles)
     # summarizer, architect, and strategy share one provider/model: pinged once, reported for each role
     assert len(pings) == len(set(pings)) < len(roles)
@@ -55,7 +58,10 @@ def test_failing_ping_reports_fail_with_the_reason_and_does_not_raise() -> None:
 
     checks = _by_name(collect_checks(_settings(), runtime_for=_runtime_for, ping=ping))
     assert checks["skeptic"].status == "fail"
-    assert "AuthenticationError" in checks["skeptic"].detail and "API key not valid" in checks["skeptic"].detail
+    assert (
+        "AuthenticationError" in checks["skeptic"].detail
+        and "API key not valid" in checks["skeptic"].detail
+    )
     assert checks["pm"].status == "ok"
 
 
@@ -67,7 +73,11 @@ def test_empty_reply_counts_as_a_failure() -> None:
 def test_missing_key_fails_without_pinging() -> None:
     pinged: list[str] = []
     settings = _settings(google_api_key=None)
-    checks = _by_name(collect_checks(settings, runtime_for=_runtime_for, ping=lambda r: pinged.append(r.provider) or "OK"))
+    checks = _by_name(
+        collect_checks(
+            settings, runtime_for=_runtime_for, ping=lambda r: pinged.append(r.provider) or "OK"
+        )
+    )
     assert checks["skeptic"].status == "fail" and "GOOGLE_API_KEY" in checks["skeptic"].detail
     assert "google" not in pinged
 
@@ -78,20 +88,31 @@ def test_offline_mode_only_checks_configuration() -> None:
 
     checks = collect_checks(_settings(), runtime_for=_runtime_for, ping=ping, offline=True)
     assert all(c.status in ("ok", "warn") for c in checks)
-    checks = collect_checks(_settings(openai_api_key=None), runtime_for=_runtime_for, ping=ping, offline=True)
+    checks = collect_checks(
+        _settings(openai_api_key=None), runtime_for=_runtime_for, ping=ping, offline=True
+    )
     assert _by_name(checks)["pm"].status == "fail"
 
 
 def test_demo_mode_needs_no_keys_or_pings() -> None:
     settings = Settings(_env_file=None, demo_mode=True)
-    checks = collect_checks(settings, runtime_for=_runtime_for, ping=lambda r: (_ for _ in ()).throw(AssertionError()))
+    checks = collect_checks(
+        settings, runtime_for=_runtime_for, ping=lambda r: (_ for _ in ()).throw(AssertionError())
+    )
     assert [c.status for c in checks] == ["ok"] and "demo" in checks[0].name.lower()
 
 
 def test_implementer_checks_the_bundled_cli_and_warns_without_an_api_key() -> None:
-    checks = collect_checks(_settings(anthropic_api_key=None), runtime_for=_runtime_for, ping=lambda r: "OK", offline=True)
+    checks = collect_checks(
+        _settings(anthropic_api_key=None),
+        runtime_for=_runtime_for,
+        ping=lambda r: "OK",
+        offline=True,
+    )
     implementer = [c for c in checks if c.name.startswith("implementer")]
-    assert implementer and all(c.status != "fail" for c in implementer)  # bundled CLI ships with the SDK
+    assert implementer and all(
+        c.status != "fail" for c in implementer
+    )  # bundled CLI ships with the SDK
     assert any(c.status == "warn" and "ANTHROPIC_API_KEY" in c.detail for c in implementer)
 
 
@@ -159,7 +180,9 @@ def test_apply_tracing_env_exports_only_langsmith_variables(tmp_path: Path, monk
     monkeypatch.delenv("LANGSMITH_API_KEY")
 
 
-def test_apply_tracing_env_never_overrides_the_real_environment(tmp_path: Path, monkeypatch) -> None:
+def test_apply_tracing_env_never_overrides_the_real_environment(
+    tmp_path: Path, monkeypatch
+) -> None:
     env_file = tmp_path / ".env"
     env_file.write_text("LANGSMITH_PROJECT=from-file\n")
     monkeypatch.setenv("LANGSMITH_PROJECT", "from-shell")
@@ -176,34 +199,63 @@ def test_the_researcher_is_checked_only_when_research_is_enabled() -> None:
         return "OK"
 
     off = _by_name(collect_checks(_settings(), runtime_for=_runtime_for, ping=ping))
-    on = _by_name(collect_checks(_settings(enable_research=True), runtime_for=_runtime_for, ping=ping))
+    on = _by_name(
+        collect_checks(_settings(enable_research=True), runtime_for=_runtime_for, ping=ping)
+    )
     assert "researcher" not in off and on["researcher"].status == "ok"
 
 
 def test_offline_doctor_warns_about_an_unreadable_prices_file(tmp_path: Path) -> None:
-    checks = collect_checks(_settings(model_prices_file=tmp_path / "missing.toml"), runtime_for=_runtime_for, ping=lambda r: "OK", offline=True)
+    checks = collect_checks(
+        _settings(model_prices_file=tmp_path / "missing.toml"),
+        runtime_for=_runtime_for,
+        ping=lambda r: "OK",
+        offline=True,
+    )
     prices = next(check for check in checks if check.name == "model prices file")
     assert prices.status == "warn" and "cannot read" in prices.detail
 
 
-def test_offline_doctor_accepts_a_good_prices_file_and_says_nothing_without_one(tmp_path: Path) -> None:
+def test_offline_doctor_accepts_a_good_prices_file_and_says_nothing_without_one(
+    tmp_path: Path,
+) -> None:
     good = tmp_path / "prices.toml"
     good.write_text('[prices."m"]\ninput_per_mtok = 1.0\noutput_per_mtok = 2.0\n')
-    checks = collect_checks(_settings(model_prices_file=good), runtime_for=_runtime_for, ping=lambda r: "OK", offline=True)
+    checks = collect_checks(
+        _settings(model_prices_file=good),
+        runtime_for=_runtime_for,
+        ping=lambda r: "OK",
+        offline=True,
+    )
     assert next(check for check in checks if check.name == "model prices file").status == "ok"
-    assert not [c for c in collect_checks(_settings(), runtime_for=_runtime_for, ping=lambda r: "OK", offline=True) if c.name == "model prices file"]
+    assert not [
+        c
+        for c in collect_checks(
+            _settings(), runtime_for=_runtime_for, ping=lambda r: "OK", offline=True
+        )
+        if c.name == "model prices file"
+    ]
 
 
 def test_doctor_checks_the_toolchain_of_every_starter_template() -> None:
-    present = collect_checks(_settings(), runtime_for=_runtime_for, offline=True, which=lambda tool: f"/usr/bin/{tool}")
+    present = collect_checks(
+        _settings(), runtime_for=_runtime_for, offline=True, which=lambda tool: f"/usr/bin/{tool}"
+    )
     templates = [c for c in present if c.name.startswith("template ")]
     assert templates and all(c.status == "ok" for c in templates)
     assert {name for c in templates for name in c.name.removeprefix("template ").split(", ")} == {
-        "nextjs", "node-ts-express", "python-cli", "python-fastapi", "react-vite",
+        "nextjs",
+        "node-ts-express",
+        "python-cli",
+        "python-fastapi",
+        "react-vite",
     }
 
     no_node = collect_checks(
-        _settings(), runtime_for=_runtime_for, offline=True, which=lambda tool: None if tool in ("node", "npm") else "/usr/bin/python3"
+        _settings(),
+        runtime_for=_runtime_for,
+        offline=True,
+        which=lambda tool: None if tool in ("node", "npm") else "/usr/bin/python3",
     )
     by_name = {c.name: c for c in no_node if c.name.startswith("template ")}
     node = by_name["template nextjs, node-ts-express, react-vite"]

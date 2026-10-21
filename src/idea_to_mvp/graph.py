@@ -62,7 +62,9 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
     `None` is only useful for inspecting topology (diagram script)."""
     builder = StateGraph(IdeaDiscussionState)
     # The panel is a subgraph; its LLM nodes carry the retry policy (retrying the whole node would redo every turn).
-    builder.add_node("research", research_node, retry_policy=LLM_RETRY)  # optional: skipped unless ENABLE_RESEARCH
+    builder.add_node(
+        "research", research_node, retry_policy=LLM_RETRY
+    )  # optional: skipped unless ENABLE_RESEARCH
     builder.add_node("panel", build_panel_subgraph())
     builder.add_node("summarizer", summarizer_node, retry_policy=LLM_RETRY)
     builder.add_node("collect_answers", collect_answers_node)
@@ -70,19 +72,31 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
     builder.add_node("arch_choice", arch_choice_node)
     builder.add_node("strategy", strategy_node, retry_policy=LLM_RETRY)
     builder.add_node("plan_gate", plan_gate_node)
-    builder.add_node("plan_bundle", build_blueprint_subgraph())  # subgraph: its document nodes retry
+    builder.add_node(
+        "plan_bundle", build_blueprint_subgraph()
+    )  # subgraph: its document nodes retry
     builder.add_node("implement_gate", implement_gate_node)
     builder.add_node("prepare_workspace", prepare_workspace_node)
-    builder.add_node("acceptance_author", acceptance_author_node, retry_policy=LLM_RETRY)  # a no-op when off
-    builder.add_node("harness_tuning", build_tuning_subgraph())  # optional pilot runs; its model nodes retry
+    builder.add_node(
+        "acceptance_author", acceptance_author_node, retry_policy=LLM_RETRY
+    )  # a no-op when off
+    builder.add_node(
+        "harness_tuning", build_tuning_subgraph()
+    )  # optional pilot runs; its model nodes retry
     builder.add_node("implementer", implementer_node)
-    builder.add_node("implement_plan", build_implement_subgraph())  # parallel worktrees; its nodes carry their own policy
+    builder.add_node(
+        "implement_plan", build_implement_subgraph()
+    )  # parallel worktrees; its nodes carry their own policy
     builder.add_node("verify", verify_node)
-    builder.add_node("verify_lane", verify_lane_node)  # three lanes (four with acceptance), fanned out with Send
+    builder.add_node(
+        "verify_lane", verify_lane_node
+    )  # three lanes (four with acceptance), fanned out with Send
     builder.add_node("verdict", verdict_node)
     builder.add_node("fix", fix_node)
     builder.add_node("delivery_report", delivery_report_node)
-    builder.add_node("reflect", reflect_node, retry_policy=LLM_RETRY)  # the experience library; skipped when off
+    builder.add_node(
+        "reflect", reflect_node, retry_policy=LLM_RETRY
+    )  # the experience library; skipped when off
     builder.add_node("iterate_gate", iterate_gate_node)
     builder.add_node("change_planner", change_planner_node, retry_policy=LLM_RETRY)
 
@@ -105,12 +119,18 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
         route_after_implement_gate,
         {"prepare_workspace": "prepare_workspace", "__end__": END},
     )
-    builder.add_edge("prepare_workspace", "acceptance_author")  # the held-out suite is written before T01
+    builder.add_edge(
+        "prepare_workspace", "acceptance_author"
+    )  # the held-out suite is written before T01
     # Harness tuning runs once, before the first version's first task, when chosen at the implement gate.
     builder.add_conditional_edges(
         "acceptance_author",
         route_after_acceptance,
-        {"harness_tuning": "harness_tuning", "implementer": "implementer", "implement_plan": "implement_plan"},
+        {
+            "harness_tuning": "harness_tuning",
+            "implementer": "implementer",
+            "implement_plan": "implement_plan",
+        },
     )
     builder.add_conditional_edges(
         "harness_tuning",
@@ -190,7 +210,9 @@ async def read_thread(graph: CompiledStateGraph, thread_id: str) -> ThreadView:
     """Read a thread the way the UI and the headless CLI both see it."""
     # subgraphs=True: while the panel runs, its turns live in the subgraph's checkpoint, not the parent's.
     snapshot = await graph.aget_state({"configurable": {"thread_id": thread_id}}, subgraphs=True)
-    return ThreadView(merged_values(snapshot), pending_interrupt(snapshot), tuple(snapshot.next or ()))
+    return ThreadView(
+        merged_values(snapshot), pending_interrupt(snapshot), tuple(snapshot.next or ())
+    )
 
 
 async def update_thread(graph: CompiledStateGraph, thread_id: str, values: dict[str, Any]) -> None:
@@ -258,7 +280,9 @@ class GraphProvider:
     connection must be created in a running loop, so `make_ui()` only holds a provider.
     """
 
-    def __init__(self, settings: Settings | None = None, *, graph: CompiledStateGraph | None = None):
+    def __init__(
+        self, settings: Settings | None = None, *, graph: CompiledStateGraph | None = None
+    ):
         self._settings = settings
         self._graph = graph
         self._stack: AsyncExitStack | None = None

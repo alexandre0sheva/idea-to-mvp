@@ -24,7 +24,9 @@ def bundle(tmp_path: Path) -> Path:
     root = tmp_path / "blueprints" / "20260101-000000-000000-my-idea"
     (root / ".claude" / "agents").mkdir(parents=True)
     (root / "plan.md").write_text("# plan")
-    (root / ".claude" / "agents" / "backend-api.md").write_text("---\nname: backend-api\n---\n\nbody")
+    (root / ".claude" / "agents" / "backend-api.md").write_text(
+        "---\nname: backend-api\n---\n\nbody"
+    )
     return root
 
 
@@ -45,7 +47,9 @@ def test_the_bundle_is_copied_into_a_fresh_workspace(bundle: Path, tmp_path: Pat
     assert (workspace / ".claude" / "agents" / "backend-api.md").exists()
 
 
-def test_a_second_workspace_for_the_same_bundle_does_not_collide(bundle: Path, tmp_path: Path) -> None:
+def test_a_second_workspace_for_the_same_bundle_does_not_collide(
+    bundle: Path, tmp_path: Path
+) -> None:
     first = prepare_workspace(bundle, tmp_path / "projects")
     second = prepare_workspace(bundle, tmp_path / "projects")
     assert second != first and (second / "plan.md").exists() and (first / "plan.md").exists()
@@ -59,14 +63,18 @@ def test_heavy_and_generated_directories_are_not_copied(bundle: Path, tmp_path: 
         (bundle / "src" / name / "junk.txt").write_text("x")
     (bundle / "src" / "app.py").write_text("print(1)")
     workspace = prepare_workspace(bundle, tmp_path / "projects")
-    names = {p.name for p in workspace.rglob("*") if ".git" not in p.relative_to(workspace).parts[:1]}
+    names = {
+        p.name for p in workspace.rglob("*") if ".git" not in p.relative_to(workspace).parts[:1]
+    }
     for excluded in ("node_modules", ".venv", "coverage", "dist", "__pycache__"):
         assert excluded not in names, excluded
     assert (workspace / "src" / "app.py").exists()
     assert "junk.txt" not in names
 
 
-def test_symlinks_in_the_bundle_are_copied_as_links_not_followed(bundle: Path, tmp_path: Path) -> None:
+def test_symlinks_in_the_bundle_are_copied_as_links_not_followed(
+    bundle: Path, tmp_path: Path
+) -> None:
     secret = tmp_path / "secret.txt"
     secret.write_text("secret")
     (bundle / "leak").symlink_to(secret)
@@ -84,13 +92,24 @@ def test_the_workspace_is_a_git_repository_with_one_blueprint_commit_and_a_clean
     assert (workspace / ".git").is_dir()
     assert git(workspace, "log", "--format=%s").splitlines() == ["blueprint"]
     assert git(workspace, "status", "--porcelain") == ""
-    assert {"plan.md", ".gitignore", ".claude/agents/backend-api.md"} <= set(git(workspace, "ls-files").splitlines())
+    assert {"plan.md", ".gitignore", ".claude/agents/backend-api.md"} <= set(
+        git(workspace, "ls-files").splitlines()
+    )
 
 
 def test_the_gitignore_covers_dependencies_caches_and_secrets(bundle: Path, tmp_path: Path) -> None:
     workspace = prepare_workspace(bundle, tmp_path / "projects")
     lines = set((workspace / ".gitignore").read_text().splitlines())
-    for entry in ("node_modules/", ".venv/", "__pycache__/", "coverage/", "dist/", ".env", ".pytest_cache/", ".DS_Store"):
+    for entry in (
+        "node_modules/",
+        ".venv/",
+        "__pycache__/",
+        "coverage/",
+        "dist/",
+        ".env",
+        ".pytest_cache/",
+        ".DS_Store",
+    ):
         assert entry in lines, entry
     assert "!.env.example" in lines
 
@@ -102,7 +121,9 @@ def test_an_existing_gitignore_is_kept_and_extended(bundle: Path, tmp_path: Path
     assert lines[0] == "custom-output/" and "node_modules/" in lines
 
 
-def test_later_commits_are_made_by_the_orchestrator_and_skip_ignored_files(bundle: Path, tmp_path: Path) -> None:
+def test_later_commits_are_made_by_the_orchestrator_and_skip_ignored_files(
+    bundle: Path, tmp_path: Path
+) -> None:
     workspace = prepare_workspace(bundle, tmp_path / "projects")
     (workspace / "src").mkdir()
     (workspace / "src" / "app.py").write_text("print(1)")
@@ -112,7 +133,9 @@ def test_later_commits_are_made_by_the_orchestrator_and_skip_ignored_files(bundl
     assert commit_workspace(workspace, "implementation") is True
     assert git(workspace, "log", "--format=%s").splitlines() == ["implementation", "blueprint"]
     tracked = set(git(workspace, "ls-files").splitlines())
-    assert "src/app.py" in tracked and not any(p.startswith("node_modules") or p == ".env" for p in tracked)
+    assert "src/app.py" in tracked and not any(
+        p.startswith("node_modules") or p == ".env" for p in tracked
+    )
     assert commit_workspace(workspace, "nothing changed") is False  # clean tree: no empty commit
 
 
@@ -145,7 +168,7 @@ def test_a_planted_fsmonitor_hook_or_filter_never_runs_when_the_orchestrator_com
     config.write_text(
         config.read_text()
         + f"[core]\n\tfsmonitor = touch {marker}.fsmonitor\n"
-        + f"[filter \"evil\"]\n\tclean = touch {marker}.filter\n\tsmudge = cat\n"
+        + f'[filter "evil"]\n\tclean = touch {marker}.filter\n\tsmudge = cat\n'
     )
     (workspace / ".gitattributes").write_text("* filter=evil\n")
     hook = workspace / ".git" / "hooks" / "pre-commit"
@@ -157,7 +180,9 @@ def test_a_planted_fsmonitor_hook_or_filter_never_runs_when_the_orchestrator_com
     assert not list(tmp_path.glob("pwned*")), [p.name for p in tmp_path.glob("pwned*")]
 
 
-def test_a_git_entry_that_is_not_a_plain_directory_is_not_trusted(bundle: Path, tmp_path: Path) -> None:
+def test_a_git_entry_that_is_not_a_plain_directory_is_not_trusted(
+    bundle: Path, tmp_path: Path
+) -> None:
     workspace = prepare_workspace(bundle, tmp_path / "projects")
     elsewhere = tmp_path / "elsewhere.git"
     (workspace / ".git").rename(elsewhere)
@@ -172,7 +197,14 @@ def test_a_git_entry_that_is_not_a_plain_directory_is_not_trusted(bundle: Path, 
 
 def test_workspace_tree_lists_project_files_and_hides_noise(tmp_path: Path) -> None:
     root = tmp_path / "w"
-    for path in ("src/app.py", "README.md", "node_modules/dep/index.js", ".git/HEAD", ".venv/bin/python", "a/__pycache__/x.pyc"):
+    for path in (
+        "src/app.py",
+        "README.md",
+        "node_modules/dep/index.js",
+        ".git/HEAD",
+        ".venv/bin/python",
+        "a/__pycache__/x.pyc",
+    ):
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         (root / path).write_text("x")
     tree = workspace_tree(root)
@@ -198,7 +230,9 @@ def test_workspace_tree_truncates_and_handles_missing_or_empty_workspaces(tmp_pa
 def _git(workspace: Path, *args: str) -> str:
     import subprocess
 
-    return subprocess.run(["git", *args], cwd=workspace, capture_output=True, text=True, check=True).stdout.strip()
+    return subprocess.run(
+        ["git", *args], cwd=workspace, capture_output=True, text=True, check=True
+    ).stdout.strip()
 
 
 def test_diff_stat_summarises_what_a_commit_changed(tmp_path: Path) -> None:
@@ -230,11 +264,25 @@ def test_diff_stat_of_a_merge_shows_what_the_merge_brought_in(tmp_path: Path) ->
     _git(workspace, "checkout", "-q", "main")
     (workspace / "other.py").write_text("y = 2\n")
     commit_workspace(workspace, "T03: other")
-    _git(workspace, "-c", "user.name=t", "-c", "user.email=t@t", "merge", "--no-ff", "-q", "-m", "merge T02", "task/T02")
+    _git(
+        workspace,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "merge",
+        "--no-ff",
+        "-q",
+        "-m",
+        "merge T02",
+        "task/T02",
+    )
     commit = head_commit(workspace)
     assert commit is not None and base
     stat = diff_stat(workspace, commit)
-    assert "left.py" in stat and "other.py" not in stat  # the merge brought in T02's file, not main's own
+    assert (
+        "left.py" in stat and "other.py" not in stat
+    )  # the merge brought in T02's file, not main's own
 
 
 def test_diff_stat_of_the_first_commit_falls_back_to_showing_it(tmp_path: Path) -> None:
@@ -265,7 +313,9 @@ def test_diff_stat_refuses_anything_that_is_not_a_plain_commit_id(tmp_path: Path
 # ------------------------------------------------------------------ diff since
 
 
-def test_the_diff_since_a_commit_holds_what_changed_after_it_including_new_files(bundle: Path, tmp_path: Path) -> None:
+def test_the_diff_since_a_commit_holds_what_changed_after_it_including_new_files(
+    bundle: Path, tmp_path: Path
+) -> None:
     workspace = prepare_workspace(bundle, tmp_path / "projects")
     before = ws.head_commit(workspace)
     assert before
@@ -273,10 +323,16 @@ def test_the_diff_since_a_commit_holds_what_changed_after_it_including_new_files
     (workspace / "new.py").write_text("x = 1\n")
     commit_workspace(workspace, "fix attempt 1")
     diff = ws.diff_since(workspace, before)
-    assert "diff --git a/plan.md b/plan.md" in diff and "+more" in diff and "diff --git a/new.py b/new.py" in diff
+    assert (
+        "diff --git a/plan.md b/plan.md" in diff
+        and "+more" in diff
+        and "diff --git a/new.py b/new.py" in diff
+    )
 
 
-def test_a_diff_since_a_commit_that_is_not_a_plain_id_is_refused_and_a_big_diff_is_cut(bundle: Path, tmp_path: Path) -> None:
+def test_a_diff_since_a_commit_that_is_not_a_plain_id_is_refused_and_a_big_diff_is_cut(
+    bundle: Path, tmp_path: Path
+) -> None:
     workspace = prepare_workspace(bundle, tmp_path / "projects")
     before = ws.head_commit(workspace)
     assert ws.diff_since(workspace, "--output=/tmp/x") == "" and ws.diff_since(workspace, "") == ""
@@ -306,16 +362,26 @@ def test_the_chosen_template_is_laid_down_and_committed_as_scaffold_before_any_t
     workspace = prepare_workspace(_template_bundle(bundle, "python-fastapi"), tmp_path / "projects")
     assert git(workspace, "log", "--format=%s").splitlines() == ["scaffold", "blueprint"]
     tracked = set(git(workspace, "ls-files").splitlines())
-    assert {"pyproject.toml", "src/app/main.py", "tests/test_health.py", "scripts/check.sh", ".gitignore"} <= tracked
+    assert {
+        "pyproject.toml",
+        "src/app/main.py",
+        "tests/test_health.py",
+        "scripts/check.sh",
+        ".gitignore",
+    } <= tracked
     assert "plan.md" in tracked and (workspace / "README.md").read_text() == "# the pack's README"
     scaffold_files = set(git(workspace, "show", "--name-only", "--format=", "HEAD").splitlines())
-    assert "plan.md" not in scaffold_files and "src/app/main.py" in scaffold_files  # the pack was its own commit
+    assert (
+        "plan.md" not in scaffold_files and "src/app/main.py" in scaffold_files
+    )  # the pack was its own commit
     assert 'name = "my-idea"' in (workspace / "pyproject.toml").read_text()
 
 
 def test_no_scaffold_commit_without_a_template(bundle: Path, tmp_path: Path) -> None:
     for recorded in (None, "none", "django"):
-        workspace = prepare_workspace(_template_bundle(bundle, recorded), tmp_path / f"projects-{recorded}")
+        workspace = prepare_workspace(
+            _template_bundle(bundle, recorded), tmp_path / f"projects-{recorded}"
+        )
         assert git(workspace, "log", "--format=%s").splitlines() == ["blueprint"]
         assert not (workspace / "pyproject.toml").exists()
 

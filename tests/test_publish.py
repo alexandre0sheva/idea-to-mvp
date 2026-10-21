@@ -39,7 +39,9 @@ def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    monkeypatch.chdir(tmp_path)  # Settings reads .env from the working directory: never the developer's own
+    monkeypatch.chdir(
+        tmp_path
+    )  # Settings reads .env from the working directory: never the developer's own
     for name in ("GITHUB_TOKEN", "GITHUB_OWNER", "PUBLISH_VISIBILITY", "GH_TOKEN"):
         monkeypatch.delenv(name, raising=False)
     clear_settings_cache()
@@ -48,7 +50,9 @@ def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 def git(workspace: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=workspace, capture_output=True, text=True, check=True).stdout.strip()
+    return subprocess.run(
+        ["git", *args], cwd=workspace, capture_output=True, text=True, check=True
+    ).stdout.strip()
 
 
 @pytest.fixture()
@@ -69,7 +73,12 @@ def workspace(tmp_path: Path) -> Path:
 
 
 def state_of(workspace: Path, **fields: Any) -> dict[str, Any]:
-    return {"workspace_dir": str(workspace), "delivery_report": "# Delivery report", "iteration": 1, **fields}
+    return {
+        "workspace_dir": str(workspace),
+        "delivery_report": "# Delivery report",
+        "iteration": 1,
+        **fields,
+    }
 
 
 class FakeGitHub:
@@ -77,7 +86,9 @@ class FakeGitHub:
 
     backend = "token"
 
-    def __init__(self, root: Path, *, login: str = "alex", token: str = TOKEN, clone_url: str | None = None) -> None:
+    def __init__(
+        self, root: Path, *, login: str = "alex", token: str = TOKEN, clone_url: str | None = None
+    ) -> None:
         self.root = root
         self._login = login
         self._token = token
@@ -88,10 +99,14 @@ class FakeGitHub:
         return self._login
 
     def create_repo(self, owner: str, name: str, *, private: bool, description: str) -> Repo:
-        self.created.append({"owner": owner, "name": name, "private": private, "description": description})
+        self.created.append(
+            {"owner": owner, "name": name, "private": private, "description": description}
+        )
         bare = self.root / f"{owner}-{name}.git"
         subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
-        return Repo(f"{owner}/{name}", f"https://github.com/{owner}/{name}", self._clone_url or str(bare))
+        return Repo(
+            f"{owner}/{name}", f"https://github.com/{owner}/{name}", self._clone_url or str(bare)
+        )
 
     def push_token(self) -> str:
         return self._token
@@ -115,7 +130,10 @@ def settings(**fields: Any) -> Settings:
 
 def test_the_repository_name_is_the_project_folder_without_its_timestamp() -> None:
     assert default_repo_name(Path("/p/20261020-232931-394718-a-habit-tracker")) == "a-habit-tracker"
-    assert default_repo_name(Path("/p/20261020-232931-394718-Habit Tracker!! (v2)")) == "Habit-Tracker-v2"
+    assert (
+        default_repo_name(Path("/p/20261020-232931-394718-Habit Tracker!! (v2)"))
+        == "Habit-Tracker-v2"
+    )
     assert default_repo_name(Path("/p/20261020-232931-394718-")) == "project"
     assert len(default_repo_name(Path("/p/" + "x" * 300))) == 100
 
@@ -123,7 +141,9 @@ def test_the_repository_name_is_the_project_folder_without_its_timestamp() -> No
 # -------------------------------------------------------------------- plans
 
 
-def test_the_plan_names_the_repository_private_by_default_and_what_would_be_pushed(workspace: Path, hub: FakeGitHub) -> None:
+def test_the_plan_names_the_repository_private_by_default_and_what_would_be_pushed(
+    workspace: Path, hub: FakeGitHub
+) -> None:
     plan = plan_publish(state_of(workspace), settings(), hub)
     assert plan.problems == () and plan.ok
     assert plan.full_name == "alex/a-habit-tracker" and plan.visibility == "private"
@@ -134,24 +154,37 @@ def test_the_plan_names_the_repository_private_by_default_and_what_would_be_push
     assert hub.created == []  # planning creates nothing
 
 
-def test_orchestrator_records_and_secret_files_are_never_in_the_plan(workspace: Path, hub: FakeGitHub) -> None:
+def test_orchestrator_records_and_secret_files_are_never_in_the_plan(
+    workspace: Path, hub: FakeGitHub
+) -> None:
     plan = plan_publish(state_of(workspace), settings(), hub)
     assert not any(".idea-to-mvp" in path or path == ".env" for path in plan.files)
     text = render_plan(plan)
     assert ".idea-to-mvp/" in text and "never" in text.lower()  # the preview says what stays home
 
 
-def test_the_owner_and_visibility_come_from_the_request_then_the_settings(workspace: Path, hub: FakeGitHub) -> None:
+def test_the_owner_and_visibility_come_from_the_request_then_the_settings(
+    workspace: Path, hub: FakeGitHub
+) -> None:
     configured = settings(github_owner="acme", publish_visibility="public")
     plan = plan_publish(state_of(workspace), configured, hub)
     assert (plan.full_name, plan.visibility) == ("acme/a-habit-tracker", "public")
-    asked = plan_publish(state_of(workspace), configured, hub, repo="bob/tracker", visibility="private")
+    asked = plan_publish(
+        state_of(workspace), configured, hub, repo="bob/tracker", visibility="private"
+    )
     assert (asked.full_name, asked.visibility) == ("bob/tracker", "private")
-    assert plan_publish(state_of(workspace), settings(), hub, repo="tracker").full_name == "alex/tracker"
+    assert (
+        plan_publish(state_of(workspace), settings(), hub, repo="tracker").full_name
+        == "alex/tracker"
+    )
 
 
-@pytest.mark.parametrize("repo", ["a b", "bad/name/extra", "-flag", "x" * 101, "o/", "../up", "name.git", "."])
-def test_an_unusable_repository_name_is_a_problem(workspace: Path, hub: FakeGitHub, repo: str) -> None:
+@pytest.mark.parametrize(
+    "repo", ["a b", "bad/name/extra", "-flag", "x" * 101, "o/", "../up", "name.git", "."]
+)
+def test_an_unusable_repository_name_is_a_problem(
+    workspace: Path, hub: FakeGitHub, repo: str
+) -> None:
     plan = plan_publish(state_of(workspace), settings(), hub, repo=repo)
     assert not plan.ok and "repository name" in " ".join(plan.problems).lower()
 
@@ -162,10 +195,16 @@ def test_an_unknown_visibility_is_a_problem(workspace: Path, hub: FakeGitHub) ->
 
 def test_without_github_access_the_plan_says_how_to_get_it(workspace: Path) -> None:
     plan = plan_publish(state_of(workspace), settings(), None)
-    assert not plan.ok and "GITHUB_TOKEN" in " ".join(plan.problems) and "gh" in " ".join(plan.problems)
+    assert (
+        not plan.ok
+        and "GITHUB_TOKEN" in " ".join(plan.problems)
+        and "gh" in " ".join(plan.problems)
+    )
 
 
-def test_a_session_without_a_delivery_has_nothing_to_publish(workspace: Path, hub: FakeGitHub, tmp_path: Path) -> None:
+def test_a_session_without_a_delivery_has_nothing_to_publish(
+    workspace: Path, hub: FakeGitHub, tmp_path: Path
+) -> None:
     for state in (
         {},
         {"workspace_dir": str(tmp_path / "gone"), "delivery_report": "x"},
@@ -193,10 +232,14 @@ def test_a_failed_login_is_a_problem_not_a_crash(workspace: Path) -> None:
     assert not plan.ok and "rejected the token" in " ".join(plan.problems)
 
 
-def test_history_that_ever_held_an_orchestrator_record_or_a_secret_is_refused(workspace: Path, hub: FakeGitHub) -> None:
+def test_history_that_ever_held_an_orchestrator_record_or_a_secret_is_refused(
+    workspace: Path, hub: FakeGitHub
+) -> None:
     git(workspace, "add", "-f", ".idea-to-mvp/ledger.json", ".env")
     git(workspace, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "oops")
-    git(workspace, "rm", "-q", "--cached", ".idea-to-mvp/ledger.json", ".env")  # gone from the tip, still in history
+    git(
+        workspace, "rm", "-q", "--cached", ".idea-to-mvp/ledger.json", ".env"
+    )  # gone from the tip, still in history
     git(workspace, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "undo")
     plan = plan_publish(state_of(workspace), settings(), hub)
     assert not plan.ok
@@ -223,12 +266,20 @@ def test_only_tags_of_a_version_on_the_branch_are_pushed(workspace: Path, hub: F
     assert plan_publish(state_of(workspace), settings(), hub).tags == ("v0.1",)
 
 
-def test_the_fingerprint_covers_everything_the_user_confirms(workspace: Path, hub: FakeGitHub) -> None:
+def test_the_fingerprint_covers_everything_the_user_confirms(
+    workspace: Path, hub: FakeGitHub
+) -> None:
     base = plan_publish(state_of(workspace), settings(), hub)
     again = plan_publish(state_of(workspace), settings(), hub)
     assert base.fingerprint == again.fingerprint
-    assert plan_publish(state_of(workspace), settings(), hub, visibility="public").fingerprint != base.fingerprint
-    assert plan_publish(state_of(workspace), settings(), hub, repo="other").fingerprint != base.fingerprint
+    assert (
+        plan_publish(state_of(workspace), settings(), hub, visibility="public").fingerprint
+        != base.fingerprint
+    )
+    assert (
+        plan_publish(state_of(workspace), settings(), hub, repo="other").fingerprint
+        != base.fingerprint
+    )
     (workspace / "more.txt").write_text("x")
     commit_workspace(workspace, "T02: more")
     assert plan_publish(state_of(workspace), settings(), hub).fingerprint != base.fingerprint
@@ -247,15 +298,23 @@ def test_the_rendered_plan_is_the_whole_preview(workspace: Path, hub: FakeGitHub
 # --------------------------------------------------------------- publishing
 
 
-def test_nothing_is_created_or_pushed_without_the_confirmation_of_this_exact_plan(workspace: Path, hub: FakeGitHub) -> None:
+def test_nothing_is_created_or_pushed_without_the_confirmation_of_this_exact_plan(
+    workspace: Path, hub: FakeGitHub
+) -> None:
     plan = plan_publish(state_of(workspace), settings(), hub)
-    for wrong in ("", "0" * 16, plan_publish(state_of(workspace), settings(), hub, visibility="public").fingerprint):
+    for wrong in (
+        "",
+        "0" * 16,
+        plan_publish(state_of(workspace), settings(), hub, visibility="public").fingerprint,
+    ):
         with pytest.raises(NotConfirmed):
             publish_plan(plan, hub, confirm=wrong)
     assert hub.created == [] and list(hub.root.iterdir()) == []
 
 
-def test_a_plan_with_problems_cannot_be_published_even_when_confirmed(workspace: Path, hub: FakeGitHub) -> None:
+def test_a_plan_with_problems_cannot_be_published_even_when_confirmed(
+    workspace: Path, hub: FakeGitHub
+) -> None:
     plan = plan_publish(state_of(workspace), settings(), hub, repo="bad name")
     with pytest.raises(PublishError):
         publish_plan(plan, hub, confirm=plan.fingerprint)
@@ -270,7 +329,12 @@ def test_a_confirmed_plan_creates_a_private_repository_and_pushes_the_branch_and
     record = publish_plan(plan, hub, confirm=plan.fingerprint)
 
     assert hub.created == [
-        {"owner": "alex", "name": "a-habit-tracker", "private": True, "description": publish.DESCRIPTION}
+        {
+            "owner": "alex",
+            "name": "a-habit-tracker",
+            "private": True,
+            "description": publish.DESCRIPTION,
+        }
     ]
     bare = hub.bare("a-habit-tracker")
     assert git(bare, "rev-parse", "refs/heads/main") == plan.commit
@@ -279,15 +343,31 @@ def test_a_confirmed_plan_creates_a_private_repository_and_pushes_the_branch_and
     tree = set(git(bare, "ls-tree", "-r", "--name-only", "main").splitlines())
     assert tree == set(plan.files)
     assert not any(".idea-to-mvp" in path or path == ".env" for path in tree)
-    assert git(bare, "log", "--format=%s", "main").splitlines() == ["T01: app", "blueprint"]  # the delivery's own history
+    assert git(bare, "log", "--format=%s", "main").splitlines() == [
+        "T01: app",
+        "blueprint",
+    ]  # the delivery's own history
 
-    assert record["repo"] == "alex/a-habit-tracker" and record["url"] == "https://github.com/alex/a-habit-tracker"
-    assert record["visibility"] == "private" and record["branch"] == "main" and record["tags"] == ["v0.1"]
-    assert record["commit"] == plan.commit and record["files"] == len(plan.files) and record["published_at"]
+    assert (
+        record["repo"] == "alex/a-habit-tracker"
+        and record["url"] == "https://github.com/alex/a-habit-tracker"
+    )
+    assert (
+        record["visibility"] == "private"
+        and record["branch"] == "main"
+        and record["tags"] == ["v0.1"]
+    )
+    assert (
+        record["commit"] == plan.commit
+        and record["files"] == len(plan.files)
+        and record["published_at"]
+    )
     assert TOKEN not in json.dumps(record)
 
 
-def test_a_public_repository_is_created_only_when_public_was_confirmed(workspace: Path, hub: FakeGitHub) -> None:
+def test_a_public_repository_is_created_only_when_public_was_confirmed(
+    workspace: Path, hub: FakeGitHub
+) -> None:
     plan = plan_publish(state_of(workspace), settings(), hub, visibility="public")
     publish_plan(plan, hub, confirm=plan.fingerprint)
     assert hub.created[0]["private"] is False
@@ -307,11 +387,21 @@ def test_the_token_reaches_git_in_its_environment_scoped_to_github_never_in_the_
     plan = plan_publish(state_of(workspace), settings(), hub)
     publish_plan(plan, hub, confirm=plan.fingerprint)
     (args, env) = next(call for call in calls if call[0][:1] == ("push",))
-    assert TOKEN not in " ".join(args) and "--force" not in args and "-f" not in args and "--mirror" not in args
-    assert env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader" and env["GIT_CONFIG_COUNT"] == "1"
+    assert (
+        TOKEN not in " ".join(args)
+        and "--force" not in args
+        and "-f" not in args
+        and "--mirror" not in args
+    )
+    assert (
+        env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
+        and env["GIT_CONFIG_COUNT"] == "1"
+    )
     import base64
 
-    assert base64.b64encode(f"x-access-token:{TOKEN}".encode()).decode() in env["GIT_CONFIG_VALUE_0"]
+    assert (
+        base64.b64encode(f"x-access-token:{TOKEN}".encode()).decode() in env["GIT_CONFIG_VALUE_0"]
+    )
 
 
 def test_a_push_that_fails_names_the_repository_it_left_behind_and_never_prints_the_token(
@@ -327,7 +417,9 @@ def test_a_push_that_fails_names_the_repository_it_left_behind_and_never_prints_
     assert TOKEN not in message
 
 
-def test_a_repository_that_cannot_be_created_pushes_nothing(workspace: Path, hub: FakeGitHub, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_repository_that_cannot_be_created_pushes_nothing(
+    workspace: Path, hub: FakeGitHub, monkeypatch: pytest.MonkeyPatch
+) -> None:
     def taken(*args: Any, **kwargs: Any) -> Repo:
         raise PublishError("a repository named alex/a-habit-tracker already exists")
 
@@ -338,7 +430,9 @@ def test_a_repository_that_cannot_be_created_pushes_nothing(workspace: Path, hub
     assert list(hub.root.iterdir()) == []
 
 
-def test_a_git_folder_swapped_for_a_link_after_the_plan_is_refused(workspace: Path, hub: FakeGitHub, tmp_path: Path) -> None:
+def test_a_git_folder_swapped_for_a_link_after_the_plan_is_refused(
+    workspace: Path, hub: FakeGitHub, tmp_path: Path
+) -> None:
     plan = plan_publish(state_of(workspace), settings(), hub)
     elsewhere = tmp_path / "elsewhere"
     (workspace / ".git").rename(elsewhere)
@@ -348,7 +442,9 @@ def test_a_git_folder_swapped_for_a_link_after_the_plan_is_refused(workspace: Pa
     assert hub.created == []
 
 
-def test_publishing_hardens_the_repository_before_git_touches_it(workspace: Path, hub: FakeGitHub) -> None:
+def test_publishing_hardens_the_repository_before_git_touches_it(
+    workspace: Path, hub: FakeGitHub
+) -> None:
     plan = plan_publish(state_of(workspace), settings(), hub)
     hook = workspace / ".git" / "hooks" / "pre-push"  # planted after the plan, before the push
     hook.parent.mkdir(exist_ok=True)
@@ -371,7 +467,9 @@ class Recorder:
         self.replies = list(replies)
         self.calls: list[tuple[str, str, dict[str, str], dict[str, Any] | None]] = []
 
-    def __call__(self, method: str, url: str, headers: dict[str, str], body: dict[str, Any] | None) -> tuple[int, dict[str, Any]]:
+    def __call__(
+        self, method: str, url: str, headers: dict[str, str], body: dict[str, Any] | None
+    ) -> tuple[int, dict[str, Any]]:
         self.calls.append((method, url, headers, body))
         return self.replies.pop(0)
 
@@ -387,7 +485,9 @@ def test_the_rest_client_creates_a_repository_in_the_users_account() -> None:
     send = Recorder((200, {"login": "alex"}), (201, REPO_JSON))
     client = RestClient(TOKEN, send=send)
     repo = client.create_repo("alex", "tracker", private=True, description="d")
-    assert repo == Repo("alex/tracker", "https://github.com/alex/tracker", "https://github.com/alex/tracker.git")
+    assert repo == Repo(
+        "alex/tracker", "https://github.com/alex/tracker", "https://github.com/alex/tracker.git"
+    )
     (login, create) = send.calls
     assert login[:2] == ("GET", "https://api.github.com/user")
     assert create[:2] == ("POST", "https://api.github.com/user/repos")
@@ -399,7 +499,10 @@ def test_the_rest_client_creates_a_repository_in_the_users_account() -> None:
 def test_the_rest_client_creates_a_repository_in_an_organisation() -> None:
     send = Recorder((200, {"login": "alex"}), (201, REPO_JSON))
     RestClient(TOKEN, send=send).create_repo("acme", "tracker", private=False, description="d")
-    assert send.calls[1][1] == "https://api.github.com/orgs/acme/repos" and send.calls[1][3]["private"] is False
+    assert (
+        send.calls[1][1] == "https://api.github.com/orgs/acme/repos"
+        and send.calls[1][3]["private"] is False
+    )
 
 
 def test_the_login_is_asked_once() -> None:
@@ -416,11 +519,20 @@ def test_the_login_is_asked_once() -> None:
         (401, {"message": "Bad credentials"}, "rejected the token"),
         (403, {"message": "Resource not accessible by personal access token"}, "not accessible"),
         (404, {"message": "Not Found"}, "not found"),
-        (422, {"message": "Repository creation failed.", "errors": [{"message": "name already exists on this account"}]}, "already exists"),
+        (
+            422,
+            {
+                "message": "Repository creation failed.",
+                "errors": [{"message": "name already exists on this account"}],
+            },
+            "already exists",
+        ),
         (500, {}, "500"),
     ],
 )
-def test_the_rest_client_turns_api_errors_into_readable_ones_without_the_token(status: int, body: dict, expected: str) -> None:
+def test_the_rest_client_turns_api_errors_into_readable_ones_without_the_token(
+    status: int, body: dict, expected: str
+) -> None:
     client = RestClient(TOKEN, send=Recorder((200, {"login": "alex"}), (status, body)))
     with pytest.raises(PublishError) as failed:
         client.create_repo("alex", "tracker", private=True, description="d")
@@ -446,10 +558,17 @@ class FakeRun:
 
 
 def test_the_gh_client_uses_the_cli_for_the_api_and_for_the_token() -> None:
-    run = FakeRun((0, json.dumps({"login": "alex"}), ""), (0, json.dumps(REPO_JSON), ""), (0, f"{TOKEN}\n", ""))
+    run = FakeRun(
+        (0, json.dumps({"login": "alex"}), ""),
+        (0, json.dumps(REPO_JSON), ""),
+        (0, f"{TOKEN}\n", ""),
+    )
     client = GhClient(run=run, gh="/usr/bin/gh")
     assert client.login() == "alex"
-    assert client.create_repo("acme", "tracker", private=True, description="d").url == "https://github.com/alex/tracker"
+    assert (
+        client.create_repo("acme", "tracker", private=True, description="d").url
+        == "https://github.com/alex/tracker"
+    )
     assert client.push_token() == TOKEN
     commands = [call[0] for call in run.calls]
     assert commands[0][:3] == ["/usr/bin/gh", "api", "/user"]
@@ -459,7 +578,10 @@ def test_the_gh_client_uses_the_cli_for_the_api_and_for_the_token() -> None:
 
 
 def test_a_failing_gh_call_is_a_publish_error() -> None:
-    client = GhClient(run=FakeRun((1, "", "gh: To get started with GitHub CLI, please run: gh auth login")), gh="gh")
+    client = GhClient(
+        run=FakeRun((1, "", "gh: To get started with GitHub CLI, please run: gh auth login")),
+        gh="gh",
+    )
     with pytest.raises(PublishError, match="gh auth login"):
         client.login()
 
@@ -482,16 +604,28 @@ def test_the_gate_offers_publishing_when_there_is_a_way_to_do_it(workspace: Path
     }
     off = publish_options(state_of(workspace), settings(), which=lambda name: None)
     assert off["available"] is False and off["backend"] == ""
-    assert publish_options(state_of(workspace), settings(), which=lambda name: "/usr/bin/gh")["backend"] == "gh"
-    published = publish_options(state_of(workspace, publication={"url": "https://github.com/a/b"}), settings(github_token=TOKEN))
+    assert (
+        publish_options(state_of(workspace), settings(), which=lambda name: "/usr/bin/gh")[
+            "backend"
+        ]
+        == "gh"
+    )
+    published = publish_options(
+        state_of(workspace, publication={"url": "https://github.com/a/b"}),
+        settings(github_token=TOKEN),
+    )
     assert published["published"] == {"url": "https://github.com/a/b"}
-    assert publish_options({}, settings(github_token=TOKEN))["available"] is False  # nothing delivered yet
+    assert (
+        publish_options({}, settings(github_token=TOKEN))["available"] is False
+    )  # nothing delivered yet
 
 
 # ------------------------------------------------------------ history, hosts, transport
 
 
-def test_files_that_only_the_history_holds_are_listed_as_pushed_too(workspace: Path, hub: FakeGitHub) -> None:
+def test_files_that_only_the_history_holds_are_listed_as_pushed_too(
+    workspace: Path, hub: FakeGitHub
+) -> None:
     (workspace / "notes.txt").write_text("a key I pasted: not really a secret file name\n")
     commit_workspace(workspace, "T02: notes")
     git(workspace, "rm", "-q", "notes.txt")
@@ -501,7 +635,9 @@ def test_files_that_only_the_history_holds_are_listed_as_pushed_too(workspace: P
     assert "notes.txt" in render_plan(plan) and "pushed with it" in render_plan(plan)
     assert plan_publish(state_of(workspace), settings(), hub).to_dict()["removed"] == ("notes.txt",)
     pushed = publish_plan(plan, hub, confirm=plan.fingerprint)
-    assert "notes.txt" in git(hub.bare("a-habit-tracker"), "log", "--name-only", "--format=", "main")  # it was sent
+    assert "notes.txt" in git(
+        hub.bare("a-habit-tracker"), "log", "--name-only", "--format=", "main"
+    )  # it was sent
     assert pushed["files"] == len(plan.files)
 
 
@@ -555,9 +691,13 @@ def fake_urlopen(monkeypatch: pytest.MonkeyPatch, outcome: Any) -> list[Any]:
     return requests
 
 
-def test_the_transport_sends_json_and_returns_the_status_and_body(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_transport_sends_json_and_returns_the_status_and_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     requests = fake_urlopen(monkeypatch, FakeResponse(201, b'{"full_name": "a/b"}'))
-    status, body = publish._send("POST", "https://api.github.com/user/repos", {"Accept": "x"}, {"name": "b"})
+    status, body = publish._send(
+        "POST", "https://api.github.com/user/repos", {"Accept": "x"}, {"name": "b"}
+    )
     assert (status, body) == (201, {"full_name": "a/b"})
     assert requests[0].get_method() == "POST" and json.loads(requests[0].data) == {"name": "b"}
 
@@ -566,15 +706,22 @@ def test_an_http_error_keeps_its_status_and_json_body(monkeypatch: pytest.Monkey
     import io
     import urllib.error
 
-    error = urllib.error.HTTPError("u", 422, "Unprocessable", {}, io.BytesIO(b'{"message": "already exists"}'))  # type: ignore[arg-type]
+    error = urllib.error.HTTPError(
+        "u", 422, "Unprocessable", {}, io.BytesIO(b'{"message": "already exists"}')
+    )  # type: ignore[arg-type]
     fake_urlopen(monkeypatch, error)
-    assert publish._send("POST", "https://api.github.com/x", {}, {}) == (422, {"message": "already exists"})
+    assert publish._send("POST", "https://api.github.com/x", {}, {}) == (
+        422,
+        {"message": "already exists"},
+    )
     error = urllib.error.HTTPError("u", 502, "Bad Gateway", {}, io.BytesIO(b"<html>oops</html>"))  # type: ignore[arg-type]
     fake_urlopen(monkeypatch, error)
     assert publish._send("GET", "https://api.github.com/x", {}, None) == (502, {})
 
 
-def test_a_success_that_is_not_json_is_not_reported_as_a_network_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_success_that_is_not_json_is_not_reported_as_a_network_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fake_urlopen(monkeypatch, FakeResponse(200, b"<html>proxy login</html>"))
     with pytest.raises(PublishError, match="not JSON"):
         publish._send("GET", "https://api.github.com/user", {}, None)

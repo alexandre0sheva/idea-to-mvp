@@ -8,12 +8,18 @@ def test_make_ui_smoke() -> None:
 
 
 def _markdown_values(demo) -> list[str]:
-    return [str(getattr(b, "value", "")) for b in demo.blocks.values() if type(b).__name__ == "Markdown"]
+    return [
+        str(getattr(b, "value", "")) for b in demo.blocks.values() if type(b).__name__ == "Markdown"
+    ]
 
 
 def test_demo_banner_only_shown_in_demo_mode() -> None:
-    assert any("Demo mode" in v for v in _markdown_values(make_ui(settings=Settings(demo_mode=True))))
-    assert not any("Demo mode" in v for v in _markdown_values(make_ui(settings=Settings(demo_mode=False))))
+    assert any(
+        "Demo mode" in v for v in _markdown_values(make_ui(settings=Settings(demo_mode=True)))
+    )
+    assert not any(
+        "Demo mode" in v for v in _markdown_values(make_ui(settings=Settings(demo_mode=False)))
+    )
 
 
 def _blocks(demo, kind: str) -> list:
@@ -45,11 +51,17 @@ def test_the_settings_accordion_holds_rounds_panel_mode_autopilot_and_the_model_
     def descendants(block) -> list:
         return [d for child in getattr(block, "children", []) for d in (child, *descendants(child))]
 
-    inside = {type(b).__name__ + ":" + str(getattr(b, "label", "")) for b in descendants(settings_box)}
+    inside = {
+        type(b).__name__ + ":" + str(getattr(b, "label", "")) for b in descendants(settings_box)
+    }
     assert "Slider:Rounds per speaker" in inside
     assert any(name.startswith("Dropdown:Panel mode") for name in inside)
     assert any(name.startswith("Checkbox:Autopilot") for name in inside)
-    assert any("gpt-" in str(getattr(b, "value", "")) for b in descendants(settings_box) if type(b).__name__ == "Markdown")
+    assert any(
+        "gpt-" in str(getattr(b, "value", ""))
+        for b in descendants(settings_box)
+        if type(b).__name__ == "Markdown"
+    )
 
 
 def test_autopilot_is_off_and_the_panel_mode_defaults_to_the_setting() -> None:
@@ -57,7 +69,10 @@ def test_autopilot_is_off_and_the_panel_mode_defaults_to_the_setting() -> None:
     (autopilot,) = [b for b in _blocks(demo, "Checkbox") if str(b.label).startswith("Autopilot")]
     assert autopilot.value is False
     (mode,) = [b for b in _blocks(demo, "Dropdown") if str(b.label).startswith("Panel mode")]
-    assert mode.value == "moderated" and [c[1] for c in mode.choices] == ["moderated", "round_robin"]
+    assert mode.value == "moderated" and [c[1] for c in mode.choices] == [
+        "moderated",
+        "round_robin",
+    ]
 
 
 def test_there_is_a_stop_button_that_cancels_the_running_event() -> None:
@@ -70,7 +85,11 @@ def test_every_gate_has_its_own_hidden_form_and_there_is_no_shared_decision_radi
     from idea_to_mvp.ui.gates import GATES
 
     demo = _ui()
-    panels = [b for b in _blocks(demo, "Column") if "gate-form" in (getattr(b, "elem_classes", None) or [])]
+    panels = [
+        b
+        for b in _blocks(demo, "Column")
+        if "gate-form" in (getattr(b, "elem_classes", None) or [])
+    ]
     assert len(panels) == len(GATES) and all(panel.visible is False for panel in panels)
     assert not [b for b in _blocks(demo, "Radio") if b.label == "Decision"]
     assert [b for b in _blocks(demo, "Button") if b.value == "Use all suggestions"]
@@ -95,9 +114,20 @@ def test_project_preferences_live_in_a_collapsed_accordion_with_no_constraints_p
 
     inside = descendants(box)
     (platform,) = [b for b in inside if type(b).__name__ == "Dropdown"]
-    assert platform.value == "any" and [c[1] for c in platform.choices] == ["web", "mobile", "cli", "api", "any"]
+    assert platform.value == "any" and [c[1] for c in platform.choices] == [
+        "web",
+        "mobile",
+        "cli",
+        "api",
+        "any",
+    ]
     labels = [b.label for b in inside if type(b).__name__ == "Textbox"]
-    assert labels == ["Stack hints", "Deploy target", "Must use (hard constraint)", "Must avoid (hard constraint)"]
+    assert labels == [
+        "Stack hints",
+        "Deploy target",
+        "Must use (hard constraint)",
+        "Must avoid (hard constraint)",
+    ]
     assert all(not b.value for b in inside if type(b).__name__ == "Textbox")
 
 

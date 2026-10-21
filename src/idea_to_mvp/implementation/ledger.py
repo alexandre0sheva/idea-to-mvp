@@ -22,14 +22,19 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.usage import UsageRecord
 
 LEDGER_DIR = ".idea-to-mvp"
-SessionKind = Literal["task", "resolver", "lane", "fix", "pilot", "pilot_lane", "proposal", "compose", "select"]
+SessionKind = Literal[
+    "task", "resolver", "lane", "fix", "pilot", "pilot_lane", "proposal", "compose", "select"
+]
 SessionOutcome = Literal["success", "failed", "crashed"]
 # The `usage` roles that are agent sessions (planning and panel calls are not in the ledger).
 AGENT_USAGE_ROLES = ("implementer", "resolver", "verifier", "fixer", "pilot")
 # Model calls the ledger records as well (harness tuning's), and the `usage` roles their spend is recorded under.
 CALL_KINDS = ("proposal", "compose", "select")
 CALL_USAGE_ROLES = ("harness_editor", "harness_composer", "pilot_selector")
-TUNING_SESSION_KINDS = ("pilot", "pilot_lane")  # harness tuning's agent sessions: paid from the whole-run budget
+TUNING_SESSION_KINDS = (
+    "pilot",
+    "pilot_lane",
+)  # harness tuning's agent sessions: paid from the whole-run budget
 
 _KINDS = ("task", "resolver", "lane", "fix", "pilot", "pilot_lane", "proposal", "compose", "select")
 _OUTCOMES = ("success", "failed", "crashed")
@@ -48,7 +53,9 @@ class LedgerRow(TypedDict):
     turns: int
     outcome: SessionOutcome
     session_id: str | None
-    trajectory: str  # path relative to the workspace ('' for one kept outside it: the acceptance lane's)
+    trajectory: (
+        str  # path relative to the workspace ('' for one kept outside it: the acceptance lane's)
+    )
     started_at: float
     ended_at: float
 
@@ -117,7 +124,14 @@ def append_row(workspace: Path, row: LedgerRow) -> None:
 
 
 def record_call(
-    workspace: Path, *, kind: SessionKind, label: str, model: str, cost_usd: float, started_at: float, ended_at: float
+    workspace: Path,
+    *,
+    kind: SessionKind,
+    label: str,
+    model: str,
+    cost_usd: float,
+    started_at: float,
+    ended_at: float,
 ) -> LedgerRow:
     """Add a model call (not an agent session: no trajectory, no turns) to the ledger."""
     row: LedgerRow = {
@@ -163,7 +177,9 @@ def tuning_spend(workspace: Path, iteration: int) -> float:
     if cached is not None and cached[0] == stamp:
         return cached[1]
     total = sum(
-        row["cost_usd"] for row in load_ledger(workspace) if row["kind"] in TUNING_SESSION_KINDS and row["iteration"] == iteration
+        row["cost_usd"]
+        for row in load_ledger(workspace)
+        if row["kind"] in TUNING_SESSION_KINDS and row["iteration"] == iteration
     )
     _TUNING_CACHE[key] = (stamp, total)
     return total
@@ -190,12 +206,14 @@ def check_ledger(workspace: Path, usage: list[UsageRecord]) -> LedgerCheck:
     usage_usd = agent_spend(usage)
     if abs(ledger_usd - usage_usd) <= _TOLERANCE_USD:
         return LedgerCheck(True, ledger_usd, usage_usd)
-    message = (
-        f"The run ledger adds up to ${ledger_usd:.2f} but the agent spend recorded in usage is ${usage_usd:.2f}."
-    )
+    message = f"The run ledger adds up to ${ledger_usd:.2f} but the agent spend recorded in usage is ${usage_usd:.2f}."
     return LedgerCheck(False, ledger_usd, usage_usd, message)
 
 
 def task_trajectories(workspace: Path) -> dict[str, str]:
     """For each plan task, the trajectory of its latest own session (a resolver or lane is not the task's)."""
-    return {row["task_id"]: row["trajectory"] for row in load_ledger(workspace) if row["kind"] == "task" and row["task_id"]}
+    return {
+        row["task_id"]: row["trajectory"]
+        for row in load_ledger(workspace)
+        if row["kind"] == "task" and row["task_id"]
+    }

@@ -77,7 +77,9 @@ def test_retries_once_with_the_validation_error_then_succeeds() -> None:
 def test_uses_fallback_after_two_failures_and_logs_a_warning(caplog) -> None:
     llm = FakeLlm([_invalid(), _invalid()])
     with caplog.at_level(logging.WARNING):
-        result = invoke_structured(_runtime(llm), MESSAGES, Pet, fallback=lambda: Pet(name="Default", legs=0))
+        result = invoke_structured(
+            _runtime(llm), MESSAGES, Pet, fallback=lambda: Pet(name="Default", legs=0)
+        )
     assert result.name == "Default"
     assert len(llm.calls) == 2
     assert "fallback" in caplog.text.lower()

@@ -92,31 +92,61 @@ def _task_cap(settings: Settings) -> float:
 
 def _spent(workspace: Path, iteration: int, unrecorded: float = 0.0) -> float:
     """What this version's tasks (and harness tuning's pilot runs) have cost; earlier versions have their own budget."""
-    return spent_in_iteration(load_progress(workspace), iteration) + tuning_spend(workspace, iteration) + unrecorded
+    return (
+        spent_in_iteration(load_progress(workspace), iteration)
+        + tuning_spend(workspace, iteration)
+        + unrecorded
+    )
 
 
-def _done_and_dead(workspace: Path, plan: Plan, current: dict[str, TaskResult]) -> tuple[set[str], set[str]]:
+def _done_and_dead(
+    workspace: Path, plan: Plan, current: dict[str, TaskResult]
+) -> tuple[set[str], set[str]]:
     """Done tasks come from disk (they survive restarts); dead ones only from *this* run's results, so
     tasks that failed in an earlier run are retried."""
     ids = {task.id for task in plan.tasks}
-    done = {task_id for task_id, result in load_progress(workspace).items() if result["status"] == "done" and task_id in ids}
-    dead = {task_id for task_id, result in current.items() if result["status"] in ("failed", "skipped")}
+    done = {
+        task_id
+        for task_id, result in load_progress(workspace).items()
+        if result["status"] == "done" and task_id in ids
+    }
+    dead = {
+        task_id for task_id, result in current.items() if result["status"] in ("failed", "skipped")
+    }
     return done, dead
 
 
 def _next_batch(
-    workspace: Path, plan: Plan, settings: Settings, done: set[str], dead: set[str], iteration: int, max_parallel: int
+    workspace: Path,
+    plan: Plan,
+    settings: Settings,
+    done: set[str],
+    dead: set[str],
+    iteration: int,
+    max_parallel: int,
 ) -> tuple[list[PlanTask], int]:
     """(tasks to start now, slots the budget allows). A started task reserves the per-task cap."""
     ready = [task for task in next_ready(plan, done, running=set()) if task.id not in dead]
     cap = _task_cap(settings)
-    affordable = int((settings.implementer_max_total_usd - _spent(workspace, iteration)) // cap + _EPSILON)
+    affordable = int(
+        (settings.implementer_max_total_usd - _spent(workspace, iteration)) // cap + _EPSILON
+    )
     slots = max(0, min(max_parallel, affordable))
     return ready[:slots], slots
 
 
-def _failure(task_id: str, summary: str, status: Literal["failed", "skipped"] = "failed") -> TaskResult:
-    return {"task_id": task_id, "status": status, "summary": summary, "cost_usd": 0.0, "turns": 0, "session_id": None, "commit": None}
+def _failure(
+    task_id: str, summary: str, status: Literal["failed", "skipped"] = "failed"
+) -> TaskResult:
+    return {
+        "task_id": task_id,
+        "status": status,
+        "summary": summary,
+        "cost_usd": 0.0,
+        "turns": 0,
+        "session_id": None,
+        "commit": None,
+    }
 
 
 # ------------------------------------------------------------------------ nodes
@@ -144,16 +174,28 @@ async def pick_wave_node(state: IdeaDiscussionState) -> dict[str, Any]:
         save_result(workspace, result)
         updates[result["task_id"]] = result
         dead.add(result["task_id"])
-        emit(make_event("task_end", task_id=result["task_id"], label=tasks[result["task_id"]].title, detail=detail))
+        emit(
+            make_event(
+                "task_end",
+                task_id=result["task_id"],
+                label=tasks[result["task_id"]].title,
+                detail=detail,
+            )
+        )
 
     def skip_blocked() -> None:
         for task_id, waiting_on in blocked_tasks(plan, dead, done | dead).items():
             summary = f"Skipped: depends on unfinished task(s) {', '.join(waiting_on)}."
-            settle(_failure(task_id, summary, "skipped"), f"skipped: waiting on {', '.join(waiting_on)}")
+            settle(
+                _failure(task_id, summary, "skipped"),
+                f"skipped: waiting on {', '.join(waiting_on)}",
+            )
 
     skip_blocked()
     iteration = int(state.get("iteration") or 1)
-    batch, slots = _next_batch(workspace, plan, settings, done, dead, iteration, effective_parallel(state, settings))
+    batch, slots = _next_batch(
+        workspace, plan, settings, done, dead, iteration, effective_parallel(state, settings)
+    )
     ready = [task for task in next_ready(plan, done, running=set()) if task.id not in dead]
     if ready and slots == 0:
         left = max(0.0, settings.implementer_max_total_usd - _spent(workspace, iteration))
@@ -169,7 +211,13 @@ async def pick_wave_node(state: IdeaDiscussionState) -> dict[str, Any]:
         await merge.create_worktree(workspace, task.id)
     if batch:
         names = ", ".join(task.id for task in batch)
-        emit(make_event("text", label="scheduler", detail=f"Starting {names}" + (" in parallel" if len(batch) > 1 else "")))
+        emit(
+            make_event(
+                "text",
+                label="scheduler",
+                detail=f"Starting {names}" + (" in parallel" if len(batch) > 1 else ""),
+            )
+        )
     return {"task_results": updates}
 
 
@@ -179,13 +227,22 @@ def route_after_pick(state: IdeaDiscussionState) -> list[Send] | Literal["finish
     plan = _plan(workspace)
     done, dead = _done_and_dead(workspace, plan, dict(state.get("task_results") or {}))
     batch, _ = _next_batch(
-        workspace, plan, settings, done, dead, int(state.get("iteration") or 1), effective_parallel(state, settings)
+        workspace,
+        plan,
+        settings,
+        done,
+        dead,
+        int(state.get("iteration") or 1),
+        effective_parallel(state, settings),
     )
     if not batch:
         return "finish"
     allocation = _task_cap(settings)
     return [
-        Send("run_task_node", TaskInput(task_id=task.id, workspace_dir=str(workspace), allocation=allocation))
+        Send(
+            "run_task_node",
+            TaskInput(task_id=task.id, workspace_dir=str(workspace), allocation=allocation),
+        )
         for task in batch
     ]
 
@@ -219,7 +276,9 @@ async def merge_wave_node(state: IdeaDiscussionState) -> dict[str, Any]:
     finished = dict(state.get("finished_tasks") or {})
     recorded = state.get("task_results") or {}
     pending = sorted(task_id for task_id in finished if task_id not in recorded)
-    unrecorded = {task_id: finished[task_id]["cost_usd"] for task_id in pending}  # spent, not yet in progress.json
+    unrecorded = {
+        task_id: finished[task_id]["cost_usd"] for task_id in pending
+    }  # spent, not yet in progress.json
     cap = _task_cap(settings)
     updates: dict[str, TaskResult] = {}
 
@@ -227,13 +286,30 @@ async def merge_wave_node(state: IdeaDiscussionState) -> dict[str, Any]:
         save_result(workspace, result)
         updates[result["task_id"]] = result
         unrecorded.pop(result["task_id"], None)
-        detail = "done" if result["status"] == "done" else f"failed: {result['summary'].splitlines()[0][:120]}"
-        emit(make_event("task_end", task_id=result["task_id"], label=tasks[result["task_id"]].title, detail=detail))
+        detail = (
+            "done"
+            if result["status"] == "done"
+            else f"failed: {result['summary'].splitlines()[0][:120]}"
+        )
+        emit(
+            make_event(
+                "task_end",
+                task_id=result["task_id"],
+                label=tasks[result["task_id"]].title,
+                detail=detail,
+            )
+        )
 
-    async def resolve(task: PlanTask, result: TaskResult, files: list[str]) -> tuple[str, str | None]:
+    async def resolve(
+        task: PlanTask, result: TaskResult, files: list[str]
+    ) -> tuple[str, str | None]:
         """Try to resolve a conflicted merge: (failure reason or '', merge commit). What the resolver did to
         the tests is added to the task's integrity findings."""
-        budget_usd = min(cap, settings.implementer_max_total_usd - _spent(workspace, iteration, sum(unrecorded.values())))
+        budget_usd = min(
+            cap,
+            settings.implementer_max_total_usd
+            - _spent(workspace, iteration, sum(unrecorded.values())),
+        )
         if budget_usd <= 0:
             return "merge conflict, and no whole-run budget is left for a resolver", None
         resolver = await executor.run_merge_resolver(
@@ -242,11 +318,18 @@ async def merge_wave_node(state: IdeaDiscussionState) -> dict[str, Any]:
         result["cost_usd"] += resolver.cost_usd
         unrecorded[task.id] = unrecorded.get(task.id, 0.0) + resolver.cost_usd
         if resolver.integrity:
-            result["integrity"] = [*result.get("integrity", []), *(dict(finding) for finding in resolver.integrity)]
+            result["integrity"] = [
+                *result.get("integrity", []),
+                *(dict(finding) for finding in resolver.integrity),
+            ]
         if not resolver.success:
-            reason = resolver.summary.splitlines()[0][:160] if resolver.summary else "no reason given"
+            reason = (
+                resolver.summary.splitlines()[0][:160] if resolver.summary else "no reason given"
+            )
             return f"merge conflict could not be resolved: {reason}", None
-        done = await merge.complete_merge(workspace, f"{task.id}: {task.title} (conflicts resolved)", task.id)
+        done = await merge.complete_merge(
+            workspace, f"{task.id}: {task.title} (conflicts resolved)", task.id
+        )
         if done.status != "merged":
             return f"merge conflicts remained after the resolver ({done.detail})", None
         return "", done.commit
@@ -255,16 +338,30 @@ async def merge_wave_node(state: IdeaDiscussionState) -> dict[str, Any]:
         task = tasks[task_id]
         result: TaskResult = {**finished[task_id]}
         if result["status"] == "done":
-            outcome = await merge.merge_task(workspace, task_id, message=f"{task_id}: {task.title} (merged)")
+            outcome = await merge.merge_task(
+                workspace, task_id, message=f"{task_id}: {task.title} (merged)"
+            )
             if outcome.status == "merged":
                 result["commit"] = outcome.commit
             else:
                 files = merge.conflicted_files(workspace)
-                emit(make_event("text", task_id=task_id, label="merge", detail=f"Merge conflict in {', '.join(files)}: starting a resolver"))
+                emit(
+                    make_event(
+                        "text",
+                        task_id=task_id,
+                        label="merge",
+                        detail=f"Merge conflict in {', '.join(files)}: starting a resolver",
+                    )
+                )
                 failure, commit = await resolve(task, result, files)
                 if failure:
                     await merge.abort_merge(workspace)
-                    result = {**result, "status": "failed", "summary": f"{failure}. {result['summary']}".strip(), "commit": None}
+                    result = {
+                        **result,
+                        "status": "failed",
+                        "summary": f"{failure}. {result['summary']}".strip(),
+                        "commit": None,
+                    }
                     result.pop("integrity", None)  # nothing of the task's branch landed
                 else:
                     note = f"(Merge conflicts in {', '.join(files)} were resolved by an agent.)"

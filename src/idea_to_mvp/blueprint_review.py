@@ -89,5 +89,8 @@ def render_review_markdown(issues: Sequence[Issue]) -> str:
         "written. Decide whether to accept them before starting implementation.",
         "",
     ]
-    lines += [f"- **{issue.severity}** `{issue.file.strip() or 'pack'}`: {issue.description.strip()}" for issue in ordered]
+    lines += [
+        f"- **{issue.severity}** `{issue.file.strip() or 'pack'}`: {issue.description.strip()}"
+        for issue in ordered
+    ]
     return "\n".join(lines) + "\n"

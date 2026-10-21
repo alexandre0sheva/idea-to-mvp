@@ -40,7 +40,11 @@ async def to_implement_gate(graph: Any, config: Any) -> None:
 
 def git_log(workspace: Path, *args: str) -> list[str]:
     return subprocess.run(
-        ["git", "log", *args, "--format=%s"], cwd=workspace, capture_output=True, text=True, check=True
+        ["git", "log", *args, "--format=%s"],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.splitlines()
 
 
@@ -53,7 +57,10 @@ async def test_the_demo_plan_runs_its_independent_tasks_in_parallel_and_merges_t
     await to_implement_gate(graph, config)
     custom: list[dict[str, Any]] = []
     async for _namespace, mode, payload in graph.astream(  # subgraphs=True, as SubmitService does
-        Command(resume={"implement": True, "notes": ""}), config, stream_mode=["updates", "custom"], subgraphs=True
+        Command(resume={"implement": True, "notes": ""}),
+        config,
+        stream_mode=["updates", "custom"],
+        subgraphs=True,
     ):
         if mode == "custom":
             custom.append(payload)
@@ -61,22 +68,36 @@ async def test_the_demo_plan_runs_its_independent_tasks_in_parallel_and_merges_t
     values = (await graph.aget_state(config)).values
     workspace = Path(values["workspace_dir"])
     assert [r["status"] for r in values["task_results"].values()] == ["done"] * 3
-    assert {"T01: Project setup", "T02: Core journey", "T03: Progress view"} <= set(git_log(workspace))
+    assert {"T01: Project setup", "T02: Core journey", "T03: Progress view"} <= set(
+        git_log(workspace)
+    )
     assert values["verification"]["passed"] is True and values["stage"] == "done"
     assert not (demo_env / "projects" / ".worktrees").exists()  # every worktree was cleaned up
-    order = [(e["kind"], e["task_id"]) for e in custom if e["kind"] in ("task_start", "task_end") and e["task_id"]]
-    assert order.index(("task_start", "T03")) < order.index(("task_end", "T02"))  # two sessions overlapped in the events
+    order = [
+        (e["kind"], e["task_id"])
+        for e in custom
+        if e["kind"] in ("task_start", "task_end") and e["task_id"]
+    ]
+    assert order.index(("task_start", "T03")) < order.index(
+        ("task_end", "T02")
+    )  # two sessions overlapped in the events
     assert load_progress(workspace).keys() == {"T01", "T02", "T03"}
 
 
-async def test_max_parallel_one_reproduces_the_sequential_engine(demo_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_max_parallel_one_reproduces_the_sequential_engine(
+    demo_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     use_parallel(monkeypatch, "1")
     graph = build_graph(MemorySaver())
     config = run_config("parallel-one")
     await to_implement_gate(graph, config)
     await graph.ainvoke(Command(resume={"implement": True, "notes": ""}), config)
     workspace = Path((await graph.aget_state(config)).values["workspace_dir"])
-    assert git_log(workspace)[:3] == ["T03: Progress view", "T02: Core journey", "T01: Project setup"]  # linear, no merges
+    assert git_log(workspace)[:3] == [
+        "T03: Progress view",
+        "T02: Core journey",
+        "T01: Project setup",
+    ]  # linear, no merges
     assert git_log(workspace, "--merges") == []
     assert not (demo_env / "projects" / ".worktrees").exists()
 
@@ -84,7 +105,9 @@ async def test_max_parallel_one_reproduces_the_sequential_engine(demo_env: Path,
 # ------------------------------------------------------------------------ routing
 
 
-def routed_state(tmp_path: Path, plan: Any = None, *, git: bool = True, mode: str = "agent_team") -> dict[str, Any]:
+def routed_state(
+    tmp_path: Path, plan: Any = None, *, git: bool = True, mode: str = "agent_team"
+) -> dict[str, Any]:
     workspace = tmp_path / "ws"
     workspace.mkdir()
     if git:
@@ -92,7 +115,10 @@ def routed_state(tmp_path: Path, plan: Any = None, *, git: bool = True, mode: st
     if plan is not None:
         (workspace / "plan.json").write_text(plan.model_dump_json())
     state: dict[str, Any] = dict(make_initial_state(IDEA, 1))
-    state.update(workspace_dir=str(workspace), execution_strategy={"mode": mode, "reasoning": "", "workstreams": []})
+    state.update(
+        workspace_dir=str(workspace),
+        execution_strategy={"mode": mode, "reasoning": "", "workstreams": []},
+    )
     return state
 
 
@@ -104,7 +130,9 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     use_parallel(monkeypatch, "3")
 
 
-def test_a_runnable_plan_in_a_git_workspace_goes_to_the_parallel_subgraph(env, tmp_path: Path) -> None:
+def test_a_runnable_plan_in_a_git_workspace_goes_to_the_parallel_subgraph(
+    env, tmp_path: Path
+) -> None:
     assert route_after_workspace(routed_state(tmp_path, make_plan())) == "implement_plan"  # type: ignore[arg-type]
 
 
@@ -112,7 +140,9 @@ def test_a_runnable_plan_in_a_git_workspace_goes_to_the_parallel_subgraph(env, t
     "case",
     ["parallel_off", "lead_mode", "no_plan", "no_git", "cyclic_plan"],
 )
-def test_everything_else_keeps_the_single_node_implementer(env, tmp_path: Path, monkeypatch, case: str) -> None:
+def test_everything_else_keeps_the_single_node_implementer(
+    env, tmp_path: Path, monkeypatch, case: str
+) -> None:
     cyclic = make_plan([make_task("T01", depends_on=["T02"]), make_task("T02", depends_on=["T01"])])
     states = {
         "parallel_off": lambda: routed_state(tmp_path, make_plan()),
@@ -129,7 +159,9 @@ def test_everything_else_keeps_the_single_node_implementer(env, tmp_path: Path, 
 # ------------------------------------------------------------------------- resume
 
 
-async def test_a_killed_parallel_run_resumes_in_the_same_workspace(demo_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_killed_parallel_run_resumes_in_the_same_workspace(
+    demo_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     use_parallel(monkeypatch, "3")
     graph = build_graph(MemorySaver())
     config = run_config("parallel-resume")
@@ -149,17 +181,23 @@ async def test_a_killed_parallel_run_resumes_in_the_same_workspace(demo_env: Pat
         await graph.ainvoke(Command(resume={"implement": True, "notes": ""}), config)
     crashed = await graph.aget_state(config)
     workspace = Path(crashed.values["workspace_dir"])
-    assert list(load_progress(workspace)) == ["T01"]  # T02 finished its session but was never merged, so not `done`
+    assert list(load_progress(workspace)) == [
+        "T01"
+    ]  # T02 finished its session but was never merged, so not `done`
 
     await graph.ainvoke(None, config)
     values = (await graph.aget_state(config)).values
     assert Path(values["workspace_dir"]) == workspace
-    assert [d.name for d in (demo_env / "projects").iterdir() if not d.name.startswith(".")] == [workspace.name]
+    assert [d.name for d in (demo_env / "projects").iterdir() if not d.name.startswith(".")] == [
+        workspace.name
+    ]
     assert [r["status"] for r in values["task_results"].values()] == ["done"] * 3
     assert git_log(workspace).count("T01: Project setup") == 1 and values["stage"] == "done"
 
 
-async def test_the_implement_gate_reports_the_plans_width(demo_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_implement_gate_reports_the_plans_width(
+    demo_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     use_parallel(monkeypatch, "3")
     graph = build_graph(MemorySaver())
     config = run_config("gate-width")
@@ -178,15 +216,21 @@ def test_the_parallelism_picked_at_the_gate_overrides_the_setting_in_both_direct
 ) -> None:
     state = routed_state(tmp_path, make_plan())
     state["implement_decision"] = {"implement": True, "notes": "", "parallel": 1}
-    assert route_after_workspace(state) == "implementer"  # Sequential chosen although IMPLEMENTER_MAX_PARALLEL=3
+    assert (
+        route_after_workspace(state) == "implementer"
+    )  # Sequential chosen although IMPLEMENTER_MAX_PARALLEL=3
     use_parallel(monkeypatch, "1")
     state["implement_decision"] = {"implement": True, "notes": "", "parallel": 2}
-    assert route_after_workspace(state) == "implement_plan"  # Parallel 2 chosen although the setting says 1
+    assert (
+        route_after_workspace(state) == "implement_plan"
+    )  # Parallel 2 chosen although the setting says 1
     state["implement_decision"] = {"implement": True, "notes": "", "parallel": 0}
     assert route_after_workspace(state) == "implementer"  # no choice: the setting (1) applies
 
 
-async def test_choosing_sequential_at_the_gate_runs_the_sequential_engine(demo_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_choosing_sequential_at_the_gate_runs_the_sequential_engine(
+    demo_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     use_parallel(monkeypatch, "3")
     graph = build_graph(MemorySaver())
     config = run_config("parallel-gate-choice")
@@ -195,7 +239,10 @@ async def test_choosing_sequential_at_the_gate_runs_the_sequential_engine(demo_e
     values = (await graph.aget_state(config)).values
     workspace = Path(values["workspace_dir"])
     assert values["implement_decision"]["parallel"] == 1
-    assert git_log(workspace, "--merges") == [] and [r["status"] for r in values["task_results"].values()] == ["done"] * 3
+    assert (
+        git_log(workspace, "--merges") == []
+        and [r["status"] for r in values["task_results"].values()] == ["done"] * 3
+    )
 
 
 @pytest.mark.parametrize("parallel", ["3", "1"])
@@ -216,9 +263,17 @@ async def test_every_demo_session_is_in_the_ledger_and_the_ledger_matches_usage(
     workspace = Path(values["workspace_dir"])
     rows = load_ledger(workspace)
     assert sorted(r["label"] for r in rows if r["kind"] == "task") == ["T01", "T02", "T03"]
-    assert sorted(r["label"] for r in rows if r["kind"] == "lane") == ["lane-quality-1", "lane-requirements-1", "lane-tests-1"]
+    assert sorted(r["label"] for r in rows if r["kind"] == "lane") == [
+        "lane-quality-1",
+        "lane-requirements-1",
+        "lane-tests-1",
+    ]
     assert {r["outcome"] for r in rows} == {"success"}
-    assert all((workspace / r["trajectory"]).is_file() for r in rows)  # in the main workspace, not a worktree
+    assert all(
+        (workspace / r["trajectory"]).is_file() for r in rows
+    )  # in the main workspace, not a worktree
     assert check_ledger(workspace, values["usage"]).ok
     archive = zipfile.ZipFile(values["delivery_zip"])
-    assert not [name for name in archive.namelist() if ".idea-to-mvp" in name]  # evidence stays with the run
+    assert not [
+        name for name in archive.namelist() if ".idea-to-mvp" in name
+    ]  # evidence stays with the run

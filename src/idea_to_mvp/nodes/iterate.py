@@ -82,14 +82,19 @@ def iterate_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
             "passed": passed,
             "delivery_zip": state.get("delivery_zip", ""),
             "max_iterations": settings.max_iterations,
-            "publish": publish_options(state, settings),  # the UI's Publish to GitHub action (a side action, not a decision)
+            "publish": publish_options(
+                state, settings
+            ),  # the UI's Publish to GitHub action (a side action, not a decision)
         }
     )
     iterate, feedback = False, ""
     if isinstance(decision, dict):
         feedback = str(decision.get("feedback") or "").strip()
         iterate = bool(decision.get("iterate")) and bool(feedback)  # changes need a description
-    iterate_decision: IterateDecision = {"iterate": iterate, "feedback": feedback if iterate else ""}
+    iterate_decision: IterateDecision = {
+        "iterate": iterate,
+        "feedback": feedback if iterate else "",
+    }
     if not iterate:
         return {"iterate_decision": iterate_decision, "stage": "done"}
     return {
@@ -106,7 +111,9 @@ def route_after_iterate_gate(state: IdeaDiscussionState) -> Literal["change_plan
     return "__end__"
 
 
-def route_after_change_planner(state: IdeaDiscussionState) -> Literal["acceptance_author", "__end__"]:
+def route_after_change_planner(
+    state: IdeaDiscussionState,
+) -> Literal["acceptance_author", "__end__"]:
     """A request the product already satisfies ends the run; anything else is built like the first version
     (the acceptance author first writes the new version's held-out suite)."""
     if state.get("no_change"):
@@ -131,13 +138,24 @@ def _task_lines(plan: Plan, progress: dict[str, TaskResult]) -> str:
         status = result["status"] if result else "not built"
         deps = f"; depends on {', '.join(task.depends_on)}" if task.depends_on else ""
         reqs = f"; requirements {', '.join(task.requirement_ids)}" if task.requirement_ids else ""
-        lines.append(f"- {task.id} [{status}] {task.title} (workstream {task.workstream}{deps}{reqs})")
+        lines.append(
+            f"- {task.id} [{status}] {task.title} (workstream {task.workstream}{deps}{reqs})"
+        )
     return "\n".join(lines) or "- (none)"
 
 
-def _prompt(plan: Plan, prd: str, feedback: str, iteration: int, workstreams: list[str], progress: dict[str, TaskResult]) -> str:
+def _prompt(
+    plan: Plan,
+    prd: str,
+    feedback: str,
+    iteration: int,
+    workstreams: list[str],
+    progress: dict[str, TaskResult],
+) -> str:
     prefix = iteration_prefix(iteration)
-    contracts = "\n".join(f"- {c.id}: {c.name} — {c.description}" for c in plan.contracts) or "- none"
+    contracts = (
+        "\n".join(f"- {c.id}: {c.name} — {c.description}" for c in plan.contracts) or "- none"
+    )
     return (
         f"## Change request (building v0.{iteration})\n{feedback}\n\n"
         f"## New task ids\nUse {prefix}01, {prefix}02, ... in execution order.\n\n"
@@ -151,7 +169,14 @@ def _prompt(plan: Plan, prd: str, feedback: str, iteration: int, workstreams: li
     )
 
 
-def _change_issues(plan: Plan, tasks: list[PlanTask], iteration: int, prd: str, workstreams: list[str], baseline: set[str]) -> list[str]:
+def _change_issues(
+    plan: Plan,
+    tasks: list[PlanTask],
+    iteration: int,
+    prd: str,
+    workstreams: list[str],
+    baseline: set[str],
+) -> list[str]:
     """Everything wrong with the change (problems the plan already had before it are not held against it)."""
     if not tasks:
         return ["the change plan has no tasks"]
@@ -159,15 +184,26 @@ def _change_issues(plan: Plan, tasks: list[PlanTask], iteration: int, prd: str, 
     expected = [f"{prefix}{number:02d}" for number in range(1, len(tasks) + 1)]
     issues: list[str] = []
     if [task.id for task in tasks] != expected:
-        issues.append(f"task ids must be {', '.join(expected)} in order (got {', '.join(task.id for task in tasks)})")
+        issues.append(
+            f"task ids must be {', '.join(expected)} in order (got {', '.join(task.id for task in tasks)})"
+        )
     try:
         extended = append_iteration_tasks(plan, tasks)
     except ValueError as error:
         return [*issues, str(error)]
-    return [*issues, *(i for i in validate_plan(extended, prd_markdown=prd, workstreams=workstreams) if i not in baseline)]
+    return [
+        *issues,
+        *(
+            i
+            for i in validate_plan(extended, prd_markdown=prd, workstreams=workstreams)
+            if i not in baseline
+        ),
+    ]
 
 
-def _no_change_update(state: IdeaDiscussionState, iteration: int, feedback: str, reason: str) -> dict[str, Any]:
+def _no_change_update(
+    state: IdeaDiscussionState, iteration: int, feedback: str, reason: str
+) -> dict[str, Any]:
     """The run ends at the delivered version: the version the gate announced is not built, so it is not counted
     (and the request, which would be numbered as that version, moves into `no_change` with the planner's reason)."""
     LOGGER.info("The change planner found nothing to build for the request: %s", reason)
@@ -213,7 +249,9 @@ def change_planner_node(state: IdeaDiscussionState) -> dict[str, Any]:
     feedback = (state.get("change_requests") or [""])[-1]
     plan = load_plan(_read(workspace / "plan.json"))
     if plan is None:
-        raise RuntimeError(f"{workspace} has no valid plan.json to extend, so the changes cannot be planned.")
+        raise RuntimeError(
+            f"{workspace} has no valid plan.json to extend, so the changes cannot be planned."
+        )
     strategy = state.get("execution_strategy") or {}
     if (strategy.get("mode") or "subagents") != "agent_team":
         _mark_first_delivery_done(workspace, plan)
@@ -224,13 +262,18 @@ def change_planner_node(state: IdeaDiscussionState) -> dict[str, Any]:
     runtime = llm.get_runtime("change_planner")
     messages = [
         SystemMessage(content=runtime.system_prompt),
-        HumanMessage(content=_prompt(plan, prd, feedback, iteration, workstreams, load_progress(workspace))),
+        HumanMessage(
+            content=_prompt(plan, prd, feedback, iteration, workstreams, load_progress(workspace))
+        ),
     ]
     change = llm.invoke_structured(
         runtime,
         messages,
         ChangePlan,
-        fallback=lambda: ChangePlan(tasks=fallback_change_tasks(plan, iteration, feedback), reason="Fallback: the planner returned no usable plan."),
+        fallback=lambda: ChangePlan(
+            tasks=fallback_change_tasks(plan, iteration, feedback),
+            reason="Fallback: the planner returned no usable plan.",
+        ),
     )
     if change.is_no_change:
         return _no_change_update(state, iteration, feedback, change.reason)
@@ -256,8 +299,14 @@ def change_planner_node(state: IdeaDiscussionState) -> dict[str, Any]:
             return _no_change_update(state, iteration, feedback, change.reason)
         issues = _change_issues(plan, change.tasks, iteration, prd, workstreams, baseline)
     if issues:
-        LOGGER.warning("Change plan stayed invalid (%s); using the deterministic fallback task.", "; ".join(issues))
-        change = ChangePlan(tasks=fallback_change_tasks(plan, iteration, feedback), reason="Fallback: the planner returned no usable plan.")
+        LOGGER.warning(
+            "Change plan stayed invalid (%s); using the deterministic fallback task.",
+            "; ".join(issues),
+        )
+        change = ChangePlan(
+            tasks=fallback_change_tasks(plan, iteration, feedback),
+            reason="Fallback: the planner returned no usable plan.",
+        )
 
     extended = append_iteration_tasks(plan, change.tasks)
     (workspace / "plan.json").write_text(extended.model_dump_json(indent=2), encoding="utf-8")

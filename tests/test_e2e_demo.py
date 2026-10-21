@@ -54,15 +54,23 @@ async def test_demo_mode_runs_whole_pipeline_offline(demo_service, demo_env: Pat
     outputs = await submit(service, "", IMPL_CHOICE_START, thread)
     texts = [chat_text(output) for output in outputs]
     statuses = [str(update_value(output[POS_STATUS], "value")) for output in outputs]
-    assert any("Implementing T01" in s and "of $25.00" in s for s in statuses)  # live per-task progress + running $
-    assert any("Core journey" in t and "thinking" in t for t in texts)  # the progress is also shown in the chat
-    assert await mode_of(service, thread) == MODE_ITERATE_GATE  # delivered: the user may ask for changes
+    assert any(
+        "Implementing T01" in s and "of $25.00" in s for s in statuses
+    )  # live per-task progress + running $
+    assert any(
+        "Core journey" in t and "thinking" in t for t in texts
+    )  # the progress is also shown in the chat
+    assert (
+        await mode_of(service, thread) == MODE_ITERATE_GATE
+    )  # delivered: the user may ask for changes
 
     graph = await graphs.get()
     values = (await graph.aget_state({"configurable": {"thread_id": thread}})).values
     assert values["stage"] == "done"
     assert values["verification"]["passed"] is True
-    assert values["verification"]["integrity"] == "block" and values["integrity_findings"] == {}  # the guard ran, found nothing
+    assert (
+        values["verification"]["integrity"] == "block" and values["integrity_findings"] == {}
+    )  # the guard ran, found nothing
 
     workspace = Path(values["workspace_dir"])
     assert workspace.is_dir() and workspace.is_relative_to(demo_env / "projects")
@@ -76,7 +84,12 @@ async def test_demo_mode_runs_whole_pipeline_offline(demo_service, demo_env: Pat
     assert (bundle / "STRATEGY.json").exists()
     assert any(bundle.glob(".claude/agents/*.md"))
     plan = Plan.model_validate_json((bundle / "plan.json").read_text())
-    assert validate_plan(plan, prd_markdown=(bundle / "PRD.md").read_text(), workstreams=["core-app", "quality"]) == []
+    assert (
+        validate_plan(
+            plan, prd_markdown=(bundle / "PRD.md").read_text(), workstreams=["core-app", "quality"]
+        )
+        == []
+    )
     assert "### T01." in (bundle / "plan.md").read_text() and not (bundle / "REVIEW.md").exists()
 
     final_chat = chat_text(outputs[-1])
@@ -89,14 +102,18 @@ async def test_demo_mode_runs_whole_pipeline_offline(demo_service, demo_env: Pat
     roles = {record["role"] for record in values["usage"]}
     assert {"pm", "tech_lead", "skeptic", "summarizer", "architect"} <= roles
     assert all(r["input_tokens"] > 0 and r["output_tokens"] > 0 for r in values["usage"])
-    assert "tokens</span>" in update_value(outputs[-1][POS_TRACKER], "value")  # ... and the header badge shows the total
+    assert "tokens</span>" in update_value(
+        outputs[-1][POS_TRACKER], "value"
+    )  # ... and the header badge shows the total
 
     sessions = service._context.sessions.list()
     assert [s.thread_id for s in sessions] == [thread]
     assert sessions[0].stage == "done" and sessions[0].title.startswith("A habit tracker")
 
 
-async def test_the_delivered_project_can_be_iterated_on_from_the_ui(demo_service, demo_env: Path) -> None:
+async def test_the_delivered_project_can_be_iterated_on_from_the_ui(
+    demo_service, demo_env: Path
+) -> None:
     service, graphs = demo_service
     thread = "e2e-iterate"
     await submit(service, "A habit tracker for climbing gyms", "", thread)
@@ -105,7 +122,10 @@ async def test_the_delivered_project_can_be_iterated_on_from_the_ui(demo_service
     await submit(service, "", PLAN_CHOICE_GENERATE, thread)
     outputs = await submit(service, "", IMPL_CHOICE_START, thread)
     assert await mode_of(service, thread) == MODE_ITERATE_GATE
-    assert panel_visible(outputs[-1], "iterate_gate") is True and panel_visible(outputs[-1], "implement_gate") is False
+    assert (
+        panel_visible(outputs[-1], "iterate_gate") is True
+        and panel_visible(outputs[-1], "implement_gate") is False
+    )
     assert "v0.2" in update_value(gate_field(outputs[-1], "iterate_gate", "feedback"), "label")
     assert "Want changes?" in chat_text(outputs[-1]) and "v0.1" in chat_text(outputs[-1])
 
@@ -114,9 +134,13 @@ async def test_the_delivered_project_can_be_iterated_on_from_the_ui(demo_service
     assert await mode_of(service, thread) == MODE_ITERATE_GATE
     assert "Describe" in str(update_value(outputs[-1][POS_STATUS], "value"))
 
-    outputs = await submit(service, "Add CSV export of the climb history.", ITERATE_CHOICE_CHANGES, thread)
+    outputs = await submit(
+        service, "Add CSV export of the climb history.", ITERATE_CHOICE_CHANGES, thread
+    )
     statuses = [str(update_value(output[POS_STATUS], "value")) for output in outputs]
-    assert any("Planning your changes" in s for s in statuses) and any("I2-01" in s for s in statuses)
+    assert any("Planning your changes" in s for s in statuses) and any(
+        "I2-01" in s for s in statuses
+    )
     assert await mode_of(service, thread) == MODE_ITERATE_GATE
     chat = chat_text(outputs[-1])
     assert "Change request (v0.2): Add CSV export of the climb history." in chat and "v0.2" in chat
@@ -125,7 +149,10 @@ async def test_the_delivered_project_can_be_iterated_on_from_the_ui(demo_service
     values = (await graph.aget_state({"configurable": {"thread_id": thread}})).values
     assert values["iteration"] == 2 and values["verification"]["passed"] is True
     assert list(values["task_results"]) == ["T01", "T02", "T03", "I2-01"]
-    assert Path(values["delivery_zip"]).name.endswith("-v0.2.zip") and Path(values["delivery_zip"]).exists()
+    assert (
+        Path(values["delivery_zip"]).name.endswith("-v0.2.zip")
+        and Path(values["delivery_zip"]).exists()
+    )
 
     await submit(service, "", ITERATE_CHOICE_DONE, thread)
     assert await mode_of(service, thread) == MODE_DONE

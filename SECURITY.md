@@ -150,6 +150,16 @@ red warning when the sandbox is off or unavailable or the permission mode is `by
   above only covers the file names it knows. Publishing the same session again is refused (a later version is
   pushed by hand from the project folder). The token needs permission to create repositories; give it as little
   else as you can, and revoke it when you are done.
+- **The MCP server lets the agent that calls it spend your money; `confirm_spend` is a speed bump, not an authorization.**
+  `idea-to-mvp mcp` serves the pipeline over stdio, as your user, with no network listener and no authentication: whoever
+  can start the process can drive it. `start_run` spends on the panel and planning models without a confirmation (a few
+  cents to a dollar or two), and `answer_gate` starts agent sessions only when the call carries `confirm_spend: true`.
+  The calling model sets that flag itself, so an injection that reaches it (the idea text, a delivery report, a web
+  page it read) can set it too. The real check is your MCP client's tool-approval prompt: keep approval on for
+  `answer_gate` (and `start_run`) and read the cost estimate it shows. What bounds a confirmed run is
+  `IMPLEMENTER_MAX_TOTAL_USD` (the server's environment, applied to each session); nothing limits how many sessions
+  a caller starts. The tools return the delivery report and folder paths, which are agent-written text: treat them as
+  data. The agents that build the project are confined exactly as in a UI or CLI run.
 - **Model API keys stay in the orchestrator process**, and `OUTPUT_DIR/sessions.db` holds every session's
   ideas and transcript; neither is reachable by agents through the sandbox's credential list.
 - **Residual git risk:** an agent could plant a `.gitattributes` file or other in-tree content aimed at

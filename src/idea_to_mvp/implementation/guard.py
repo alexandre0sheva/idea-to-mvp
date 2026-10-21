@@ -39,8 +39,17 @@ _PROTECTED_DIRS = (".git", ".idea-to-mvp")
 # could give the next session a hook or a permission. The orchestrator restores `.claude/settings.json` before
 # every session that loads it (`harness_pack.ensure_project_settings`); this refuses the direct writes.
 _SETTINGS_FILE = re.compile(r"settings(\.[\w-]+)?\.json")
-_SETTINGS_REASON = "the Claude Code settings (.claude/settings*.json, .mcp.json) are managed by the orchestrator"
-_TEMP_ROOTS = ("/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp", "/var/folders", "/private/var/folders")
+_SETTINGS_REASON = (
+    "the Claude Code settings (.claude/settings*.json, .mcp.json) are managed by the orchestrator"
+)
+_TEMP_ROOTS = (
+    "/tmp",
+    "/private/tmp",
+    "/var/tmp",
+    "/private/var/tmp",
+    "/var/folders",
+    "/private/var/folders",
+)
 # Read-mostly system locations shell commands legitimately name (interpreters, certificates, devices).
 _SYSTEM_ROOTS = (
     "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/opt", "/etc", "/private/etc", "/nix", "/snap",
@@ -78,7 +87,10 @@ _WHOLE_COMMAND_RULES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         ),
         (r"/proc/[^/\s]+/environ", "reading another process's environment is not allowed"),
         (_SENSITIVE_LOCATIONS.pattern, "credential locations are off limits"),
-        (r"(^|[\s/])\.git/(config|hooks)\b", "the git configuration and hooks are managed by the orchestrator"),
+        (
+            r"(^|[\s/])\.git/(config|hooks)\b",
+            "the git configuration and hooks are managed by the orchestrator",
+        ),
         (r"\.claude/settings[\w.-]*\.json|(?<![\w.-])\.mcp\.json\b", _SETTINGS_REASON),
         (
             r"\bcore\.(sshcommand|fsmonitor|hookspath|askpass|pager|editor)\s*=",
@@ -107,7 +119,9 @@ _BLOCKED_COMMANDS = {
 }
 _WRAPPERS = {"time", "command", "nohup", "exec", "nice", "builtin", "stdbuf", "xargs"}
 _SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
-_GIT_SENSITIVE_CONFIG = re.compile(r"^(core\.|filter\.|credential\.|alias\.|url\.|include)", re.IGNORECASE)
+_GIT_SENSITIVE_CONFIG = re.compile(
+    r"^(core\.|filter\.|credential\.|alias\.|url\.|include)", re.IGNORECASE
+)
 _MAX_NESTING = 3
 
 
@@ -137,7 +151,9 @@ def _glob_prefix(pattern: str) -> str:
 # ---------------------------------------------------------------- file tools
 
 
-def _check_path_tool(tool_name: str, tool_input: Mapping[str, Any], workspace: Path) -> tuple[bool, str]:
+def _check_path_tool(
+    tool_name: str, tool_input: Mapping[str, Any], workspace: Path
+) -> tuple[bool, str]:
     keys, required, writes = _PATH_TOOLS[tool_name]
     root = _workspace_root(workspace)
     candidates: list[str] = []
@@ -158,7 +174,10 @@ def _check_path_tool(tool_name: str, tool_input: Mapping[str, Any], workspace: P
             parts = Path(os.path.relpath(real, root)).parts
             for protected in _PROTECTED_DIRS:
                 if protected in parts:
-                    return False, f"{tool_name} may not modify {protected} (the orchestrator manages it)"
+                    return (
+                        False,
+                        f"{tool_name} may not modify {protected} (the orchestrator manages it)",
+                    )
             if _is_settings_file(parts):
                 return False, f"{tool_name} may not modify {raw!r}: {_SETTINGS_REASON}"
     return True, ""
@@ -168,7 +187,9 @@ def _is_settings_file(parts: tuple[str, ...]) -> bool:
     if not parts:
         return False
     name = parts[-1]
-    return name == ".mcp.json" or (len(parts) >= 2 and parts[-2] == ".claude" and _SETTINGS_FILE.fullmatch(name) is not None)
+    return name == ".mcp.json" or (
+        len(parts) >= 2 and parts[-2] == ".claude" and _SETTINGS_FILE.fullmatch(name) is not None
+    )
 
 
 # ---------------------------------------------------------------------- bash
@@ -236,7 +257,9 @@ def _check_path_word(word: str, workspace: Path) -> str | None:
 
 def _check_rm(args: list[str], workspace: Path) -> str | None:
     flags = [a for a in args if a.startswith("-")]
-    recursive = any(a in ("--recursive",) or (not a.startswith("--") and re.search(r"[rR]", a)) for a in flags)
+    recursive = any(
+        a in ("--recursive",) or (not a.startswith("--") and re.search(r"[rR]", a)) for a in flags
+    )
     if not recursive:
         return None
     root = _workspace_root(workspace)
@@ -244,8 +267,10 @@ def _check_rm(args: list[str], workspace: Path) -> str | None:
         word = _expand_home_vars(target)
         if word in ("/", "/*", "~", "~/") or word.startswith(("/", "~")) or ".." in word.split("/"):
             real = _real(word, workspace)
-            in_temp = word.startswith("/") and ".." not in word.split("/") and any(
-                _inside(real, temp) for temp in _TEMP_ROOTS
+            in_temp = (
+                word.startswith("/")
+                and ".." not in word.split("/")
+                and any(_inside(real, temp) for temp in _TEMP_ROOTS)
             )  # only a literal temp path: `../..` that merely resolves into one is still an escape
             if not (_inside(real, root) or in_temp):
                 return f"recursive delete of {target!r} reaches outside the workspace"
@@ -277,13 +302,17 @@ def _check_git(args: list[str]) -> str | None:
             return "changing global or system git configuration is not allowed"
         keys = [a for a in rest if not a.startswith("-")]
         if keys and _GIT_SENSITIVE_CONFIG.match(keys[0]):
-            return f"git setting {keys[0]!r} can execute programs and is managed by the orchestrator"
+            return (
+                f"git setting {keys[0]!r} can execute programs and is managed by the orchestrator"
+            )
     return None
 
 
 def _check_segment(tokens: list[str], workspace: Path, depth: int) -> str | None:
     index = 0
-    while index < len(tokens) and (re.match(r"^[A-Za-z_]\w*=", tokens[index]) or tokens[index] in _WRAPPERS):
+    while index < len(tokens) and (
+        re.match(r"^[A-Za-z_]\w*=", tokens[index]) or tokens[index] in _WRAPPERS
+    ):
         index += 1
     if index >= len(tokens):
         return None
@@ -356,7 +385,9 @@ async def pre_tool_use_hook(
         root = workspace or (Path(str(cwd)) if cwd else None)
         if root is None:
             raise ValueError("no workspace to check against")
-        allowed, reason = check_tool_use(str(input_data["tool_name"]), input_data.get("tool_input"), root)
+        allowed, reason = check_tool_use(
+            str(input_data["tool_name"]), input_data.get("tool_input"), root
+        )
     except Exception as exc:  # a guard that crashes must not let the call through
         allowed, reason = False, f"guard error: {exc}"
     if allowed:
@@ -373,7 +404,9 @@ async def pre_tool_use_hook(
 def bind_workspace(workspace: Path) -> Callable[..., Any]:
     """The hook callback for one session, bound to its workspace."""
 
-    async def hook(input_data: Mapping[str, Any], tool_use_id: str | None, context: Any) -> dict[str, Any]:
+    async def hook(
+        input_data: Mapping[str, Any], tool_use_id: str | None, context: Any
+    ) -> dict[str, Any]:
         return await pre_tool_use_hook(input_data, tool_use_id, context, workspace=workspace)
 
     return hook

@@ -27,7 +27,9 @@ CANARY = "CANARY-7f3c2d9a-do-not-print"
 async def ask_agent(prompt: str, workspace: Path, settings: Settings) -> str:
     from claude_agent_sdk import ResultMessage, query
 
-    options = build_agent_options(workspace=workspace, settings=settings, max_turns=8, max_budget_usd=0.5)
+    options = build_agent_options(
+        workspace=workspace, settings=settings, max_turns=8, max_budget_usd=0.5
+    )
     text = ""
     async for message in query(prompt=prompt, options=options):
         if isinstance(message, ResultMessage):
@@ -37,7 +39,9 @@ async def ask_agent(prompt: str, workspace: Path, settings: Settings) -> str:
 
 @pytest.fixture()
 def settings() -> Settings:
-    return Settings(_env_file=None, implementer_sandbox="on", implementer_permission_mode="acceptEdits")
+    return Settings(
+        _env_file=None, implementer_sandbox="on", implementer_permission_mode="acceptEdits"
+    )
 
 
 @pytest.fixture()
@@ -47,7 +51,9 @@ def workspace(tmp_path: Path) -> Path:
     return path
 
 
-def test_an_agent_cannot_read_a_file_outside_its_workspace(settings: Settings, workspace: Path) -> None:
+def test_an_agent_cannot_read_a_file_outside_its_workspace(
+    settings: Settings, workspace: Path
+) -> None:
     secret = Path.home() / f".idea-to-mvp-canary-{uuid.uuid4().hex}"
     secret.write_text(CANARY)
     try:
@@ -79,5 +85,9 @@ def test_an_agent_cannot_see_non_anthropic_api_keys(
             settings,
         )
     )
-    for canary in ("sk-live-canary-openai-123", "g-live-canary-google-456", "ghp-live-canary-github-789"):
+    for canary in (
+        "sk-live-canary-openai-123",
+        "g-live-canary-google-456",
+        "ghp-live-canary-github-789",
+    ):
         assert canary not in reply

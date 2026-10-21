@@ -31,7 +31,14 @@ from idea_to_mvp.plan import PlanTask
 
 BUILD_IDS = ("A", "B", "C")
 Choice = Literal["A", "B", "C", "none"]
-CRITERIA = ("delivery", "conformance", "fidelity", "consistency", "operational_fitness", "finish")  # rubric order
+CRITERIA = (
+    "delivery",
+    "conformance",
+    "fidelity",
+    "consistency",
+    "operational_fitness",
+    "finish",
+)  # rubric order
 SELECT_DIFF_CHARS = 16_000
 SELECT_PRD_CHARS = 8_000
 HIDDEN = "[hidden]"
@@ -60,7 +67,9 @@ class Selection(BaseModel):
 def candidates(probes: Mapping[str, ProbeResult]) -> list[Arm]:
     """The arms whose build can be selected: the session succeeded and committed changes."""
     arms: tuple[Arm, ...] = ("base", "inv", "dom")
-    return [arm for arm in arms if arm in probes and probes[arm]["delivered"] and probes[arm]["commit"]]
+    return [
+        arm for arm in arms if arm in probes and probes[arm]["delivered"] and probes[arm]["commit"]
+    ]
 
 
 def anonymize(arms: Sequence[Arm], seed: str) -> dict[str, Arm]:
@@ -92,7 +101,9 @@ def _tests_line(probe: ProbeResult) -> str:
 def _integrity_line(findings: Sequence[Mapping[str, Any]]) -> str:
     if not findings:
         return "no test was deleted, skipped, or weakened"
-    return "\n" + "\n".join(f"  - {finding.get('kind', '')}: {finding.get('path', '')}" for finding in findings[:8])
+    return "\n" + "\n".join(
+        f"  - {finding.get('kind', '')}: {finding.get('path', '')}" for finding in findings[:8]
+    )
 
 
 def build_section(build: str, probe: ProbeResult, diff: str) -> str:
@@ -106,7 +117,9 @@ def build_section(build: str, probe: ProbeResult, diff: str) -> str:
     )
 
 
-def selection_prompt(task: PlanTask, prd: str, sections: Mapping[str, str], hidden: Sequence[str]) -> str:
+def selection_prompt(
+    task: PlanTask, prd: str, sections: Mapping[str, str], hidden: Sequence[str]
+) -> str:
     """The selector's prompt: the task, the PRD, and the builds by id, with every hidden string taken out."""
     builds = "\n\n".join(sections[build] for build in sorted(sections))
     names = ", ".join(sorted(sections))
@@ -123,11 +136,15 @@ def selection_problems(answer: Selection, ids: Sequence[str]) -> list[str]:
     """Why an answer cannot be used: a choice that is not one of the builds, or a build scored not exactly once."""
     problems: list[str] = []
     if answer.choice != "none" and answer.choice not in ids:
-        problems.append(f"`choice` is {answer.choice}, which is not one of the builds ({', '.join(ids)}) or none")
+        problems.append(
+            f"`choice` is {answer.choice}, which is not one of the builds ({', '.join(ids)}) or none"
+        )
     scored = [score.build.strip().upper() for score in answer.scores]
     for build in ids:
         if scored.count(build) != 1:
-            problems.append(f"build {build} is scored {scored.count(build)} times (exactly once expected)")
+            problems.append(
+                f"build {build} is scored {scored.count(build)} times (exactly once expected)"
+            )
     if extra := sorted(set(scored) - set(ids)):
         problems.append(f"scores for builds that do not exist: {', '.join(extra)}")
     return problems
@@ -144,7 +161,10 @@ def _clean(probe: ProbeResult) -> tuple[bool, bool]:
 
 
 def overrule(
-    choice: str, builds: Mapping[str, Arm], probes: Mapping[str, ProbeResult], scores: Mapping[str, Mapping[str, Any]]
+    choice: str,
+    builds: Mapping[str, Arm],
+    probes: Mapping[str, ProbeResult],
+    scores: Mapping[str, Mapping[str, Any]],
 ) -> tuple[str, str]:
     """(the build that stands, why the choice was overruled or ''). A chosen build whose tests did not pass, or
     whose session weakened the tests, gives way to the best-scored build that is cleaner on both (tests first);
@@ -155,6 +175,16 @@ def overrule(
     best = max(tier.values())
     if tier[choice] >= best:
         return choice, ""
-    winner = max((build for build in builds if tier[build] == best), key=lambda build: (score_key(scores.get(build)), -ord(build)))
-    reason = "its tests did not pass" if best[0] and not tier[choice][0] else "its session weakened the tests"
-    return winner, f"build {choice} was chosen but {reason}, while build {winner} is clean, so build {winner} is taken"
+    winner = max(
+        (build for build in builds if tier[build] == best),
+        key=lambda build: (score_key(scores.get(build)), -ord(build)),
+    )
+    reason = (
+        "its tests did not pass"
+        if best[0] and not tier[choice][0]
+        else "its session weakened the tests"
+    )
+    return (
+        winner,
+        f"build {choice} was chosen but {reason}, while build {winner} is clean, so build {winner} is taken",
+    )

@@ -50,7 +50,9 @@ from idea_to_mvp.text_utils import clip
 
 try:  # POSIX: a lock that also holds across processes (the UI and the CLI may write the same library)
     import fcntl
-except ImportError:  # pragma: no cover - Windows, out of scope like the sandbox: the thread lock alone
+except (
+    ImportError
+):  # pragma: no cover - Windows, out of scope like the sandbox: the thread lock alone
     fcntl = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -113,11 +115,17 @@ class Entry(TypedDict):
     created_at: float
     edits: list[dict[str, str]]  # `EditRow` dumps
     lesson: dict[str, str] | None  # a `Lesson` dump, None for NO_ENTRY
-    harness: dict[str, Any] | None  # {decision, summary, files}: the harness tuning adopted (files under harness/<id>/)
+    harness: (
+        dict[str, Any] | None
+    )  # {decision, summary, files}: the harness tuning adopted (files under harness/<id>/)
 
 
 def no_entry() -> Reflection:
-    return Reflection(edits=[], lessons=[], rationale="The reflector gave no usable answer, so nothing is recorded.")
+    return Reflection(
+        edits=[],
+        lessons=[],
+        rationale="The reflector gave no usable answer, so nothing is recorded.",
+    )
 
 
 def reflection_problems(answer: Reflection, ids: Sequence[str]) -> list[str]:
@@ -127,15 +135,27 @@ def reflection_problems(answer: Reflection, ids: Sequence[str]) -> list[str]:
     if len(answer.lessons) > 1:
         problems.append(f"{len(answer.lessons)} lessons: write at most one (or none)")
     for lesson in answer.lessons[:1]:
-        empty = [name for name in ("cue", "lesson", "evidence") if not getattr(lesson, name).strip()]
+        empty = [
+            name for name in ("cue", "lesson", "evidence") if not getattr(lesson, name).strip()
+        ]
         if empty:
             problems.append(f"the lesson has an empty {', '.join(empty)}")
     judged = Counter(row.edit.strip() for row in answer.edits)
     known = set(ids)
-    problems += [f"{edit}: not an edit listed under Edits to judge" for edit in judged if edit not in known]
-    problems += [f"{edit} is judged {count} times" for edit, count in judged.items() if count > 1 and edit in known]
+    problems += [
+        f"{edit}: not an edit listed under Edits to judge" for edit in judged if edit not in known
+    ]
+    problems += [
+        f"{edit} is judged {count} times"
+        for edit, count in judged.items()
+        if count > 1 and edit in known
+    ]
     problems += [f"{edit} is not judged" for edit in ids if edit not in judged]
-    problems += [f"{row.edit}: the evidence is empty" for row in answer.edits if row.edit.strip() in known and not row.evidence.strip()]
+    problems += [
+        f"{row.edit}: the evidence is empty"
+        for row in answer.edits
+        if row.edit.strip() in known and not row.evidence.strip()
+    ]
     return problems
 
 
@@ -145,7 +165,9 @@ def usable_rows(answer: Reflection, ids: Sequence[str]) -> list[EditRow]:
     for row in answer.edits:
         edit = row.edit.strip()
         if edit in ids and edit not in rows and row.evidence.strip():
-            rows[edit] = EditRow(edit=edit, effect=row.effect, evidence=clip(row.evidence, EVIDENCE_CHARS))
+            rows[edit] = EditRow(
+                edit=edit, effect=row.effect, evidence=clip(row.evidence, EVIDENCE_CHARS)
+            )
     return [rows[edit] for edit in ids if edit in rows]
 
 
@@ -169,13 +191,21 @@ def _stack_word(item: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", match.group(0).lower()) if match else ""
 
 
-def domain_for(strategy: Mapping[str, Any] | None, proposal: Mapping[str, Any] | None, choice: Mapping[str, Any] | None) -> str:
+def domain_for(
+    strategy: Mapping[str, Any] | None,
+    proposal: Mapping[str, Any] | None,
+    choice: Mapping[str, Any] | None,
+) -> str:
     """The library a project reads and writes: its starter template's name, else the first two words of the chosen
     architecture option's stack (`["Python 3.12", "FastAPI"]` → `python-fastapi`), else `general`."""
     template = str((strategy or {}).get("template") or "").strip().lower()
     if template and template != "none" and _DOMAIN.match(template):
         return template
-    key = "option_b" if str((choice or {}).get("option") or "A").strip().upper() == "B" else "option_a"
+    key = (
+        "option_b"
+        if str((choice or {}).get("option") or "A").strip().upper() == "B"
+        else "option_a"
+    )
     stack = ((proposal or {}).get(key) or {}).get("stack") or []
     words: list[str] = []
     for item in stack if isinstance(stack, list) else []:
@@ -197,13 +227,19 @@ def domain_dir(root: Path, domain: str) -> Path:
 def entry_id(workspace: Path, iteration: int) -> str:
     """Stable for a project's version, so a reflection that runs again (a resumed step) replaces its own entry."""
     digest = hashlib.sha256(f"{Path(workspace).resolve()}|{iteration}".encode()).hexdigest()[:8]
-    stem = pack_project_name(Path(workspace).name)[:40].strip("-")  # without the pack folder's timestamp
+    stem = pack_project_name(Path(workspace).name)[:40].strip(
+        "-"
+    )  # without the pack folder's timestamp
     return f"{stem}-v{iteration}-{digest}"
 
 
 def list_domains(root: Path) -> list[str]:
     try:
-        return sorted(p.name for p in Path(root).iterdir() if p.is_dir() and _DOMAIN.match(p.name) and (p / ENTRIES_DIR).is_dir())
+        return sorted(
+            p.name
+            for p in Path(root).iterdir()
+            if p.is_dir() and _DOMAIN.match(p.name) and (p / ENTRIES_DIR).is_dir()
+        )
     except OSError:
         return []
 
@@ -238,8 +274,14 @@ def load_entries(root: Path, domain: str) -> list[Entry]:
                 "iteration": int(raw.get("iteration") or 1),
                 "verified": bool(raw.get("verified")),
                 "created_at": float(raw.get("created_at") or 0.0),
-                "edits": [{key: str(row.get(key) or "") for key in ("edit", "effect", "evidence")} for row in raw["edits"]],
-                "lesson": {key: str(raw["lesson"].get(key) or "") for key in ("cue", "lesson", "evidence", "confidence")}
+                "edits": [
+                    {key: str(row.get(key) or "") for key in ("edit", "effect", "evidence")}
+                    for row in raw["edits"]
+                ],
+                "lesson": {
+                    key: str(raw["lesson"].get(key) or "")
+                    for key in ("cue", "lesson", "evidence", "confidence")
+                }
                 if raw.get("lesson")
                 else None,
                 "harness": raw.get("harness") if isinstance(raw.get("harness"), dict) else None,
@@ -264,7 +306,13 @@ class LibraryLeak(ValueError):
     """An entry would store acceptance-test content or a secret."""
 
 
-def write_entry(root: Path, entry: Entry, harness_files: Mapping[str, str] | None = None, *, forbidden: Forbidden) -> Path:
+def write_entry(
+    root: Path,
+    entry: Entry,
+    harness_files: Mapping[str, str] | None = None,
+    *,
+    forbidden: Forbidden,
+) -> Path:
     """Store an entry (replacing one with the same id) and the harness files it names, then rebuild the index.
 
     Raises `LibraryLeak` before anything is written when the entry or a harness file holds acceptance-test content or
@@ -345,7 +393,9 @@ def tallies(entries: Sequence[Entry]) -> dict[str, Counter[str]]:
     for entry in entries:
         for row in entry["edits"]:
             if row["edit"].startswith(LESSON_PREFIX):
-                counts.setdefault(row["edit"].removeprefix(LESSON_PREFIX), Counter())[row["effect"]] += 1
+                counts.setdefault(row["edit"].removeprefix(LESSON_PREFIX), Counter())[
+                    row["effect"]
+                ] += 1
     return counts
 
 
@@ -364,7 +414,10 @@ def ranked_lessons(entries: Sequence[Entry]) -> list[Entry]:
     newest = sorted(with_lesson, key=lambda entry: entry["created_at"], reverse=True)
     return sorted(
         newest,
-        key=lambda entry: (disputed(counts.get(entry["id"])), _CONFIDENCE_ORDER.get((entry["lesson"] or {}).get("confidence", ""), 3)),
+        key=lambda entry: (
+            disputed(counts.get(entry["id"])),
+            _CONFIDENCE_ORDER.get((entry["lesson"] or {}).get("confidence", ""), 3),
+        ),
     )
 
 
@@ -374,7 +427,11 @@ def project_name(entry: Entry) -> str:
 
 
 def _source(entry: Entry) -> str:
-    when = time.strftime("%Y-%m-%d", time.localtime(entry["created_at"])) if entry["created_at"] else "undated"
+    when = (
+        time.strftime("%Y-%m-%d", time.localtime(entry["created_at"]))
+        if entry["created_at"]
+        else "undated"
+    )
     outcome = "verified" if entry["verified"] else "not verified"
     return f"{project_name(entry)} v0.{entry['iteration']}, {outcome}, {when}"
 
@@ -382,7 +439,9 @@ def _source(entry: Entry) -> str:
 def _tally_text(counts: Counter[str] | None) -> str:
     if not counts:
         return "not judged by a later project yet"
-    return "later projects: " + ", ".join(f"{effect} {counts[effect]}" for effect in EFFECTS if counts[effect])
+    return "later projects: " + ", ".join(
+        f"{effect} {counts[effect]}" for effect in EFFECTS if counts[effect]
+    )
 
 
 def render_index(domain: str, entries: Sequence[Entry], *, limit: int | None = None) -> str:
@@ -403,7 +462,11 @@ def render_index(domain: str, entries: Sequence[Entry], *, limit: int | None = N
         items.append("\n## Lessons")
     for entry in lessons:
         lesson = entry["lesson"] or {}
-        mark = " **disputed: later projects found it hurt more often than it helped**" if disputed(counts.get(entry["id"])) else ""
+        mark = (
+            " **disputed: later projects found it hurt more often than it helped**"
+            if disputed(counts.get(entry["id"]))
+            else ""
+        )
         items.append(
             f"- `{entry['id']}` (confidence {lesson.get('confidence', '?')}; {_source(entry)}; "
             f"{_tally_text(counts.get(entry['id']))}){mark}\n"
@@ -416,7 +479,9 @@ def render_index(domain: str, entries: Sequence[Entry], *, limit: int | None = N
     for entry in harnesses:
         harness = entry["harness"] or {}
         rows = [row for row in entry["edits"] if row["edit"].startswith(HARNESS_PREFIX)]
-        judged = "; ".join(f"{row['edit'].removeprefix(HARNESS_PREFIX).upper()} {row['effect']}" for row in rows)
+        judged = "; ".join(
+            f"{row['edit'].removeprefix(HARNESS_PREFIX).upper()} {row['effect']}" for row in rows
+        )
         files = ", ".join(f"`{path}`" for path in harness.get("files") or []) or "(no files)"
         items.append(
             f"- `{entry['id']}` ({_source(entry)}): {harness.get('decision', '?')}"
@@ -445,7 +510,12 @@ def snapshot(root: Path, domain: str) -> dict[str, Any]:
         for entry in ranked_lessons(entries)[:MAX_LESSONS_LISTED]
         if f"`{entry['id']}`" in index
     ]
-    return {"domain": domain, "index": index if entries else "", "lessons": lessons, "entries": len(entries)}
+    return {
+        "domain": domain,
+        "index": index if entries else "",
+        "lessons": lessons,
+        "entries": len(entries),
+    }
 
 
 def reference_block(library: Mapping[str, Any] | None) -> str:
@@ -508,7 +578,9 @@ def forbidden_for(settings: Settings, workspace: Path) -> Forbidden:
     secret, or password) and the content of every acceptance suite kept for `workspace`."""
     values = {settings.openai_api_key, settings.anthropic_api_key, settings.google_api_key}
     values |= {value for name, value in os.environ.items() if _SECRET_NAME.search(name)}
-    secrets = tuple(sorted(value for value in values if value and len(value.strip()) >= _MIN_SECRET))
+    secrets = tuple(
+        sorted(value for value in values if value and len(value.strip()) >= _MIN_SECRET)
+    )
     texts: list[str] = []
     root = suite_root(settings, workspace)
     for folder in sorted(root.glob("v*")) if root.is_dir() else []:

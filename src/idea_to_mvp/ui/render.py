@@ -43,7 +43,9 @@ def _style_class_for_speaker(speaker: str) -> str:
     return SPEAKER_STYLE_CLASS.get(speaker, "")
 
 
-def thinking_block(speaker: str, message: str = "Analyzing constraints and MVP tradeoffs...") -> str:
+def thinking_block(
+    speaker: str, message: str = "Analyzing constraints and MVP tradeoffs..."
+) -> str:
     style_class = _style_class_for_speaker(speaker)
     return (
         f"<details class='speaker-card thinking {style_class}' open>"
@@ -56,7 +58,11 @@ def thinking_block(speaker: str, message: str = "Analyzing constraints and MVP t
 def turn_block(speaker: str, content: str, *, collapsed: bool = False, live: bool = False) -> str:
     """One speaker's card. `collapsed` closes it (older turns); `live` marks a turn that is still being written."""
     body = _safe_markdown_to_html(content)
-    classes = " ".join(c for c in ("speaker-card", _style_class_for_speaker(speaker), "live-turn" if live else "") if c)
+    classes = " ".join(
+        c
+        for c in ("speaker-card", _style_class_for_speaker(speaker), "live-turn" if live else "")
+        if c
+    )
     head = html.escape(speaker) + (" · writing…" if live else "")
     return (
         f"<details class='{classes}'{'' if collapsed else ' open'}>"
@@ -67,7 +73,10 @@ def turn_block(speaker: str, content: str, *, collapsed: bool = False, live: boo
 
 
 def openings_row(
-    turns: Sequence[tuple[str, str]], *, collapsed: bool = False, live: bool | Sequence[bool] = False
+    turns: Sequence[tuple[str, str]],
+    *,
+    collapsed: bool = False,
+    live: bool | Sequence[bool] = False,
 ) -> str:
     """The panel's opening statements side by side (they were written at the same time, so they read as one).
     `live` says which cards are still being written: all of them, or one flag per card."""
@@ -114,7 +123,9 @@ def summary_block(summary: str) -> str:
 
 
 def architect_block(architecture_text: str) -> str:
-    safe = _safe_markdown_to_html((architecture_text or "").strip() or "Architecture proposal was empty.")
+    safe = _safe_markdown_to_html(
+        (architecture_text or "").strip() or "Architecture proposal was empty."
+    )
     return (
         f"<details class='speaker-card summary {_style_class_for_speaker('Architect')}' open>"
         "<summary class='speaker-head'>Architect</summary>"
@@ -182,7 +193,9 @@ def research_card(research: Mapping[str, Any]) -> str:
         sections.append(f"<p><strong>Competitors</strong></p><ul>{items}</ul>")
     for title, notes in (("Market notes", brief.market_notes), ("Gaps", brief.gaps)):
         if notes:
-            sections.append(f"<p><strong>{title}</strong></p><ul>{''.join(f'<li>{html.escape(n)}</li>' for n in notes)}</ul>")
+            sections.append(
+                f"<p><strong>{title}</strong></p><ul>{''.join(f'<li>{html.escape(n)}</li>' for n in notes)}</ul>"
+            )
     if brief.sources:
         sources = "".join(f"<li>{_link(url, url)}</li>" for url in brief.sources)
         sections.append(f"<p><strong>Sources</strong></p><ul>{sources}</ul>")
@@ -202,13 +215,17 @@ def _tests_cell(probe: Mapping[str, Any]) -> str:
     if not tests.get("ran"):
         return "not run"
     count = (tests.get("evidence") or {}).get("tests")
-    return ("passed" if tests.get("passed") else "failed") + (f" ({count})" if count is not None else "")
+    return ("passed" if tests.get("passed") else "failed") + (
+        f" ({count})" if count is not None else ""
+    )
 
 
 def _edit_block(name: str, candidate: Mapping[str, Any]) -> str:
     """What one edit changed and the trajectory moments its editor named."""
     if candidate.get("inherited"):
-        return f"<p><strong>{name}</strong>: no usable edit, so its run used the pack's harness.</p>"
+        return (
+            f"<p><strong>{name}</strong>: no usable edit, so its run used the pack's harness.</p>"
+        )
     files = [str(item.get("path") or "") for item in candidate.get("files") or []]
     if not files:
         return f"<p><strong>{name}</strong>: no edit (nothing in the base run pointed to a better harness).</p>"
@@ -232,7 +249,9 @@ def tuning_card(record: Mapping[str, Any]) -> str:
     chosen = str(selection.get("arm") or "") if selection.get("landed") else ""
     rows = []
     for arm, name in _RUNS:
-        probe = (record.get("base") if arm == "base" else (record.get(arm) or {}).get("probe")) or {}
+        probe = (
+            record.get("base") if arm == "base" else (record.get(arm) or {}).get("probe")
+        ) or {}
         build = builds.get(arm, "—")
         mark = " <strong>✓ selected</strong>" if arm == chosen else ""
         rows.append(
@@ -249,7 +268,9 @@ def tuning_card(record: Mapping[str, Any]) -> str:
         f"{_e(str(note.get('evidence') or ''))}</li>"
         for note in compose.get("notes") or []
     )
-    decided = (f"<ul>{notes}</ul>" if notes else "") + (f"<p>{_e(str(compose.get('rationale') or ''))}</p>" if compose.get("rationale") else "")
+    decided = (f"<ul>{notes}</ul>" if notes else "") + (
+        f"<p>{_e(str(compose.get('rationale') or ''))}</p>" if compose.get("rationale") else ""
+    )
     if compose.get("overruled"):
         decided += f"<p>The composer chose <code>{_e(str(compose.get('proposed')))}</code>, overruled: {_e(str(compose['overruled']))}.</p>"
     adopted = _e(ADOPTED_HARNESS.get(str(record.get("adopted")), str(record.get("adopted"))))
@@ -275,7 +296,10 @@ def tuning_card(record: Mapping[str, Any]) -> str:
         if ledger and not ledger.get("ok")
         else ""
     )
-    harnesses = ", ".join(f"{_e(build)} = {_e(ARM_HARNESS.get(arm, arm))}" for arm, build in sorted(builds.items(), key=lambda item: item[1]))
+    harnesses = ", ".join(
+        f"{_e(build)} = {_e(ARM_HARNESS.get(arm, arm))}"
+        for arm, build in sorted(builds.items(), key=lambda item: item[1])
+    )
     body = (
         f"<p><strong>Harness:</strong> {adopted}{commit}.</p>"
         f"<p><strong>Build:</strong> {_e(' '.join(selection_sentences(record)) or 'no selection was made.')}</p>"
@@ -284,7 +308,11 @@ def tuning_card(record: Mapping[str, Any]) -> str:
         f"{_edit_block('INV edit (how the agent works)', record.get('inv') or {})}"
         f"{_edit_block('DOM edit (what a practitioner of the stack knows)', record.get('dom') or {})}"
         + (f"<p><strong>What decided the harness</strong></p>{decided}" if decided else "")
-        + (f"<p><strong>Blind selection</strong> (revealed: {harnesses})</p>{score_table}" if score_table else "")
+        + (
+            f"<p><strong>Blind selection</strong> (revealed: {harnesses})</p>{score_table}"
+            if score_table
+            else ""
+        )
         + f"<p><strong>Spend:</strong> ${sessions + calls:.2f} (pilot builds and their tests lanes ${sessions:.2f}, "
         f"model calls ${calls:.2f}).</p>"
     )

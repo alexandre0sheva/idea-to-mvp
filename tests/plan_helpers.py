@@ -6,7 +6,9 @@ from typing import Any
 
 from idea_to_mvp.plan import Contract, Plan, PlanTask, ProjectCommands
 
-PRD = "# PRD\n\n## Requirements\n- R1 (P0): log a climb\n- R2 (P0): see history\n- R3 (P1): export\n"
+PRD = (
+    "# PRD\n\n## Requirements\n- R1 (P0): log a climb\n- R2 (P0): see history\n- R3 (P1): export\n"
+)
 WORKSTREAMS = ["backend-api", "web-ui"]
 
 
@@ -37,7 +39,13 @@ def make_plan(tasks: list[PlanTask] | None = None, **overrides: Any) -> Plan:
         if tasks is not None
         else [
             make_task("T01", requirement_ids=["R1", "R2"], contracts_out=["C1"]),
-            make_task("T02", workstream="web-ui", depends_on=["T01"], requirement_ids=["R1"], contracts_in=["C1"]),
+            make_task(
+                "T02",
+                workstream="web-ui",
+                depends_on=["T01"],
+                requirement_ids=["R1"],
+                contracts_in=["C1"],
+            ),
         ],
         "commands": ProjectCommands(install="pip install -e .", test="pytest", lint=None, run=None),
     }

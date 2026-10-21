@@ -48,9 +48,17 @@ class Price:
 
     def cost(self, input_tokens: int, output_tokens: int, cached_tokens: int = 0) -> float:
         """Dollars for a call; `cached_tokens` is the part of the input served from the provider's cache."""
-        cached_rate = self.input_per_mtok if self.cached_input_per_mtok is None else self.cached_input_per_mtok
+        cached_rate = (
+            self.input_per_mtok
+            if self.cached_input_per_mtok is None
+            else self.cached_input_per_mtok
+        )
         fresh = max(input_tokens - cached_tokens, 0)
-        return (fresh * self.input_per_mtok + cached_tokens * cached_rate + output_tokens * self.output_per_mtok) / _TOKENS_PER_MTOK
+        return (
+            fresh * self.input_per_mtok
+            + cached_tokens * cached_rate
+            + output_tokens * self.output_per_mtok
+        ) / _TOKENS_PER_MTOK
 
 
 # ------------------------------------------------------------------- overrides
@@ -84,9 +92,13 @@ def load_price_overrides(path: Path) -> dict[str, Price]:
             raise PricingError(f'{path}: [prices."{model}"] must be a table')
         unknown = sorted(set(fields) - set(_PRICE_KEYS))
         if unknown:
-            raise PricingError(f"{path}: unknown key {', '.join(unknown)} for {model!r} (use {', '.join(_PRICE_KEYS)})")
+            raise PricingError(
+                f"{path}: unknown key {', '.join(unknown)} for {model!r} (use {', '.join(_PRICE_KEYS)})"
+            )
         if "input_per_mtok" not in fields or "output_per_mtok" not in fields:
-            raise PricingError(f"{path}: give both input_per_mtok and output_per_mtok for {model!r}")
+            raise PricingError(
+                f"{path}: give both input_per_mtok and output_per_mtok for {model!r}"
+            )
         cached = fields.get("cached_input_per_mtok")
         found[str(model)] = Price(
             _number(path, model, "input_per_mtok", fields["input_per_mtok"]),
@@ -104,7 +116,9 @@ def settings_overrides(settings: Settings) -> dict[str, Price]:
 # ------------------------------------------------------------------ one call
 
 
-def price_for(model: str, overrides: dict[str, Price] | None = None, catalog: ModelCatalog | None = None) -> Price | None:
+def price_for(
+    model: str, overrides: dict[str, Price] | None = None, catalog: ModelCatalog | None = None
+) -> Price | None:
     """The price of a model: the prices file first, then the catalog; a dated snapshot counts as its model."""
     name = (model or "").strip()
     if not name:
@@ -143,7 +157,9 @@ def task_cost_history(projects_dir: Path, model: str) -> list[float]:
     A task counts once it has a successful session; a resolver or lane is not the task's own session.
     """
     try:
-        folders = sorted(p for p in Path(projects_dir).iterdir() if p.is_dir() and not p.name.startswith("."))
+        folders = sorted(
+            p for p in Path(projects_dir).iterdir() if p.is_dir() and not p.name.startswith(".")
+        )
     except OSError:
         return []
     costs: list[float] = []
@@ -182,7 +198,9 @@ class CostRange:
         }  # fmt: skip
 
 
-def _typical_session(settings: Settings, role: Any, overrides: dict[str, Price], catalog: ModelCatalog) -> float | None:
+def _typical_session(
+    settings: Settings, role: Any, overrides: dict[str, Price], catalog: ModelCatalog
+) -> float | None:
     """The catalog's typical session of an agent role, priced on the model it runs on (None: unpriced)."""
     from idea_to_mvp.roles import resolve_agent_model
 
@@ -190,7 +208,9 @@ def _typical_session(settings: Settings, role: Any, overrides: dict[str, Price],
     price = price_for(resolve_agent_model(settings, role), overrides, catalog)
     if price is None:
         return None
-    return price.cost(shape.input_tokens, shape.output_tokens, round(shape.input_tokens * shape.cached_fraction))
+    return price.cost(
+        shape.input_tokens, shape.output_tokens, round(shape.input_tokens * shape.cached_fraction)
+    )
 
 
 def estimate_tuning_cost(settings: Settings, estimate: CostRange) -> dict[str, Any]:
@@ -211,7 +231,15 @@ def estimate_tuning_cost(settings: Settings, estimate: CostRange) -> dict[str, A
     lane = _typical_session(settings, "verifier", overrides, catalog)
     shape = catalog.typical_run["architect"]
     price = price_for(resolve_role_model(settings, "harness_editor")[1], overrides, catalog)
-    call = price.cost(shape.input_tokens, shape.output_tokens, round(shape.input_tokens * shape.cached_fraction)) if price else None
+    call = (
+        price.cost(
+            shape.input_tokens,
+            shape.output_tokens,
+            round(shape.input_tokens * shape.cached_fraction),
+        )
+        if price
+        else None
+    )
     cap = settings.implementer_max_total_usd * TUNING_SHARE
     result: dict[str, Any] = {
         "low": None, "high": None, "sessions_low": None, "sessions_high": None, "rollouts": rollouts, "calls": calls, "cap": cap,
@@ -234,10 +262,17 @@ def with_tuning(estimate: dict[str, Any], tuning: dict[str, Any], cap: float) ->
     extra_low, extra_high = tuning.get("sessions_low"), tuning.get("sessions_high")
     if low is None or high is None or extra_low is None or extra_high is None:
         return {**estimate, "harness_tuning": True}
-    return {**estimate, "low": min(low + extra_low, cap), "high": min(high + extra_high, cap), "harness_tuning": True}
+    return {
+        **estimate,
+        "low": min(low + extra_low, cap),
+        "high": min(high + extra_high, cap),
+        "harness_tuning": True,
+    }
 
 
-def estimate_run_cost(settings: Settings, task_count: int, history: list[float] | None = None) -> CostRange:
+def estimate_run_cost(
+    settings: Settings, task_count: int, history: list[float] | None = None
+) -> CostRange:
     """The dollar range of building `task_count` tasks, verifying once, and (high end only) fixing up to
     `MAX_FIX_ATTEMPTS` times; `history` is `task_cost_history` for the task model."""
     catalog = get_catalog()
@@ -252,7 +287,11 @@ def estimate_run_cost(settings: Settings, task_count: int, history: list[float] 
         return _typical_session(settings, role, overrides, catalog)
 
     task_session, lane, hard = session("implementer"), session("verifier"), session("escalation")
-    needed = {"implementer": task_session, "verifier": lane, **({"escalation": hard} if fixes else {})}
+    needed = {
+        "implementer": task_session,
+        "verifier": lane,
+        **({"escalation": hard} if fixes else {}),
+    }
     unpriced = [role for role, cost in needed.items() if cost is None]
     if unpriced or task_session is None or lane is None:
         return CostRange(None, None, None, "unpriced", 0, tasks, unpriced)
@@ -262,7 +301,9 @@ def estimate_run_cost(settings: Settings, task_count: int, history: list[float] 
         per_task, band, basis = float(median(history)), HISTORY_BAND, "history"
     else:
         per_task, band, basis, samples = task_session, CATALOG_BAND, "catalog", 0
-    lanes = catalog.typical_run["verifier"].calls + (1 if settings.acceptance_enabled else 0)  # + the acceptance lane
+    lanes = catalog.typical_run["verifier"].calls + (
+        1 if settings.acceptance_enabled else 0
+    )  # + the acceptance lane
     verification = lane * lanes  # one verification round
     low = tasks * per_task * band[0] + verification
     high = tasks * per_task * band[1] + verification

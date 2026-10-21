@@ -55,7 +55,11 @@ def sandbox_available(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_a_valid_structured_result_becomes_the_lane_report() -> None:
     structured = report("quality", passed=False, failures=["ruff: 3 errors"]).model_dump()
     parsed = parse_lane_report("quality", structured, "")
-    assert parsed.passed is False and parsed.failures == ["ruff: 3 errors"] and parsed.lane == "quality"
+    assert (
+        parsed.passed is False
+        and parsed.failures == ["ruff: 3 errors"]
+        and parsed.lane == "quality"
+    )
 
 
 def test_a_json_report_in_the_text_is_accepted_even_inside_a_code_fence() -> None:
@@ -86,7 +90,9 @@ def test_a_report_for_another_lane_is_rejected() -> None:
 
 
 def test_a_lane_that_claims_to_pass_while_listing_failures_does_not_pass() -> None:
-    parsed = parse_lane_report("tests", report(passed=True, failures=["test_x failed"]).model_dump(), "")
+    parsed = parse_lane_report(
+        "tests", report(passed=True, failures=["test_x failed"]).model_dump(), ""
+    )
     assert parsed.passed is False and parsed.failures == ["test_x failed"]
 
 
@@ -113,17 +119,32 @@ def test_the_combined_report_gives_a_verdict_per_lane_and_lists_the_failures() -
         [
             report("tests", summary="12 passed"),
             report("quality", passed=False, failures=["ruff: unused import"], summary="lint fails"),
-            report("requirements", passed=False, failures=["R2 (P0): no test covers it"], summary="one gap"),
+            report(
+                "requirements",
+                passed=False,
+                failures=["R2 (P0): no test covers it"],
+                summary="one gap",
+            ),
         ]
     )
     text = result["report"]
-    assert "Tests lane: PASSED" in text and "Quality lane: FAILED" in text and "Requirements lane: FAILED" in text
-    assert "R2 (P0): no test covers it" in text and "12 passed" in text and "`pytest` (exit 0)" in text
+    assert (
+        "Tests lane: PASSED" in text
+        and "Quality lane: FAILED" in text
+        and "Requirements lane: FAILED" in text
+    )
+    assert (
+        "R2 (P0): no test covers it" in text and "12 passed" in text and "`pytest` (exit 0)" in text
+    )
 
 
 def test_failures_are_merged_into_one_list_tagged_with_their_lane() -> None:
     lanes = combine_lanes(
-        [report("tests", passed=False, failures=["test_a failed", "test_b failed"]), report("quality"), report("requirements")]
+        [
+            report("tests", passed=False, failures=["test_a failed", "test_b failed"]),
+            report("quality"),
+            report("requirements"),
+        ]
     )["lanes"]
     assert failure_list(lanes) == ["[tests] test_a failed", "[tests] test_b failed"]
 
@@ -157,7 +178,9 @@ def test_prompts_work_without_a_plan_or_a_prd() -> None:
 class FakeLaneQuery:
     """Stands in for the SDK's `query`: ends with a result carrying structured output, text, or an error."""
 
-    def __init__(self, *, structured: Any = None, text: str = "", error: bool = False, crash: bool = False) -> None:
+    def __init__(
+        self, *, structured: Any = None, text: str = "", error: bool = False, crash: bool = False
+    ) -> None:
         self.structured = structured
         self.text = text
         self.error = error
@@ -184,7 +207,15 @@ class FakeLaneQuery:
 def run_one(lane: str, query: FakeLaneQuery, workspace: Path, **kwargs: Any) -> Any:
     events: list[ImplEvent] = []
     outcome = asyncio.run(
-        run_lane(workspace, lane, make_settings(), budget_usd=2.0, emit=events.append, query_fn=query, **kwargs)
+        run_lane(
+            workspace,
+            lane,
+            make_settings(),
+            budget_usd=2.0,
+            emit=events.append,
+            query_fn=query,
+            **kwargs,
+        )
     )
     return outcome, events
 
@@ -193,7 +224,10 @@ def test_a_lane_session_asks_the_sdk_for_a_structured_lane_report(tmp_path: Path
     query = FakeLaneQuery(structured=report("tests").model_dump())
     outcome, _ = run_one("tests", query, tmp_path)
     options = query.calls[0][1]
-    assert options.output_format == {"type": "json_schema", "schema": LaneReport.model_json_schema()}
+    assert options.output_format == {
+        "type": "json_schema",
+        "schema": LaneReport.model_json_schema(),
+    }
     assert options.max_turns == 9 and options.max_budget_usd == 2.0 and options.cwd == str(tmp_path)
     assert outcome.report.passed is True and outcome.cost_usd == 0.75 and outcome.turns == 6
 
@@ -219,7 +253,10 @@ def test_a_lane_session_uses_the_plan_and_prd_of_the_workspace(tmp_path: Path) -
 
 def test_a_reply_without_a_valid_report_fails_the_lane_but_keeps_the_cost(tmp_path: Path) -> None:
     outcome, _ = run_one("tests", FakeLaneQuery(text="All tests pass!\nVERDICT: PASS"), tmp_path)
-    assert outcome.report.passed is False and "did not return a valid report" in outcome.report.failures[0]
+    assert (
+        outcome.report.passed is False
+        and "did not return a valid report" in outcome.report.failures[0]
+    )
     assert outcome.cost_usd == 0.75
 
 
@@ -248,7 +285,8 @@ def test_demo_lanes_need_no_sdk_and_check_the_generated_demo_project(tmp_path: P
     (tmp_path / "plan.json").write_text(make_plan().model_dump_json())
     settings = make_settings(demo_mode=True)
     outcomes = [
-        asyncio.run(run_lane(tmp_path, lane, settings, budget_usd=1.0, emit=lambda e: None)) for lane in LANES
+        asyncio.run(run_lane(tmp_path, lane, settings, budget_usd=1.0, emit=lambda e: None))
+        for lane in LANES
     ]
     assert [o.report.passed for o in outcomes] == [True, True, True]
     assert outcomes[0].report.commands_run and outcomes[0].report.commands_run[0]["exit_code"] == 0
@@ -259,9 +297,17 @@ def test_the_demo_requirements_lane_reports_p0_requirements_no_task_covers(tmp_p
     (tmp_path / "PRD.md").write_text(PRD + "- R4 (P0): share a climb\n")
     (tmp_path / "plan.json").write_text(make_plan().model_dump_json())  # covers R1 and R2 only
     outcome = asyncio.run(
-        run_lane(tmp_path, "requirements", make_settings(demo_mode=True), budget_usd=1.0, emit=lambda e: None)
+        run_lane(
+            tmp_path,
+            "requirements",
+            make_settings(demo_mode=True),
+            budget_usd=1.0,
+            emit=lambda e: None,
+        )
     )
-    assert outcome.report.passed is False and any("R4" in failure for failure in outcome.report.failures)
+    assert outcome.report.passed is False and any(
+        "R4" in failure for failure in outcome.report.failures
+    )
 
 
 def test_the_demo_tests_lane_fails_when_the_projects_tests_fail(tmp_path: Path) -> None:
@@ -271,7 +317,11 @@ def test_the_demo_tests_lane_fails_when_the_projects_tests_fail(tmp_path: Path) 
     (tmp_path / "tests" / "test_broken.py").write_text(
         "import unittest\n\nclass T(unittest.TestCase):\n    def test_x(self):\n        self.assertTrue(False)\n"
     )
-    outcome = asyncio.run(run_lane(tmp_path, "tests", make_settings(demo_mode=True), budget_usd=1.0, emit=lambda e: None))
+    outcome = asyncio.run(
+        run_lane(
+            tmp_path, "tests", make_settings(demo_mode=True), budget_usd=1.0, emit=lambda e: None
+        )
+    )
     assert outcome.report.passed is False and outcome.report.commands_run[0]["exit_code"] != 0
 
 
@@ -293,23 +343,54 @@ def test_the_fix_session_gets_the_merged_failure_list_not_the_raw_report(tmp_pat
     )
     prompt, options = query.calls[0]
     assert "- [tests] test_a failed" in prompt and "- [quality] ruff: unused import" in prompt
-    assert options.max_turns == 11 and options.max_budget_usd == 3.0 and options.output_format is None
-    assert outcome.success is True and outcome.cost_usd == 0.75 and "Fixed the import." in outcome.summary
+    assert (
+        options.max_turns == 11 and options.max_budget_usd == 3.0 and options.output_format is None
+    )
+    assert (
+        outcome.success is True
+        and outcome.cost_usd == 0.75
+        and "Fixed the import." in outcome.summary
+    )
 
 
-def test_lanes_run_on_the_verifier_model_and_fixes_escalate_after_the_first_attempt(tmp_path: Path) -> None:
-    settings = make_settings(implementer_model="m-task", verifier_model="m-verify", escalation_model="m-hard")
+def test_lanes_run_on_the_verifier_model_and_fixes_escalate_after_the_first_attempt(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(
+        implementer_model="m-task", verifier_model="m-verify", escalation_model="m-hard"
+    )
     lane = FakeLaneQuery(structured=report("quality").model_dump())
-    asyncio.run(run_lane(tmp_path, "quality", settings, budget_usd=1.0, emit=lambda e: None, query_fn=lane))
+    asyncio.run(
+        run_lane(tmp_path, "quality", settings, budget_usd=1.0, emit=lambda e: None, query_fn=lane)
+    )
     first, later = FakeLaneQuery(text="ok"), FakeLaneQuery(text="ok")
-    asyncio.run(run_fix(tmp_path, ["x"], settings, budget_usd=1.0, emit=lambda e: None, query_fn=first))
-    asyncio.run(run_fix(tmp_path, ["x"], settings, budget_usd=1.0, emit=lambda e: None, query_fn=later, attempt=2))
+    asyncio.run(
+        run_fix(tmp_path, ["x"], settings, budget_usd=1.0, emit=lambda e: None, query_fn=first)
+    )
+    asyncio.run(
+        run_fix(
+            tmp_path,
+            ["x"],
+            settings,
+            budget_usd=1.0,
+            emit=lambda e: None,
+            query_fn=later,
+            attempt=2,
+        )
+    )
     assert [q.calls[0][1].model for q in (lane, first, later)] == ["m-verify", "m-task", "m-hard"]
 
 
 def test_a_failed_fix_session_is_reported_not_raised(tmp_path: Path) -> None:
     outcome = asyncio.run(
-        run_fix(tmp_path, ["x"], make_settings(), budget_usd=1.0, emit=lambda e: None, query_fn=FakeLaneQuery(crash=True))
+        run_fix(
+            tmp_path,
+            ["x"],
+            make_settings(),
+            budget_usd=1.0,
+            emit=lambda e: None,
+            query_fn=FakeLaneQuery(crash=True),
+        )
     )
     assert outcome.success is False and "agent process died" in outcome.summary
 
@@ -329,11 +410,35 @@ def test_a_lane_session_is_recorded_as_its_verification_round(tmp_path: Path) ->
 
     settings = make_settings(verifier_model="m-verify")
     query = FakeLaneQuery(structured=report("tests").model_dump())
-    asyncio.run(run_lane(tmp_path, "tests", settings, budget_usd=1.0, emit=lambda e: None, query_fn=query))
-    asyncio.run(run_lane(tmp_path, "tests", settings, budget_usd=1.0, emit=lambda e: None, query_fn=query, attempt=2, iteration=2))
+    asyncio.run(
+        run_lane(tmp_path, "tests", settings, budget_usd=1.0, emit=lambda e: None, query_fn=query)
+    )
+    asyncio.run(
+        run_lane(
+            tmp_path,
+            "tests",
+            settings,
+            budget_usd=1.0,
+            emit=lambda e: None,
+            query_fn=query,
+            attempt=2,
+            iteration=2,
+        )
+    )
     first, second = load_ledger(tmp_path)
-    assert (first["kind"], first["label"], first["task_id"], first["attempt"], first["iteration"]) == ("lane", "lane-tests-1", None, 1, 1)
-    assert (first["cost_usd"], first["turns"], first["outcome"], first["model"]) == (0.75, 6, "success", "m-verify")
+    assert (
+        first["kind"],
+        first["label"],
+        first["task_id"],
+        first["attempt"],
+        first["iteration"],
+    ) == ("lane", "lane-tests-1", None, 1, 1)
+    assert (first["cost_usd"], first["turns"], first["outcome"], first["model"]) == (
+        0.75,
+        6,
+        "success",
+        "m-verify",
+    )
     assert (second["label"], second["attempt"], second["iteration"]) == ("v2-lane-tests-2", 2, 2)
     assert (tmp_path / first["trajectory"]).is_file()
 
@@ -341,7 +446,16 @@ def test_a_lane_session_is_recorded_as_its_verification_round(tmp_path: Path) ->
 def test_a_lane_whose_session_died_is_recorded_as_crashed(tmp_path: Path) -> None:
     from idea_to_mvp.implementation.ledger import load_ledger
 
-    asyncio.run(run_lane(tmp_path, "quality", make_settings(), budget_usd=1.0, emit=lambda e: None, query_fn=FakeLaneQuery(crash=True)))
+    asyncio.run(
+        run_lane(
+            tmp_path,
+            "quality",
+            make_settings(),
+            budget_usd=1.0,
+            emit=lambda e: None,
+            query_fn=FakeLaneQuery(crash=True),
+        )
+    )
     assert [r["outcome"] for r in load_ledger(tmp_path)] == ["crashed"]
 
 
@@ -350,9 +464,24 @@ def test_a_fix_session_is_recorded_with_its_attempt_and_model(tmp_path: Path) ->
 
     settings = make_settings(implementer_model="m-task", escalation_model="m-hard")
     for attempt in (1, 2):
-        asyncio.run(run_fix(tmp_path, ["x"], settings, budget_usd=1.0, emit=lambda e: None, query_fn=FakeLaneQuery(text="ok"), attempt=attempt))
+        asyncio.run(
+            run_fix(
+                tmp_path,
+                ["x"],
+                settings,
+                budget_usd=1.0,
+                emit=lambda e: None,
+                query_fn=FakeLaneQuery(text="ok"),
+                attempt=attempt,
+            )
+        )
     first, second = load_ledger(tmp_path)
-    assert (first["kind"], first["label"], first["attempt"], first["model"]) == ("fix", "fix-1", 1, "m-task")
+    assert (first["kind"], first["label"], first["attempt"], first["model"]) == (
+        "fix",
+        "fix-1",
+        1,
+        "m-task",
+    )
     assert (second["label"], second["attempt"], second["model"]) == ("fix-2", 2, "m-hard")
 
 
@@ -363,7 +492,12 @@ def test_demo_lanes_and_fixes_are_recorded_too(tmp_path: Path) -> None:
     for lane in LANES:
         asyncio.run(run_lane(tmp_path, lane, settings, budget_usd=1.0, emit=lambda e: None))
     asyncio.run(run_fix(tmp_path, ["x"], settings, budget_usd=1.0, emit=lambda e: None))
-    assert [r["label"] for r in load_ledger(tmp_path)] == ["lane-tests-1", "lane-quality-1", "lane-requirements-1", "fix-1"]
+    assert [r["label"] for r in load_ledger(tmp_path)] == [
+        "lane-tests-1",
+        "lane-quality-1",
+        "lane-requirements-1",
+        "fix-1",
+    ]
 
 
 # ------------------------------------------------------------ deterministic test evidence
@@ -392,63 +526,100 @@ class ReportWritingQuery(FakeLaneQuery):
 def evidence_plan(workspace: Path, test_report: str | None = REPORT_COMMAND) -> None:
     from idea_to_mvp.plan import ProjectCommands
 
-    commands = ProjectCommands(install=None, test="pytest", lint=None, run=None, test_report=test_report)
+    commands = ProjectCommands(
+        install=None, test="pytest", lint=None, run=None, test_report=test_report
+    )
     (workspace / "plan.json").write_text(make_plan(commands=commands).model_dump_json())
 
 
 def test_the_agent_cannot_hand_in_its_own_evidence() -> None:
     forged = report("tests").model_dump() | {"evidence": {"tests": 99, "passed": 99}}
     assert parse_lane_report("tests", forged, "").evidence is None
-    assert "evidence" not in LaneReport.model_json_schema()["properties"]  # and it is never asked for
+    assert (
+        "evidence" not in LaneReport.model_json_schema()["properties"]
+    )  # and it is never asked for
 
 
 def test_the_tests_lane_prompt_names_the_report_command_and_forbids_a_hand_written_report() -> None:
     prompt = build_lane_prompt("tests", make_plan(commands=_commands_with(REPORT_COMMAND)), PRD)
     assert REPORT_COMMAND in prompt and ".idea-to-mvp/reports" in prompt and "by hand" in prompt
     assert ".idea-to-mvp/reports" not in build_lane_prompt("tests", make_plan(), PRD)
-    assert REPORT_COMMAND not in build_lane_prompt("quality", make_plan(commands=_commands_with(REPORT_COMMAND)), PRD)
+    assert REPORT_COMMAND not in build_lane_prompt(
+        "quality", make_plan(commands=_commands_with(REPORT_COMMAND)), PRD
+    )
 
 
-def test_with_a_check_script_the_tests_lane_runs_its_install_and_test_steps_and_the_quality_lane_its_lint() -> None:
+def test_with_a_check_script_the_tests_lane_runs_its_install_and_test_steps_and_the_quality_lane_its_lint() -> (
+    None
+):
     plan = make_plan(commands=_commands_with(REPORT_COMMAND))
     tests = build_lane_prompt("tests", plan, PRD, check_script=True)
-    assert "`bash scripts/check.sh install test`" in tests and REPORT_COMMAND in tests and "by hand" in tests
+    assert (
+        "`bash scripts/check.sh install test`" in tests
+        and REPORT_COMMAND in tests
+        and "by hand" in tests
+    )
     quality = build_lane_prompt("quality", plan, PRD, check_script=True)
     assert "`bash scripts/check.sh lint`" in quality and "install test" not in quality
-    assert "scripts/check.sh" not in build_lane_prompt("tests", plan, PRD)  # a project from an older pack has none
+    assert "scripts/check.sh" not in build_lane_prompt(
+        "tests", plan, PRD
+    )  # a project from an older pack has none
 
 
-def test_a_lane_session_is_told_about_the_check_script_only_when_the_workspace_has_one(tmp_path: Path) -> None:
+def test_a_lane_session_is_told_about_the_check_script_only_when_the_workspace_has_one(
+    tmp_path: Path,
+) -> None:
     query = FakeLaneQuery(structured=report("tests").model_dump())
     run_one("tests", query, tmp_path)
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "check.sh").write_text("#!/usr/bin/env bash\n")
     run_one("tests", query, tmp_path)
-    assert "scripts/check.sh" not in query.calls[0][0] and "bash scripts/check.sh install test" in query.calls[1][0]
+    assert (
+        "scripts/check.sh" not in query.calls[0][0]
+        and "bash scripts/check.sh install test" in query.calls[1][0]
+    )
 
 
 def _commands_with(test_report: str | None) -> Any:
     from idea_to_mvp.plan import ProjectCommands
 
-    return ProjectCommands(install="pip install -e .", test="pytest", lint=None, run=None, test_report=test_report)
+    return ProjectCommands(
+        install="pip install -e .", test="pytest", lint=None, run=None, test_report=test_report
+    )
 
 
 def test_a_green_report_confirms_the_lane_and_records_the_counts(tmp_path: Path) -> None:
     evidence_plan(tmp_path)
-    outcome, _ = run_one("tests", ReportWritingQuery(tmp_path, GREEN_XML, structured=report("tests").model_dump()), tmp_path)
+    outcome, _ = run_one(
+        "tests",
+        ReportWritingQuery(tmp_path, GREEN_XML, structured=report("tests").model_dump()),
+        tmp_path,
+    )
     assert outcome.report.passed is True
-    assert outcome.report.evidence is not None and outcome.report.evidence["tests"] == 2 and outcome.report.evidence["passed"] == 2
+    assert (
+        outcome.report.evidence is not None
+        and outcome.report.evidence["tests"] == 2
+        and outcome.report.evidence["passed"] == 2
+    )
 
 
 def test_a_red_report_overrides_the_lanes_claim_to_pass(tmp_path: Path) -> None:
     evidence_plan(tmp_path)
-    outcome, _ = run_one("tests", ReportWritingQuery(tmp_path, RED_XML, structured=report("tests").model_dump()), tmp_path)
+    outcome, _ = run_one(
+        "tests",
+        ReportWritingQuery(tmp_path, RED_XML, structured=report("tests").model_dump()),
+        tmp_path,
+    )
     assert outcome.report.passed is False and "t::b: boom" in outcome.report.failures[0]
 
 
 def test_no_report_means_no_pass_even_if_the_agent_says_so(tmp_path: Path) -> None:
     evidence_plan(tmp_path)
-    outcome, _ = run_one("tests", ReportWritingQuery(tmp_path, None, structured=report("tests").model_dump()), tmp_path)
+    outcome, _ = run_one(
+        "tests",
+        ReportWritingQuery(tmp_path, None, structured=report("tests").model_dump()),
+        tmp_path,
+    )
     assert outcome.report.passed is False and "no JUnit report" in outcome.report.failures[0]
 
 
@@ -457,14 +628,22 @@ def test_a_report_left_by_an_earlier_round_does_not_count(tmp_path: Path) -> Non
     stale = tmp_path / ".idea-to-mvp" / "reports"
     stale.mkdir(parents=True)
     (stale / "junit.xml").write_text(GREEN_XML)
-    outcome, _ = run_one("tests", ReportWritingQuery(tmp_path, None, structured=report("tests").model_dump()), tmp_path)
+    outcome, _ = run_one(
+        "tests",
+        ReportWritingQuery(tmp_path, None, structured=report("tests").model_dump()),
+        tmp_path,
+    )
     assert outcome.report.passed is False and "no JUnit report" in outcome.report.failures[0]
 
 
-def test_a_plan_without_a_report_command_keeps_the_agents_verdict_with_a_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_a_plan_without_a_report_command_keeps_the_agents_verdict_with_a_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     evidence_plan(tmp_path, test_report=None)
     with caplog.at_level("WARNING"):
-        outcome, _ = run_one("tests", FakeLaneQuery(structured=report("tests").model_dump()), tmp_path)
+        outcome, _ = run_one(
+            "tests", FakeLaneQuery(structured=report("tests").model_dump()), tmp_path
+        )
     assert outcome.report.passed is True and outcome.report.evidence is None
     assert "no test report command" in caplog.text
     assert "Not backed by a test report" in outcome.report.summary
@@ -472,23 +651,40 @@ def test_a_plan_without_a_report_command_keeps_the_agents_verdict_with_a_warning
 
 def test_the_other_lanes_never_read_the_reports_folder(tmp_path: Path) -> None:
     evidence_plan(tmp_path)
-    outcome, _ = run_one("quality", FakeLaneQuery(structured=report("quality").model_dump()), tmp_path)
+    outcome, _ = run_one(
+        "quality", FakeLaneQuery(structured=report("quality").model_dump()), tmp_path
+    )
     assert outcome.report.passed is True and outcome.report.evidence is None
 
 
-def test_the_demo_tests_lane_reports_real_counts_from_the_demo_projects_junit_file(tmp_path: Path) -> None:
+def test_the_demo_tests_lane_reports_real_counts_from_the_demo_projects_junit_file(
+    tmp_path: Path,
+) -> None:
     from idea_to_mvp.demo.implementer import DEMO_TEST_REPORT_COMMAND, demo_implement
 
     demo_implement(tmp_path, {"workstreams": []})
     (tmp_path / "PRD.md").write_text(PRD)
     from idea_to_mvp.plan import ProjectCommands
 
-    commands = ProjectCommands(install=None, test="python -m unittest", lint=None, run=None, test_report=DEMO_TEST_REPORT_COMMAND)
+    commands = ProjectCommands(
+        install=None,
+        test="python -m unittest",
+        lint=None,
+        run=None,
+        test_report=DEMO_TEST_REPORT_COMMAND,
+    )
     (tmp_path / "plan.json").write_text(make_plan(commands=commands).model_dump_json())
-    outcome = asyncio.run(run_lane(tmp_path, "tests", make_settings(demo_mode=True), budget_usd=1.0, emit=lambda e: None))
+    outcome = asyncio.run(
+        run_lane(
+            tmp_path, "tests", make_settings(demo_mode=True), budget_usd=1.0, emit=lambda e: None
+        )
+    )
     assert outcome.report.passed is True
-    assert outcome.report.evidence is not None and outcome.report.evidence["tests"] == 3 and outcome.report.evidence["failed"] == 0
-
+    assert (
+        outcome.report.evidence is not None
+        and outcome.report.evidence["tests"] == 3
+        and outcome.report.evidence["failed"] == 0
+    )
 
 
 def test_the_fix_session_reports_what_it_did_to_the_tests(tmp_path: Path) -> None:
@@ -502,7 +698,16 @@ def test_the_fix_session_reports_what_it_did_to_the_tests(tmp_path: Path) -> Non
                 yield message
 
     outcome = asyncio.run(
-        run_fix(tmp_path, ["x"], make_settings(), budget_usd=1.0, emit=lambda e: None, query_fn=DeletingQuery(text="ok"), attempt=2, iteration=3)
+        run_fix(
+            tmp_path,
+            ["x"],
+            make_settings(),
+            budget_usd=1.0,
+            emit=lambda e: None,
+            query_fn=DeletingQuery(text="ok"),
+            attempt=2,
+            iteration=3,
+        )
     )
     [finding] = outcome.integrity
     assert (finding["session"], finding["iteration"], finding["kind"]) == ("v3-fix-2", 3, "deleted")
@@ -513,7 +718,11 @@ def test_the_fix_session_reports_what_it_did_to_the_tests(tmp_path: Path) -> Non
 
 def test_the_fix_prompt_asks_for_notes_and_allows_an_environment_answer() -> None:
     prompt = build_fix_prompt(["[tests] test_a failed"])
-    assert "<notes>" in prompt and "verdict -> hypothesis -> evidence" in prompt and "<environment>" in prompt
+    assert (
+        "<notes>" in prompt
+        and "verdict -> hypothesis -> evidence" in prompt
+        and "<environment>" in prompt
+    )
     assert "Earlier fix attempts" not in prompt  # the first attempt has nothing to read
 
 
@@ -523,14 +732,20 @@ def test_a_later_attempt_is_pointed_at_the_folders_of_the_earlier_ones(tmp_path:
     fixes.write_attempt(tmp_path, iteration=1, attempt=1, failures=["x"], diff="", trajectory=None)
     prompt = build_fix_prompt(["[tests] test_a failed"], workspace=tmp_path, attempt=2)
     assert ".idea-to-mvp/fix/attempt-1/" in prompt and "diff.patch" in prompt
-    assert "[tests] test_a failed" in prompt  # the failures are still listed, the history is not pasted
+    assert (
+        "[tests] test_a failed" in prompt
+    )  # the failures are still listed, the history is not pasted
     assert "Earlier fix attempts" not in build_fix_prompt(["x"], workspace=tmp_path, attempt=1)
 
 
 def test_failures_the_environment_causes_are_set_apart_in_the_fix_prompt() -> None:
-    prompt = build_fix_prompt(["[tests] test_a failed", "[quality] ENVIRONMENT: pypi.org is blocked"])
+    prompt = build_fix_prompt(
+        ["[tests] test_a failed", "[quality] ENVIRONMENT: pypi.org is blocked"]
+    )
     assert "cannot be fixed by changing the project" in prompt and "pypi.org is blocked" in prompt
-    assert "cannot be fixed by changing the project" not in build_fix_prompt(["[tests] test_a failed"])
+    assert "cannot be fixed by changing the project" not in build_fix_prompt(
+        ["[tests] test_a failed"]
+    )
 
 
 def test_every_lane_may_mark_a_failure_the_project_cannot_fix() -> None:
@@ -540,18 +755,46 @@ def test_every_lane_may_mark_a_failure_the_project_cannot_fix() -> None:
 
 def test_the_fix_outcome_carries_its_notes_its_trajectory_and_its_kind(tmp_path: Path) -> None:
     text = "Changed the parser.\n<notes>\nnew -> the parser drops the year -> report: test_leap fails\n</notes>"
-    outcome = asyncio.run(run_fix(tmp_path, ["x"], make_settings(), budget_usd=1.0, emit=lambda e: None, query_fn=FakeLaneQuery(text=text)))
+    outcome = asyncio.run(
+        run_fix(
+            tmp_path,
+            ["x"],
+            make_settings(),
+            budget_usd=1.0,
+            emit=lambda e: None,
+            query_fn=FakeLaneQuery(text=text),
+        )
+    )
     assert outcome.kind == "code" and outcome.environment == ""
-    assert [(n.verdict, n.hypothesis) for n in outcome.notes] == [("new", "the parser drops the year")]
+    assert [(n.verdict, n.hypothesis) for n in outcome.notes] == [
+        ("new", "the parser drops the year")
+    ]
     assert outcome.trajectory == ".idea-to-mvp/trajectories/fix-1.md"
 
 
-def test_a_fix_session_that_reports_an_environment_problem_ends_as_an_environment_outcome(tmp_path: Path) -> None:
+def test_a_fix_session_that_reports_an_environment_problem_ends_as_an_environment_outcome(
+    tmp_path: Path,
+) -> None:
     text = "<environment>The sandbox has no docker, so the integration tests cannot start.</environment>"
-    outcome = asyncio.run(run_fix(tmp_path, ["x"], make_settings(), budget_usd=1.0, emit=lambda e: None, query_fn=FakeLaneQuery(text=text)))
-    assert outcome.kind == "environment" and "no docker" in outcome.environment and outcome.success is True
+    outcome = asyncio.run(
+        run_fix(
+            tmp_path,
+            ["x"],
+            make_settings(),
+            budget_usd=1.0,
+            emit=lambda e: None,
+            query_fn=FakeLaneQuery(text=text),
+        )
+    )
+    assert (
+        outcome.kind == "environment"
+        and "no docker" in outcome.environment
+        and outcome.success is True
+    )
 
 
 def test_the_demo_fix_session_still_answers_with_notes(tmp_path: Path) -> None:
-    outcome = asyncio.run(run_fix(tmp_path, ["x"], make_settings(demo_mode=True), budget_usd=1.0, emit=lambda e: None))
+    outcome = asyncio.run(
+        run_fix(tmp_path, ["x"], make_settings(demo_mode=True), budget_usd=1.0, emit=lambda e: None)
+    )
     assert outcome.kind == "code" and outcome.notes and outcome.notes[0].verdict == "new"

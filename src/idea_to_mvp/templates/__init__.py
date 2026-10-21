@@ -40,7 +40,15 @@ _SPEC_FILE = "template.toml"
 _FILES_DIR = "files"
 _RENAMED = {"gitignore": ".gitignore"}
 _NAME_TOKEN = "{{name}}"
-_JUNK = {"__pycache__", ".ruff_cache", ".pytest_cache", ".mypy_cache", ".venv", "node_modules", ".DS_Store"}  # a tool run in the tree
+_JUNK = {
+    "__pycache__",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".venv",
+    "node_modules",
+    ".DS_Store",
+}  # a tool run in the tree
 _PACK_TIMESTAMP = re.compile(r"^\d{8}-\d{6}-\d{6}-")  # the blueprint folder's `<timestamp>-` prefix
 STRATEGY_FILE = "STRATEGY.json"  # the pack file that records the choice
 
@@ -51,7 +59,9 @@ class Template:
     title: str
     description: str
     use_when: str  # when the strategy step should pick it
-    toolchain: tuple[str, ...]  # executables the template's commands need on the machine (`node`, `python3`, ...)
+    toolchain: tuple[
+        str, ...
+    ]  # executables the template's commands need on the machine (`node`, `python3`, ...)
     notes: tuple[str, ...]  # how the scaffold is laid out, for the plan writer
     commands: ProjectCommands
     root: Path  # the folder with the scaffold files
@@ -81,7 +91,11 @@ def _load(folder: Path) -> Template:
 @lru_cache(maxsize=1)
 def load_templates() -> dict[str, Template]:
     """Every template, by name."""
-    found = [_load(folder) for folder in sorted(TEMPLATES_DIR.iterdir()) if (folder / _SPEC_FILE).is_file()]
+    found = [
+        _load(folder)
+        for folder in sorted(TEMPLATES_DIR.iterdir())
+        if (folder / _SPEC_FILE).is_file()
+    ]
     return {template.name: template for template in found}
 
 
@@ -146,7 +160,9 @@ def apply_template(template: Template, workspace: Path, name: str | None = None)
     for relative, text in template_files(template, name or project_name(workspace.name)).items():
         target = workspace / relative
         if relative == ".gitignore" and target.is_file() and not target.is_symlink():
-            target.write_text(_merged_gitignore(target.read_text(encoding="utf-8"), text), encoding="utf-8")
+            target.write_text(
+                _merged_gitignore(target.read_text(encoding="utf-8"), text), encoding="utf-8"
+            )
             written.append(relative)
             continue
         if not _writable(workspace, relative):
@@ -163,14 +179,19 @@ def pack_template(bundle_dir: Path) -> Template | None:
     """The template a blueprint pack asks for (from its `STRATEGY.json`); None when it records none, or a
     template this version does not have."""
     try:
-        recorded = json.loads((Path(bundle_dir) / STRATEGY_FILE).read_text(encoding="utf-8")).get("template")
+        recorded = json.loads((Path(bundle_dir) / STRATEGY_FILE).read_text(encoding="utf-8")).get(
+            "template"
+        )
     except (OSError, ValueError, AttributeError):
         return None
     if not recorded or str(recorded).strip().lower() == NONE:
         return None
     template = get_template(str(recorded))
     if template is None:
-        LOGGER.warning("The pack asks for the starter template %r, which this version does not have; skipped.", recorded)
+        LOGGER.warning(
+            "The pack asks for the starter template %r, which this version does not have; skipped.",
+            recorded,
+        )
     return template
 
 
@@ -179,8 +200,16 @@ def pack_template(bundle_dir: Path) -> Template | None:
 
 def catalog_text() -> str:
     """The templates the strategy step may pick from, one bullet each."""
-    lines = [f"- `{t.name}` ({t.title}): {t.description} Pick it when: {t.use_when}" for t in load_templates().values()]
-    return "\n".join(lines + [f"- `{NONE}`: nothing above fits the chosen architecture's stack (or the user's preferences)."])
+    lines = [
+        f"- `{t.name}` ({t.title}): {t.description} Pick it when: {t.use_when}"
+        for t in load_templates().values()
+    ]
+    return "\n".join(
+        lines
+        + [
+            f"- `{NONE}`: nothing above fits the chosen architecture's stack (or the user's preferences)."
+        ]
+    )
 
 
 def prompt_block(name: str | None) -> str:
@@ -225,6 +254,8 @@ def with_template_commands(plan: Plan, name: str | None) -> Plan:
 # ------------------------------------------------------------------ toolchain
 
 
-def missing_tools(template: Template, which: Callable[[str], str | None] = shutil.which) -> list[str]:
+def missing_tools(
+    template: Template, which: Callable[[str], str | None] = shutil.which
+) -> list[str]:
     """The executables the template needs that are not on the PATH."""
     return [tool for tool in template.toolchain if which(tool) is None]

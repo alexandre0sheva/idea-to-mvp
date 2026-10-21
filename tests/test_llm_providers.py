@@ -44,8 +44,14 @@ def test_every_provider_gets_the_configured_timeout_and_retries() -> None:
     from idea_to_mvp.config import Settings
     from idea_to_mvp.llm.providers import build_llm
 
-    settings = Settings(_env_file=None, llm_timeout_seconds=45, llm_max_retries=4, openai_api_key="x",
-                        anthropic_api_key="x", google_api_key="x")
+    settings = Settings(
+        _env_file=None,
+        llm_timeout_seconds=45,
+        llm_max_retries=4,
+        openai_api_key="x",
+        anthropic_api_key="x",
+        google_api_key="x",
+    )
     openai = build_llm("openai", "gpt-6.1-sol", 100, settings)
     anthropic = build_llm("anthropic", "claude-sonnet-5-5", 100, settings)
     google = build_llm("google", "gemini-3.8-flash", 100, settings)

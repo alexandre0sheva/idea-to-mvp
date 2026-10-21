@@ -71,7 +71,9 @@ class Settings(BaseSettings):
     tech_lead_model: str = "claude-sonnet-5-5"
     skeptic_model: str = "gemini-3.8-flash"
     summarizer_model: str = "claude-sonnet-5-5"
-    architect_model: str = "claude-opus-5-5"  # also strategy, plan writer, change planner, blueprint critic
+    architect_model: str = (
+        "claude-opus-5-5"  # also strategy, plan writer, change planner, blueprint critic
+    )
     moderator_model: str = "claude-haiku-5-5"  # a cheap call after every panel turn
     # The optional research step (off by default) needs a provider with a native web-search tool: the
     # provider's own tool is used (Anthropic web search, OpenAI web search, Gemini Google Search grounding).
@@ -89,7 +91,9 @@ class Settings(BaseSettings):
     skeptic_max_tokens: int = 1200
     summary_max_tokens: int = 2000
     plan_max_tokens: int = 6000  # the structured plan is far longer than one prose document
-    acceptance_max_tokens: int = 8000  # the held-out acceptance suite: several test files in one structured answer
+    acceptance_max_tokens: int = (
+        8000  # the held-out acceptance suite: several test files in one structured answer
+    )
     default_rounds: int = 3
     # Extra passes the blueprint critic may trigger: blocker-flagged documents are regenerated with the
     # issues appended. 0 = review and report only.
@@ -125,7 +129,9 @@ class Settings(BaseSettings):
     # name of the per-task cap and still works.
     implementer_max_total_usd: float = Field(default=25.0, gt=0)
     implementer_max_task_usd: float = Field(
-        default=5.0, gt=0, validation_alias=AliasChoices("IMPLEMENTER_MAX_TASK_USD", "IMPLEMENTER_MAX_BUDGET_USD")
+        default=5.0,
+        gt=0,
+        validation_alias=AliasChoices("IMPLEMENTER_MAX_TASK_USD", "IMPLEMENTER_MAX_BUDGET_USD"),
     )
     implementer_max_task_turns: int = Field(default=40, gt=0)
     # Independent plan tasks run concurrently, each in its own git worktree and merged back afterwards.
@@ -180,12 +186,20 @@ class Settings(BaseSettings):
     @property
     def acceptance_enabled(self) -> bool:
         """Whether versions get a held-out acceptance suite (ACCEPTANCE_TESTS, else on outside demo mode)."""
-        return self.acceptance_tests == "on" if self.acceptance_tests is not None else not self.demo_mode
+        return (
+            self.acceptance_tests == "on"
+            if self.acceptance_tests is not None
+            else not self.demo_mode
+        )
 
     @property
     def library_enabled(self) -> bool:
         """Whether runs read and write the experience library (EXPERIENCE_LIBRARY, else on outside demo mode)."""
-        return self.experience_library == "on" if self.experience_library is not None else not self.demo_mode
+        return (
+            self.experience_library == "on"
+            if self.experience_library is not None
+            else not self.demo_mode
+        )
 
     @property
     def checkpoint_path(self) -> Path:

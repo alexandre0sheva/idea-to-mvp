@@ -43,7 +43,8 @@ LOGGER = logging.getLogger(__name__)
 
 # Names that look like secrets. Variables for the agent's own Anthropic access are kept.
 _SECRET_NAME = re.compile(
-    r"(_API_KEY|_TOKEN|_SECRET|_SECRET_KEY|_ACCESS_KEY|_PASSWORD|_PASSWD|_CREDENTIALS?)$", re.IGNORECASE
+    r"(_API_KEY|_TOKEN|_SECRET|_SECRET_KEY|_ACCESS_KEY|_PASSWORD|_PASSWD|_CREDENTIALS?)$",
+    re.IGNORECASE,
 )
 _KEEP_PREFIXES = ("ANTHROPIC_", "CLAUDE_")
 # Credentials the pattern does not catch by name (`GITHUB_TOKEN` and `GH_TOKEN`, which publishing uses, end in _TOKEN).
@@ -110,11 +111,16 @@ def _resolve_sandbox(settings: Settings) -> tuple[bool, str]:
 def sandbox_status(settings: Settings) -> SandboxStatus:
     """What to tell the user at the implement gate; never claims more than is true."""
     if settings.demo_mode:
-        return SandboxStatus(False, "demo mode (no real agents run, so nothing is executed or sandboxed)")
+        return SandboxStatus(
+            False, "demo mode (no real agents run, so nothing is executed or sandboxed)"
+        )
     try:
         enabled, reason = _resolve_sandbox(settings)
     except SandboxUnavailableError:
-        return SandboxStatus(False, "required (IMPLEMENTER_SANDBOX=on) but not supported here; the run will be refused")
+        return SandboxStatus(
+            False,
+            "required (IMPLEMENTER_SANDBOX=on) but not supported here; the run will be refused",
+        )
     if enabled:
         domains = ", ".join(settings.implementer_allowed_domains) or "no network hosts"
         return SandboxStatus(
@@ -123,7 +129,10 @@ def sandbox_status(settings: Settings) -> SandboxStatus:
             f"credentials, and can reach only {domains}",
         )
     if settings.implementer_sandbox == "off":
-        return SandboxStatus(False, "OFF (IMPLEMENTER_SANDBOX=off): shell commands run with your full user permissions")
+        return SandboxStatus(
+            False,
+            "OFF (IMPLEMENTER_SANDBOX=off): shell commands run with your full user permissions",
+        )
     return SandboxStatus(
         False,
         "not supported on this platform, so shell commands run with your full user permissions "
@@ -140,7 +149,8 @@ def scrubbed_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     return {
         name: ""
         for name in environ
-        if (_SECRET_NAME.search(name) or name.upper() in _SECRET_NAMES) and not name.upper().startswith(_KEEP_PREFIXES)
+        if (_SECRET_NAME.search(name) or name.upper() in _SECRET_NAMES)
+        and not name.upper().startswith(_KEEP_PREFIXES)
     }
 
 
@@ -153,7 +163,9 @@ def _sandbox_settings(settings: Settings) -> SandboxSettings:
         "autoAllowBashIfSandboxed": True,
         "allowUnsandboxedCommands": False,
         "network": {"allowedDomains": list(settings.implementer_allowed_domains)},
-        "filesystem": {"denyRead": deny_read},  # writes are already limited to the working directory
+        "filesystem": {
+            "denyRead": deny_read
+        },  # writes are already limited to the working directory
     }
     return cast("SandboxSettings", sandbox)
 
@@ -199,7 +211,9 @@ def build_agent_options(
         model=resolve_agent_model(settings, role),
         permission_mode=settings.implementer_permission_mode,
         max_turns=max_turns,
-        max_budget_usd=settings.implementer_max_task_usd if max_budget_usd is None else max_budget_usd,
+        max_budget_usd=settings.implementer_max_task_usd
+        if max_budget_usd is None
+        else max_budget_usd,
         agents=agents or None,
         setting_sources=["project"] if project_harness else [],
         skills="all" if project_harness else None,
@@ -207,5 +221,9 @@ def build_agent_options(
         output_format={"type": "json_schema", "schema": output_schema} if output_schema else None,
         env=scrubbed_env(),
         sandbox=_sandbox_settings(settings) if enabled else None,
-        hooks={"PreToolUse": [HookMatcher(matcher=GUARDED_TOOLS, hooks=[bind_workspace(Path(workspace))])]},
+        hooks={
+            "PreToolUse": [
+                HookMatcher(matcher=GUARDED_TOOLS, hooks=[bind_workspace(Path(workspace))])
+            ]
+        },
     )

@@ -43,7 +43,10 @@ EditKind = Literal["inv", "dom"]
 Decision = Literal["keep_base", "adopt_inv", "adopt_dom", "merge"]
 ARMS: tuple[Arm, ...] = ("base", "inv", "dom")
 EDIT_KINDS: tuple[EditKind, ...] = ("inv", "dom")
-KIND_TITLES: dict[EditKind, str] = {"inv": "INV (how the agent works)", "dom": "DOM (what a practitioner of this stack knows)"}
+KIND_TITLES: dict[EditKind, str] = {
+    "inv": "INV (how the agent works)",
+    "dom": "DOM (what a practitioner of this stack knows)",
+}
 KIND_SCOPE: dict[EditKind, str] = {
     "inv": "workflow order, which tool to use for what, a helper script under `scripts/` for steps the agent kept doing "
     "by hand, when to stop",
@@ -53,7 +56,10 @@ KIND_SCOPE: dict[EditKind, str] = {
 
 MAX_EDIT_FILES = 4
 MAX_EDIT_FILE_CHARS = 20_000
-PROTECTED_PATHS = (CHECK_SCRIPT, SETTINGS_PATH)  # the verdict's script and the fixed settings are the orchestrator's
+PROTECTED_PATHS = (
+    CHECK_SCRIPT,
+    SETTINGS_PATH,
+)  # the verdict's script and the fixed settings are the orchestrator's
 # Three rollouts and up to three quick tests lanes share at most this part of the whole-run budget, in equal shares.
 TUNING_SHARE = 0.5
 TUNING_SESSIONS = 6
@@ -114,7 +120,9 @@ class ProbeResult(TypedDict):
     changed: str  # `git diff --stat` of that commit
     tests: TestsResult
     trajectory: str  # the rollout's trajectory, relative to the workspace
-    integrity: NotRequired[list[dict[str, Any]]]  # what the session did to the tests (`integrity.IntegrityFinding` dumps)
+    integrity: NotRequired[
+        list[dict[str, Any]]
+    ]  # what the session did to the tests (`integrity.IntegrityFinding` dumps)
 
 
 # ------------------------------------------------------------------ the pilot
@@ -147,14 +155,24 @@ def pick_pilot(plan: Plan, done: Sequence[str] = ()) -> PlanTask | None:
         return seen
 
     order = {task.id: index for index, task in enumerate(plan.tasks)}
-    best = max(first, key=lambda task_id: (len(reach(task_id)), len(direct.get(task_id, ())), -order.get(task_id, 0)))
+    best = max(
+        first,
+        key=lambda task_id: (
+            len(reach(task_id)),
+            len(direct.get(task_id, ())),
+            -order.get(task_id, 0),
+        ),
+    )
     return next(task for task in plan.tasks if task.id == best)
 
 
 def session_budget(settings: Settings) -> float:
     """What one tuning session (a rollout or its tests lane) may spend: an equal share of the tuning's part of the
     whole-run budget, never more than a task may spend."""
-    return min(settings.implementer_max_task_usd, settings.implementer_max_total_usd * TUNING_SHARE / TUNING_SESSIONS)
+    return min(
+        settings.implementer_max_task_usd,
+        settings.implementer_max_total_usd * TUNING_SHARE / TUNING_SESSIONS,
+    )
 
 
 # ------------------------------------------------------------------ edits
@@ -204,7 +222,11 @@ def edit_problems(base: Mapping[str, str], files: Sequence[HarnessFile]) -> list
     problems += [problem for problem in validate_harness(edited) if problem not in known]
     rules = _guardrail_rules(edited)
     if section_text(base.get(AGENTS_MD, ""), "guardrails") is not None:
-        problems += [f"the guardrails lost the rule: {rule}" for rule in BASE_GUARDRAILS if " ".join(rule.split()) not in rules]
+        problems += [
+            f"the guardrails lost the rule: {rule}"
+            for rule in BASE_GUARDRAILS
+            if " ".join(rule.split()) not in rules
+        ]
     return problems
 
 
@@ -280,7 +302,12 @@ def probe_lines(probe: ProbeResult) -> str:
 
 
 def proposal_prompt(
-    kind: EditKind, task: PlanTask, base_files: Mapping[str, str], base: ProbeResult, trajectory: str, reference: str = ""
+    kind: EditKind,
+    task: PlanTask,
+    base_files: Mapping[str, str],
+    base: ProbeResult,
+    trajectory: str,
+    reference: str = "",
 ) -> str:
     """`reference` is the experience library's index (`library.reference_block`): what earlier projects of the stack
     learned, as data to re-verify against this trajectory."""
@@ -306,7 +333,9 @@ def repair_prompt(problems: Sequence[str], answer_json: str) -> str:
     )
 
 
-def _edit_section(kind: EditKind, candidate: Mapping[str, Any], base_files: Mapping[str, str]) -> str:
+def _edit_section(
+    kind: EditKind, candidate: Mapping[str, Any], base_files: Mapping[str, str]
+) -> str:
     files = [HarnessFile.model_validate(item) for item in candidate.get("files") or []]
     if candidate.get("inherited"):
         problems = "; ".join(str(problem) for problem in candidate.get("problems") or [])
@@ -314,7 +343,9 @@ def _edit_section(kind: EditKind, candidate: Mapping[str, Any], base_files: Mapp
     elif not files:
         body = "No edit: the editor found nothing in the base trajectory to change, so this run used the base harness."
     else:
-        evidence = "\n".join(f"- {item}" for item in candidate.get("evidence") or []) or "- (none given)"
+        evidence = (
+            "\n".join(f"- {item}" for item in candidate.get("evidence") or []) or "- (none given)"
+        )
         body = (
             f"Summary: {candidate.get('summary') or '(none)'}\n"
             f"Evidence the editor gave:\n{evidence}\n"
@@ -339,9 +370,13 @@ def compose_prompt(
             f"Trajectory (`{probe['trajectory'] or 'not recorded'}`):\n"
             f"{fenced(excerpt(trajectories.get(arm, ''), COMPOSE_TRAJECTORY_CHARS) or '(empty)')}"
         )
-    edits = "\n\n".join(_edit_section(kind, candidates.get(kind) or {}, base_files) for kind in EDIT_KINDS)
+    edits = "\n\n".join(
+        _edit_section(kind, candidates.get(kind) or {}, base_files) for kind in EDIT_KINDS
+    )
     return (
-        f"## The pilot task\n{task_brief(task)}\n\n{edits}\n\n## The three runs\n\n" + "\n\n".join(runs) + "\n\n"
+        f"## The pilot task\n{task_brief(task)}\n\n{edits}\n\n## The three runs\n\n"
+        + "\n\n".join(runs)
+        + "\n\n"
         "Decide now: keep_base, adopt_inv, adopt_dom, or merge."
     )
 
@@ -352,7 +387,11 @@ def compose_prompt(
 def unsafe_choice(decision: Decision, probes: Mapping[str, ProbeResult]) -> str:
     """Why `decision` may not stand: it adopts an edit whose run delivered nothing while the base run delivered.
     '' when it may."""
-    used: list[EditKind] = {"adopt_inv": ["inv"], "adopt_dom": ["dom"], "merge": ["inv", "dom"]}.get(decision, [])  # type: ignore[assignment]
+    used: list[EditKind] = {
+        "adopt_inv": ["inv"],
+        "adopt_dom": ["dom"],
+        "merge": ["inv", "dom"],
+    }.get(decision, [])  # type: ignore[assignment]
     empty = [kind for kind in used if not probes[kind]["delivered"]]
     if empty and probes["base"]["delivered"]:
         names = " and ".join(kind.upper() for kind in empty)
@@ -368,7 +407,10 @@ def adopted_changes(
         return list(composed)
     if decision in ("adopt_inv", "adopt_dom"):
         kind = decision.removeprefix("adopt_")
-        return [HarnessFile.model_validate(item) for item in (candidates.get(kind) or {}).get("files") or []]
+        return [
+            HarnessFile.model_validate(item)
+            for item in (candidates.get(kind) or {}).get("files") or []
+        ]
     return []
 
 
@@ -379,7 +421,12 @@ def tuning_identity(rows: Sequence[LedgerRow], delivered: int, selections: int =
     """Whether the ledger holds exactly what one tuning makes: three rollouts, a quick tests lane for each one that
     delivered, two proposals, one composition, and the selection call when one was made. [] when it does."""
     counts: Counter[str] = Counter(str(row["kind"]) for row in rows)
-    expected = {"pilot": EXPECTED_ROLLOUTS, "pilot_lane": delivered, **EXPECTED_CALLS, "select": selections}
+    expected = {
+        "pilot": EXPECTED_ROLLOUTS,
+        "pilot_lane": delivered,
+        **EXPECTED_CALLS,
+        "select": selections,
+    }
     return [
         f"the ledger has {counts.get(kind, 0)} {kind} row(s), expected {count}"
         for kind, count in expected.items()

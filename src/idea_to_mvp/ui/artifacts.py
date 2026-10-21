@@ -64,7 +64,9 @@ def read_workspace_file(workspace: str | Path, selection: Any) -> FileView:
         return FileView()
     try:
         if resolved.stat().st_size > MAX_VIEW_BYTES:
-            return FileView(note=f"That file is too large to show ({resolved.stat().st_size // 1000} KB).")
+            return FileView(
+                note=f"That file is too large to show ({resolved.stat().st_size // 1000} KB)."
+            )
         text = resolved.read_bytes().decode("utf-8")
     except UnicodeDecodeError:
         return FileView(note="That is a binary file.")
@@ -78,7 +80,9 @@ def blueprint_zip(bundle_dir: str | Path, dest_dir: Path) -> Path:
     return make_delivery_zip(Path(bundle_dir), dest_dir, label="blueprint")
 
 
-def artifact_key(workspace_dir: str, bundle_dir: str, delivery_zip: str) -> tuple[str, str, int, str]:
+def artifact_key(
+    workspace_dir: str, bundle_dir: str, delivery_zip: str
+) -> tuple[str, str, int, str]:
     """Identifies what the panel shows: it changes when the workspace, the delivery zip, or any blueprint file
     (the implement gate lets the user edit them) changes, and only then are the panel's widgets refreshed."""
     newest = 0
@@ -90,4 +94,3 @@ def artifact_key(workspace_dir: str, bundle_dir: str, delivery_zip: str) -> tupl
                 except OSError:
                     continue
     return (workspace_dir, bundle_dir, newest, delivery_zip)
-

@@ -17,9 +17,21 @@ from idea_to_mvp.ui.view import (
 
 # Positions in the tuple every SubmitService handler returns (see SubmitService._pack): the shared widgets,
 # then one visibility update per gate panel, then one update per gate widget (in `gate_layout` order).
-POS_STATUS, POS_CHAT, POS_INPUT, POS_ROUNDS, POS_BUTTON, POS_THREAD, POS_TRACKER, POS_SESSIONS, POS_EXAMPLES = range(9)
+(
+    POS_STATUS,
+    POS_CHAT,
+    POS_INPUT,
+    POS_ROUNDS,
+    POS_BUTTON,
+    POS_THREAD,
+    POS_TRACKER,
+    POS_SESSIONS,
+    POS_EXAMPLES,
+) = range(9)
 # The implementation view: tab selection, task board, live console, cost meter, and the artifacts panel.
-POS_TABS, POS_BOARD, POS_CONSOLE, POS_METER, POS_PATH, POS_DELIVERY, POS_BLUEPRINT, POS_EXPLORER = range(9, 17)
+POS_TABS, POS_BOARD, POS_CONSOLE, POS_METER, POS_PATH, POS_DELIVERY, POS_BLUEPRINT, POS_EXPLORER = (
+    range(9, 17)
+)
 POS_PANELS = POS_EXPLORER + 1
 POS_FIELDS = POS_PANELS + len(GATES)
 
@@ -43,9 +55,16 @@ def legacy_inputs(kind: str, text: str, decision: str, payload: dict[str, Any]) 
     """The form inputs for what older tests express as free text plus a decision label."""
     if kind == "answers":
         lines = [re.sub(r"^\s*\d+[.)]\s*", "", line) for line in text.splitlines() if line.strip()]
-        return {"action": "submit", **{f"answer_{i}": lines[i - 1] if i <= len(lines) else "" for i in range(1, 6)}}
+        return {
+            "action": "submit",
+            **{f"answer_{i}": lines[i - 1] if i <= len(lines) else "" for i in range(1, 6)},
+        }
     if kind == "arch_choice":
-        return {"action": "submit", "option": "B" if decision == ARCH_CHOICE_B else "A", "notes": text}
+        return {
+            "action": "submit",
+            "option": "B" if decision == ARCH_CHOICE_B else "A",
+            "notes": text,
+        }
     if kind == "plan_gate":
         return {"action": "generate" if decision == PLAN_CHOICE_GENERATE else "skip", "notes": text}
     if kind == "implement_gate":
@@ -57,7 +76,10 @@ def legacy_inputs(kind: str, text: str, decision: str, payload: dict[str, Any]) 
             "editor": read_blueprint_file(payload.get("bundle_dir", ""), "PRD.md"),
         }
     if kind == "iterate_gate":
-        return {"action": "iterate" if decision == ITERATE_CHOICE_CHANGES else "finish", "feedback": text}
+        return {
+            "action": "iterate" if decision == ITERATE_CHOICE_CHANGES else "finish",
+            "feedback": text,
+        }
     return {}
 
 
@@ -82,7 +104,13 @@ async def submit(
     return [
         output
         async for output in service.handle_submit(
-            text, rounds, thread, panel_mode, autopilot, gate_inputs=gate_inputs, preferences=preferences
+            text,
+            rounds,
+            thread,
+            panel_mode,
+            autopilot,
+            gate_inputs=gate_inputs,
+            preferences=preferences,
         )
     ]
 

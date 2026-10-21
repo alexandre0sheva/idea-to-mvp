@@ -99,17 +99,25 @@ def load_ideas(path: Path, ids: Sequence[str] | None = None) -> list[BenchIdea]:
         raise BenchError(f"cannot read the ideas file {path}: {exc}") from exc
     try:
         ideas = [
-            BenchIdea(str(item["id"]), str(item["idea"]), dict(ProjectPreferences(**item.get("preferences", {})).model_dump()))
+            BenchIdea(
+                str(item["id"]),
+                str(item["idea"]),
+                dict(ProjectPreferences(**item.get("preferences", {})).model_dump()),
+            )
             for item in raw
         ]
     except (KeyError, TypeError, ValidationError) as exc:
-        raise BenchError(f"{path} is not a list of {{id, idea, preferences}} objects: {exc}") from exc
+        raise BenchError(
+            f"{path} is not a list of {{id, idea, preferences}} objects: {exc}"
+        ) from exc
     if ids is None:
         return ideas
     known = {idea.id: idea for idea in ideas}
     unknown = [i for i in ids if i not in known]
     if unknown:
-        raise BenchError(f"unknown idea id(s) {', '.join(unknown)}; the file has: {', '.join(known)}")
+        raise BenchError(
+            f"unknown idea id(s) {', '.join(unknown)}; the file has: {', '.join(known)}"
+        )
     return [known[i] for i in dict.fromkeys(ids)]
 
 
@@ -125,7 +133,9 @@ def parse_overrides(pairs: Sequence[str]) -> dict[str, str]:
         if not separator or not key:
             raise BenchError(f"--set takes KEY=VALUE, not {pair!r}")
         if key in OWNED_SETTINGS:
-            raise BenchError(f"{key} is set by the bench itself (the run folder, --live, --max-usd-per-idea)")
+            raise BenchError(
+                f"{key} is set by the bench itself (the run folder, --live, --max-usd-per-idea)"
+            )
         if key.lower() not in Settings.model_fields:
             raise BenchError(f"--set {key}: not a setting (see .env.example)")
         overrides[key] = value.strip()
@@ -142,7 +152,9 @@ def applied_env(overrides: Mapping[str, str]) -> Iterator[Settings]:
         try:
             yield get_settings()
         except ValidationError as exc:
-            problems = "; ".join(f"{'.'.join(str(p) for p in e['loc']).upper()}: {e['msg']}" for e in exc.errors())
+            problems = "; ".join(
+                f"{'.'.join(str(p) for p in e['loc']).upper()}: {e['msg']}" for e in exc.errors()
+            )
             raise BenchError(f"invalid settings: {problems}") from exc
     finally:
         for key, value in saved.items():
@@ -159,11 +171,15 @@ def settings_snapshot(settings: Settings) -> dict[str, Any]:
     flat: dict[str, Any] = {name: getattr(settings, name) for name in SNAPSHOT_SETTINGS}
     flat["library"] = "on" if settings.library_enabled else "off"
     flat["acceptance"] = "on" if settings.acceptance_enabled else "off"
-    flat.update({f"models.{role}": model for role, model in sorted(configured_choices(settings).items())})
+    flat.update(
+        {f"models.{role}": model for role, model in sorted(configured_choices(settings).items())}
+    )
     return flat
 
 
-def take_snapshot(settings: Settings, overrides: Mapping[str, str], ideas: Sequence[BenchIdea]) -> dict[str, Any]:
+def take_snapshot(
+    settings: Settings, overrides: Mapping[str, str], ideas: Sequence[BenchIdea]
+) -> dict[str, Any]:
     return {
         "version": SNAPSHOT_VERSION,
         "mode": "demo" if settings.demo_mode else "live",
@@ -186,9 +202,15 @@ def snapshot_differences(old: Mapping[str, Any], new: Mapping[str, Any]) -> list
     old_ideas = {item["id"]: item["sha"] for item in old.get("ideas") or []}
     new_ideas = {item["id"]: item["sha"] for item in new.get("ideas") or []}
     if list(old_ideas) != list(new_ideas):
-        lines.append(f"ideas: the run has [{', '.join(old_ideas)}], this call has [{', '.join(new_ideas)}]")
+        lines.append(
+            f"ideas: the run has [{', '.join(old_ideas)}], this call has [{', '.join(new_ideas)}]"
+        )
     else:
-        lines += [f"idea {key}: its text or preferences changed" for key in old_ideas if old_ideas[key] != new_ideas[key]]
+        lines += [
+            f"idea {key}: its text or preferences changed"
+            for key in old_ideas
+            if old_ideas[key] != new_ideas[key]
+        ]
     return lines
 
 
@@ -240,7 +262,11 @@ class IdeaResult:
         return (self.acceptance_passed or 0) / self.acceptance_total
 
     def to_dict(self) -> dict[str, Any]:
-        return {**asdict(self), "total_cost_usd": self.total_cost_usd, "acceptance_rate": self.acceptance_rate}
+        return {
+            **asdict(self),
+            "total_cost_usd": self.total_cost_usd,
+            "acceptance_rate": self.acceptance_rate,
+        }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> IdeaResult:
@@ -254,11 +280,15 @@ def _acceptance_counts(lanes: Sequence[Mapping[str, Any]]) -> tuple[int | None, 
         evidence = lane.get("evidence")
         if lane.get("lane") == "acceptance" and isinstance(evidence, Mapping):
             passed = int(evidence.get("passed") or 0)
-            return passed, passed + int(evidence.get("failed") or 0) + int(evidence.get("errors") or 0)
+            return passed, passed + int(evidence.get("failed") or 0) + int(
+                evidence.get("errors") or 0
+            )
     return None, None
 
 
-def score_run(idea_id: str, summary: RunSummary, values: Mapping[str, Any], wall_seconds: float) -> IdeaResult:
+def score_run(
+    idea_id: str, summary: RunSummary, values: Mapping[str, Any], wall_seconds: float
+) -> IdeaResult:
     """The result of one headless run: scored when it delivered, else unscored with the reason."""
     common: dict[str, Any] = {
         "id": idea_id,
@@ -329,8 +359,12 @@ def totals(results: Sequence[IdeaResult]) -> Totals:
         unscored=len(results) - len(scored),
         verified=verified,
         verified_rate=verified / len(scored) if scored else None,
-        lane_pass_rate=sum(r.lanes_passed or 0 for r in scored) / lanes_total if lanes_total else None,
-        acceptance_rate=sum(r.acceptance_passed or 0 for r in accepted) / acceptance_total if acceptance_total else None,
+        lane_pass_rate=sum(r.lanes_passed or 0 for r in scored) / lanes_total
+        if lanes_total
+        else None,
+        acceptance_rate=sum(r.acceptance_passed or 0 for r in accepted) / acceptance_total
+        if acceptance_total
+        else None,
         fix_attempts=sum(r.fix_attempts for r in scored),
         integrity_flags=sum(r.integrity_flags for r in scored),
         spend_usd=spend,
@@ -371,17 +405,28 @@ def read_run(run_dir: Path) -> RunRecord | None:
         return None
     try:
         snapshot = json.loads(config.read_text(encoding="utf-8"))
-        stored = json.loads((run_dir / "results.json").read_text(encoding="utf-8")) if (run_dir / "results.json").is_file() else {}
+        stored = (
+            json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+            if (run_dir / "results.json").is_file()
+            else {}
+        )
     except (OSError, ValueError) as exc:
         raise BenchError(f"{run_dir} is not a readable bench run: {exc}") from exc
-    return RunRecord(run_dir.name, snapshot, [IdeaResult.from_dict(item) for item in stored.get("results") or []])
+    return RunRecord(
+        run_dir.name, snapshot, [IdeaResult.from_dict(item) for item in stored.get("results") or []]
+    )
 
 
-def _save_results(run_dir: Path, results: Mapping[str, IdeaResult], order: Sequence[str]) -> list[IdeaResult]:
+def _save_results(
+    run_dir: Path, results: Mapping[str, IdeaResult], order: Sequence[str]
+) -> list[IdeaResult]:
     ordered = [results[idea_id] for idea_id in order if idea_id in results]
     _write_json(
         run_dir / "results.json",
-        {"updated": datetime.now(UTC).isoformat(timespec="seconds"), "results": [r.to_dict() for r in ordered]},
+        {
+            "updated": datetime.now(UTC).isoformat(timespec="seconds"),
+            "results": [r.to_dict() for r in ordered],
+        },
     )
     return ordered
 
@@ -407,7 +452,9 @@ class BenchOptions:
 def check_mode(options: BenchOptions, settings: Settings) -> None:
     """The bench spends money unless it is a demo run: it must be asked for explicitly, with a cap."""
     if options.live and settings.demo_mode:
-        raise BenchError("DEMO_MODE=true is set, so nothing live can run: drop --live (an offline smoke run), or unset DEMO_MODE")
+        raise BenchError(
+            "DEMO_MODE=true is set, so nothing live can run: drop --live (an offline smoke run), or unset DEMO_MODE"
+        )
     if not options.live and not settings.demo_mode:
         raise BenchError(
             "the bench spends money on real models and agent sessions: pass --live (and --max-total-usd N), "
@@ -418,7 +465,12 @@ def check_mode(options: BenchOptions, settings: Settings) -> None:
 
 
 async def _execute(
-    graph: Any, registry: Any, idea: BenchIdea, thread_id: str, settings: Settings, progress: Progress
+    graph: Any,
+    registry: Any,
+    idea: BenchIdea,
+    thread_id: str,
+    settings: Settings,
+    progress: Progress,
 ) -> tuple[RunSummary, dict[str, Any]]:
     """One idea through the headless pipeline (continuing its thread if an earlier call left one) and the state
     it ended in."""
@@ -426,7 +478,9 @@ async def _execute(
 
     options = HeadlessOptions(autopilot=True, implement=True)
     if (await read_thread(graph, thread_id)).values.get("user_idea"):
-        summary = await resume_thread(graph, registry, thread_id, options, settings=settings, progress=progress)
+        summary = await resume_thread(
+            graph, registry, thread_id, options, settings=settings, progress=progress
+        )
     else:
         summary = await run_idea(
             graph,
@@ -472,7 +526,10 @@ async def run_bench(options: BenchOptions, *, progress: Progress) -> RunRecord:
                     f"{options.run_dir} was run with different settings; use another --name, or restore them:\n  "
                     + "\n  ".join(differences)
                 )
-        _write_json(options.run_dir / "config.json", {**snapshot, "created": datetime.now(UTC).isoformat(timespec="seconds")})
+        _write_json(
+            options.run_dir / "config.json",
+            {**snapshot, "created": datetime.now(UTC).isoformat(timespec="seconds")},
+        )
         results = {r.id: r for r in (earlier.results if earlier else [])}
         apply_tracing_env()
         async with open_graph(settings) as graph:
@@ -486,7 +543,9 @@ async def run_bench(options: BenchOptions, *, progress: Progress) -> RunRecord:
                 spent = sum(r.total_cost_usd for key, r in results.items() if key != idea.id)
                 budget = idea_budget(per_idea=per_idea, total=options.total_usd, spent=spent)
                 if budget is None:
-                    reason = f"bench budget: the --max-total-usd cap (${options.total_usd:.2f}) is spent"
+                    reason = (
+                        f"bench budget: the --max-total-usd cap (${options.total_usd:.2f}) is spent"
+                    )
                     progress(f"[{idea.id}] not started: {reason}")
                     results[idea.id] = _unscored(idea.id, reason)
                     _save_results(options.run_dir, results, order)
@@ -502,7 +561,13 @@ async def run_bench(options: BenchOptions, *, progress: Progress) -> RunRecord:
 
 
 async def _run_one(
-    graph: Any, registry: Any, idea: BenchIdea, settings: Settings, budget: float, prior: IdeaResult | None, progress: Progress
+    graph: Any,
+    registry: Any,
+    idea: BenchIdea,
+    settings: Settings,
+    budget: float,
+    prior: IdeaResult | None,
+    progress: Progress,
 ) -> IdeaResult:
     progress(f"[{idea.id}] start (agent budget ${budget:.2f})")
     started = time.monotonic()
@@ -514,12 +579,23 @@ async def _run_one(
     try:
         summary, values = await _execute(graph, registry, idea, thread_id, settings, tagged)
     except Exception as exc:
-        result = _unscored(idea.id, error_hint("Pipeline", exc), thread_id=thread_id, wall_seconds=time.monotonic() - started)
+        result = _unscored(
+            idea.id,
+            error_hint("Pipeline", exc),
+            thread_id=thread_id,
+            wall_seconds=time.monotonic() - started,
+        )
     else:
         result = score_run(idea.id, summary, values, time.monotonic() - started)
-    result.wall_seconds += prior.wall_seconds if prior else 0.0  # a retried idea's time is all the time it took
+    result.wall_seconds += (
+        prior.wall_seconds if prior else 0.0
+    )  # a retried idea's time is all the time it took
     result.budget_usd = budget
-    state = "unscored: " + result.reason if result.status == "unscored" else ("verified" if result.verified else "NOT verified")
+    state = (
+        "unscored: " + result.reason
+        if result.status == "unscored"
+        else ("verified" if result.verified else "NOT verified")
+    )
     progress(f"[{idea.id}] {state} (${result.total_cost_usd:.2f}, {result.wall_seconds:.0f}s)")
     return result
 
@@ -540,7 +616,11 @@ class Comparison:
     def to_dict(self) -> dict[str, Any]:
         return {
             "runs": [
-                {"name": run.name, "mode": run.mode, "totals": totals(self.results_on_common(run)).to_dict()}
+                {
+                    "name": run.name,
+                    "mode": run.mode,
+                    "totals": totals(self.results_on_common(run)).to_dict(),
+                }
                 for run in self.runs
             ],
             "common_ideas": self.common_ideas,
@@ -548,7 +628,11 @@ class Comparison:
             "notes": self.notes,
             "ideas": {
                 idea_id: {
-                    run.name: {"verified": r.verified, "cost_usd": r.total_cost_usd, "fix_attempts": r.fix_attempts}
+                    run.name: {
+                        "verified": r.verified,
+                        "cost_usd": r.total_cost_usd,
+                        "fix_attempts": r.fix_attempts,
+                    }
                     for run in self.runs
                     for r in run.results
                     if r.id == idea_id
@@ -575,7 +659,10 @@ def compare_runs(runs: Sequence[RunRecord]) -> Comparison:
             common.append(idea_id)
     flat = [{"mode": run.mode, **(run.snapshot.get("settings") or {})} for run in runs]
     differences = [
-        {"setting": key, "values": {run.name: values.get(key) for run, values in zip(runs, flat, strict=True)}}
+        {
+            "setting": key,
+            "values": {run.name: values.get(key) for run, values in zip(runs, flat, strict=True)},
+        }
         for key in dict.fromkeys(k for values in flat for k in values)
         if len({json.dumps(values.get(key)) for values in flat}) > 1
     ]
@@ -587,7 +674,10 @@ def compare_runs(runs: Sequence[RunRecord]) -> Comparison:
 
 def _table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
     widths = [max(len(line[i]) for line in [header, *rows]) for i in range(len(header))]
-    lines = ["  ".join(cell.ljust(width) for cell, width in zip(line, widths, strict=True)).rstrip() for line in [header, *rows]]
+    lines = [
+        "  ".join(cell.ljust(width) for cell, width in zip(line, widths, strict=True)).rstrip()
+        for line in [header, *rows]
+    ]
     lines.insert(1, "  ".join("-" * width for width in widths))
     return "\n".join(lines)
 
@@ -605,9 +695,17 @@ def _count(result: IdeaResult, passed: int | None, total: int | None) -> str:
 
 
 def _totals_rows(summary: Totals) -> list[tuple[str, str]]:
-    verified = f"{summary.verified}/{summary.scored} ({_pct(summary.verified_rate)})" if summary.scored else "n/a"
+    verified = (
+        f"{summary.verified}/{summary.scored} ({_pct(summary.verified_rate)})"
+        if summary.scored
+        else "n/a"
+    )
     per_usd = "n/a" if summary.verified_per_usd is None else f"{summary.verified_per_usd:.2f}"
-    unscored = f"{summary.unscored} (${summary.unscored_spend_usd:,.2f} spent)" if summary.unscored else "0"
+    unscored = (
+        f"{summary.unscored} (${summary.unscored_spend_usd:,.2f} spent)"
+        if summary.unscored
+        else "0"
+    )
     return [
         ("verified deliveries", verified),
         ("verified per dollar", per_usd),
@@ -617,7 +715,10 @@ def _totals_rows(summary: Totals) -> list[tuple[str, str]]:
         ("acceptance tests passed", _pct(summary.acceptance_rate)),
         ("fix attempts", str(summary.fix_attempts)),
         ("integrity flags", str(summary.integrity_flags)),
-        ("mean wall time", "n/a" if summary.mean_wall_seconds is None else f"{summary.mean_wall_seconds:,.0f}s"),
+        (
+            "mean wall time",
+            "n/a" if summary.mean_wall_seconds is None else f"{summary.mean_wall_seconds:,.0f}s",
+        ),
         ("unscored ideas", unscored),
     ]
 
@@ -625,7 +726,9 @@ def _totals_rows(summary: Totals) -> list[tuple[str, str]]:
 def render_run(record: RunRecord) -> str:
     rows = []
     for r in record.results:
-        outcome = "unscored" if r.status != "scored" else "verified" if r.verified else "NOT verified"
+        outcome = (
+            "unscored" if r.status != "scored" else "verified" if r.verified else "NOT verified"
+        )
         rows.append(
             [
                 r.id,
@@ -651,14 +754,32 @@ def render_run(record: RunRecord) -> str:
 def render_comparison(comparison: Comparison) -> str:
     names = [run.name for run in comparison.runs]
     common = ", ".join(comparison.common_ideas) or "none"
-    lines = [f"Comparing {', '.join(names)} on {len(comparison.common_ideas)} idea(s) scored in every run: {common}", ""]
+    lines = [
+        f"Comparing {', '.join(names)} on {len(comparison.common_ideas)} idea(s) scored in every run: {common}",
+        "",
+    ]
     if comparison.differences:
-        lines += ["Settings that differ", _table(["setting", *names], [[d["setting"], *(str(d["values"][n]) for n in names)] for d in comparison.differences]), ""]
+        lines += [
+            "Settings that differ",
+            _table(
+                ["setting", *names],
+                [
+                    [d["setting"], *(str(d["values"][n]) for n in names)]
+                    for d in comparison.differences
+                ],
+            ),
+            "",
+        ]
     else:
         lines += ["The runs use the same settings.", ""]
-    per_run = [dict(_totals_rows(totals(comparison.results_on_common(run)))) for run in comparison.runs]
+    per_run = [
+        dict(_totals_rows(totals(comparison.results_on_common(run)))) for run in comparison.runs
+    ]
     labels = [label for label, _ in _totals_rows(Totals())]
-    lines += [_table(["result", *names], [[label, *(row[label] for row in per_run)] for label in labels]), ""]
+    lines += [
+        _table(["result", *names], [[label, *(row[label] for row in per_run)] for label in labels]),
+        "",
+    ]
     if comparison.common_ideas:
         by_run = {run.name: {r.id: r for r in run.results} for run in comparison.runs}
 
@@ -666,9 +787,17 @@ def render_comparison(comparison: Comparison) -> str:
             r = by_run[name][idea_id]
             return f"{'ok' if r.verified else 'FAIL'}  {_usd(r.total_cost_usd)}"
 
-        lines += [_table(["idea", *names], [[i, *(cell(n, i) for n in names)] for i in comparison.common_ideas]), ""]
+        lines += [
+            _table(
+                ["idea", *names],
+                [[i, *(cell(n, i) for n in names)] for i in comparison.common_ideas],
+            ),
+            "",
+        ]
     lines += [f"note: {note}" for note in comparison.notes]
-    lines.append("Verified per dollar (verified deliveries / spend on scored ideas) is the number that says which configuration is worth its price.")
+    lines.append(
+        "Verified per dollar (verified deliveries / spend on scored ideas) is the number that says which configuration is worth its price."
+    )
     return "\n".join(lines)
 
 
@@ -689,7 +818,11 @@ def dry_run(options: BenchOptions) -> dict[str, Any]:
             "mode": "demo" if settings.demo_mode else "live",
             "settings": settings_snapshot(settings),
             "ideas": [
-                {"id": i.id, "platform": i.preferences.get("platform", "any"), "stack_hints": i.preferences.get("stack_hints", "")}
+                {
+                    "id": i.id,
+                    "platform": i.preferences.get("platform", "any"),
+                    "stack_hints": i.preferences.get("stack_hints", ""),
+                }
                 for i in options.ideas
             ],
             "estimate": {
@@ -712,7 +845,10 @@ def render_dry_run(report: Mapping[str, Any]) -> str:
         f"Profile {report['settings']['model_profile']}, harness tuning {report['settings']['harness_tuning']}, "
         f"library {report['settings']['library']}, acceptance {report['settings']['acceptance']}.",
         "",
-        _table(["idea", "platform", "stack"], [[i["id"], i["platform"], i["stack_hints"] or "-"] for i in report["ideas"]]),
+        _table(
+            ["idea", "platform", "stack"],
+            [[i["id"], i["platform"], i["stack_hints"] or "-"] for i in report["ideas"]],
+        ),
         "",
         f"Typical run per idea: planning {_usd(estimate['planning_usd'])} + agents {_usd(estimate['agents_usd'])} "
         f"(capped at {_usd(estimate['per_idea_cap_usd'])}) = {_usd(estimate['per_idea_usd'])}",
@@ -748,13 +884,26 @@ def run_command(args: argparse.Namespace) -> int:
         root = args.root or get_settings().output_dir / "bench"
         if args.compare:
             return _compare(args, root)
-        ideas = load_ideas(args.ideas_file or DEFAULT_IDEAS, [i for i in args.ideas.split(",") if i] if args.ideas else None)
+        ideas = load_ideas(
+            args.ideas_file or DEFAULT_IDEAS,
+            [i for i in args.ideas.split(",") if i] if args.ideas else None,
+        )
         overrides = parse_overrides(args.set or [])
-        for flag, key in ((args.profile, "MODEL_PROFILE"), (args.harness_tuning, "HARNESS_TUNING"), (args.library, "EXPERIENCE_LIBRARY")):
+        for flag, key in (
+            (args.profile, "MODEL_PROFILE"),
+            (args.harness_tuning, "HARNESS_TUNING"),
+            (args.library, "EXPERIENCE_LIBRARY"),
+        ):
             if flag:
                 overrides[key] = flag
         options = BenchOptions(
-            args.name or "dry-run", root, ideas, overrides, args.max_usd_per_idea, args.max_total_usd, args.live
+            args.name or "dry-run",
+            root,
+            ideas,
+            overrides,
+            args.max_usd_per_idea,
+            args.max_total_usd,
+            args.live,
         )
         if args.dry_run:
             report = dry_run(options)
@@ -794,5 +943,7 @@ def _compare(args: argparse.Namespace, root: Path) -> int:
             raise BenchError(f"no bench run {name!r} (looked in {folder})")
         records.append(record)
     comparison = compare_runs(records)
-    print(json.dumps(comparison.to_dict(), indent=2) if args.json else render_comparison(comparison))
+    print(
+        json.dumps(comparison.to_dict(), indent=2) if args.json else render_comparison(comparison)
+    )
     return EXIT_ALL_VERIFIED

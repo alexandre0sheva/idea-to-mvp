@@ -101,7 +101,9 @@ class AppContext:
     settings: Settings
     graphs: GraphProvider
     registry: SessionRegistry | None = None
-    github: Callable[[Settings], GitHubClient | None] = make_client  # how publishing reaches GitHub (tests fake it)
+    github: Callable[[Settings], GitHubClient | None] = (
+        make_client  # how publishing reaches GitHub (tests fake it)
+    )
 
     @property
     def sessions(self) -> SessionRegistry:
@@ -115,13 +117,21 @@ def _chat_message(entry: ViewEntry, elapsed: dict[str, float] | None = None) -> 
     if entry.kind in USER_KINDS:
         return {"role": "user", "content": entry.content}
     if entry.kind == "research" and isinstance(entry.data, dict):
-        return {"role": "assistant", "content": research_card(entry.data) or turn_block(entry.speaker, entry.content)}
+        return {
+            "role": "assistant",
+            "content": research_card(entry.data) or turn_block(entry.speaker, entry.content),
+        }
     if entry.kind == "harness_tuning" and isinstance(entry.data, dict):
-        return {"role": "assistant", "content": tuning_card(entry.data) or turn_block(entry.speaker, entry.content)}
+        return {
+            "role": "assistant",
+            "content": tuning_card(entry.data) or turn_block(entry.speaker, entry.content),
+        }
     if entry.kind == "moderator":
         return {"role": "assistant", "content": moderator_banner(entry.content)}
     if entry.kind == "discussion" and isinstance(entry.data, TurnInfo):
-        block = turn_block(entry.speaker, entry.content, collapsed=entry.data.collapsed, live=entry.data.live)
+        block = turn_block(
+            entry.speaker, entry.content, collapsed=entry.data.collapsed, live=entry.data.live
+        )
         return {"role": "assistant", "content": block}
     if entry.kind == "thinking":
         return {"role": "assistant", "content": thinking_block(entry.speaker, entry.content)}
@@ -139,7 +149,9 @@ def _chat_message(entry: ViewEntry, elapsed: dict[str, float] | None = None) -> 
     return {"role": "assistant", "content": turn_block(entry.speaker, entry.content)}
 
 
-def _chat_messages(entries: list[ViewEntry], elapsed: dict[str, float] | None = None) -> list[dict[str, str]]:
+def _chat_messages(
+    entries: list[ViewEntry], elapsed: dict[str, float] | None = None
+) -> list[dict[str, str]]:
     """The chat for a transcript: like `_chat_message` per entry, except that the opening statements, which were
     written at the same time, share one message laid out as a row."""
     messages: list[dict[str, str]] = []
@@ -157,7 +169,11 @@ def _chat_messages(entries: list[ViewEntry], elapsed: dict[str, float] | None = 
             openings.clear()
 
     for entry in entries:
-        if entry.kind == "discussion" and isinstance(entry.data, TurnInfo) and entry.data.phase == "opening":
+        if (
+            entry.kind == "discussion"
+            and isinstance(entry.data, TurnInfo)
+            and entry.data.phase == "opening"
+        ):
             openings.append(entry)
             continue
         flush()
@@ -194,32 +210,49 @@ class SubmitService:
         self._events: dict[str, list[ImplEvent]] = {}
         self._active: set[str] = set()  # threads with a run streaming right now
         self._live: dict[str, LiveTurns] = {}  # the panel turns being written, per streaming thread
-        self._diffs: dict[tuple[str, str], str] = {}  # (workspace, commit) -> git diff --stat (commits never change)
+        self._diffs: dict[
+            tuple[str, str], str
+        ] = {}  # (workspace, commit) -> git diff --stat (commits never change)
         # The console rebuilt from the trajectory files, per workspace, for the ledger version it was read at
         self._replayed: dict[str, tuple[tuple[int, int], list[ImplEvent]]] = {}
         self._tab: dict[str, str] = {}  # the tab last selected for each thread
-        self._artifact_seen: dict[str, tuple[str, str, int, str]] = {}  # what the artifacts panel currently shows
-        self._publishing: set[str] = set()  # threads with a confirmed publish in flight: one at a time, nothing else meanwhile
-        self._clients: dict[str, GitHubClient | None] = {}  # the GitHub client a review made, reused by its confirmation
+        self._artifact_seen: dict[
+            str, tuple[str, str, int, str]
+        ] = {}  # what the artifacts panel currently shows
+        self._publishing: set[str] = (
+            set()
+        )  # threads with a confirmed publish in flight: one at a time, nothing else meanwhile
+        self._clients: dict[
+            str, GitHubClient | None
+        ] = {}  # the GitHub client a review made, reused by its confirmation
 
     def _reset_view(self, thread_id: str) -> None:
         """A page that (re)loads a thread starts on the conversation tab with an empty artifacts panel."""
         self._tab[thread_id] = "conversation"
         self._artifact_seen.pop(thread_id, None)
 
-    async def _elapsed(self, thread_id: str, values: dict[str, Any], active: str, *, waiting: bool) -> dict[str, float]:
+    async def _elapsed(
+        self, thread_id: str, values: dict[str, Any], active: str, *, waiting: bool
+    ) -> dict[str, float]:
         """Seconds of work per step, derived from the thread's checkpoint times (see `view.stage_elapsed`)."""
         if not values.get("user_idea"):
             return {}
         if thread_id not in self._marks:
             graph = await self._context.graphs.get()
-            history = [s async for s in graph.aget_state_history({"configurable": {"thread_id": thread_id}})]
+            history = [
+                s
+                async for s in graph.aget_state_history({"configurable": {"thread_id": thread_id}})
+            ]
             self._marks[thread_id] = stage_marks(history)
-        return stage_elapsed(self._marks[thread_id], now=None if waiting else time.time(), active=active)
+        return stage_elapsed(
+            self._marks[thread_id], now=None if waiting else time.time(), active=active
+        )
 
     # -------------------------------------------------------------- rendering
 
-    async def _read(self, thread_id: str) -> tuple[dict[str, Any], dict[str, Any] | None, tuple[str, ...]]:
+    async def _read(
+        self, thread_id: str
+    ) -> tuple[dict[str, Any], dict[str, Any] | None, tuple[str, ...]]:
         return await read_thread(await self._context.graphs.get(), thread_id)
 
     async def _sessions_update(self, current: str | None) -> Any:
@@ -250,13 +283,22 @@ class SubmitService:
         values, interrupt_payload, next_nodes = await self._read(thread_id)
         mode = mode_from_state(values, interrupt_payload, next_nodes=next_nodes)
         overlay = running or (
-            running_from_state(values, next_nodes) if interrupt_payload is None and mode == MODE_INTERRUPTED else None
+            running_from_state(values, next_nodes)
+            if interrupt_payload is None and mode == MODE_INTERRUPTED
+            else None
         )
         entries = transcript_from_state(
-            values, interrupt_payload, running=overlay, pending_user=pending_user, live=live or (), error=error
+            values,
+            interrupt_payload,
+            running=overlay,
+            pending_user=pending_user,
+            live=live or (),
+            error=error,
         )
         stage = stage_for_view(values, mode)
-        elapsed = await self._elapsed(thread_id, values, stage, waiting=interrupt_payload is not None)
+        elapsed = await self._elapsed(
+            thread_id, values, stage, waiting=interrupt_payload is not None
+        )
         self._context.sessions.record(thread_id, values, interrupt_payload, title=idea_title)
         return await self._pack(
             status=status if status is not None else status_from_state(values, mode, overlay),
@@ -326,19 +368,25 @@ class SubmitService:
             gr.update(selected="conversation"),
             gr.update(value=render_task_board({}, {}, set())),
             gr.update(value=render_console([])),
-            gr.update(value=render_cost_meter(0.0, self._context.settings.implementer_max_total_usd)),
+            gr.update(
+                value=render_cost_meter(0.0, self._context.settings.implementer_max_total_usd)
+            ),
             gr.update(value=""),
             gr.update(value=None, visible=False),
             gr.update(value=None, visible=False),
             "",  # the explorer's workspace: none
         )
 
-    async def _implementation_view(self, thread_id: str, values: dict[str, Any], stage: str) -> tuple[Any, ...]:
+    async def _implementation_view(
+        self, thread_id: str, values: dict[str, Any], stage: str
+    ) -> tuple[Any, ...]:
         settings = self._context.settings
         workspace_dir = str(values.get("workspace_dir") or "")
         workspace = Path(workspace_dir) if workspace_dir and Path(workspace_dir).is_dir() else None
         # Live events exist only for the life of the process; after a restart the console is read back from disk.
-        events = self._events.get(thread_id) or (self._replay(workspace) if workspace is not None else [])
+        events = self._events.get(thread_id) or (
+            self._replay(workspace) if workspace is not None else []
+        )
         plan: dict[str, Any] = {}
         results: dict[str, TaskResult] = {}
         diffs: dict[str, str] = {}
@@ -347,7 +395,10 @@ class SubmitService:
             trajectories = task_trajectories(workspace)
             loaded = load_plan(_read_text(workspace / "plan.json"))
             plan = loaded.model_dump() if loaded else {}
-            results = {**(values.get("task_results") or {}), **load_progress(workspace)}  # the file is fresher mid-run
+            results = {
+                **(values.get("task_results") or {}),
+                **load_progress(workspace),
+            }  # the file is fresher mid-run
             diffs = await self._diff_stats(workspace, results)
         running = running_tasks(events) if thread_id in self._active else set()
         parallel = (
@@ -360,12 +411,21 @@ class SubmitService:
         usage_spent = summarize_usage(values.get("usage") or [])["agent_cost_usd"] - float(
             values.get("spent_before_iteration") or 0.0
         )
-        spent = max(spent_in_iteration(results, iteration), usage_spent)  # progress is live, usage catches lanes/fixes
+        spent = max(
+            spent_in_iteration(results, iteration), usage_spent
+        )  # progress is live, usage catches lanes/fixes
         return (
-            self._tab_update(thread_id, str(values.get("stage") or "")),  # the state's own stage: the view's flickers
+            self._tab_update(
+                thread_id, str(values.get("stage") or "")
+            ),  # the state's own stage: the view's flickers
             gr.update(
                 value=render_task_board(
-                    plan, results, running, diffs=diffs, parallel=bool(parallel), trajectories=trajectories
+                    plan,
+                    results,
+                    running,
+                    diffs=diffs,
+                    parallel=bool(parallel),
+                    trajectories=trajectories,
                 )
             ),
             gr.update(value=render_console(events)),
@@ -385,7 +445,10 @@ class SubmitService:
         if cached is None or cached[0] != version:
             plan = load_plan(_read_text(workspace / "plan.json"))
             titles = {task.id: task.title for task in plan.tasks} if plan else {}
-            cached = self._replayed[key] = (version, events_from_trajectories(workspace, _LOG_LIMIT, titles))
+            cached = self._replayed[key] = (
+                version,
+                events_from_trajectories(workspace, _LOG_LIMIT, titles),
+            )
         return cached[1]
 
     async def _diff_stats(self, workspace: Path, results: dict[str, TaskResult]) -> dict[str, str]:
@@ -404,28 +467,42 @@ class SubmitService:
         """Show the implementation tab while a run is building and verifying, the conversation otherwise; the
         selection is only sent when it changes, so the user can look at the other tab meanwhile. (`stage` is the
         state's own: the view's derived stage briefly reads "done" between the steps of a subgraph.)"""
-        wanted = "implementation" if thread_id in self._active and stage in ("implementation", "verification", "report") else "conversation"
+        wanted = (
+            "implementation"
+            if thread_id in self._active and stage in ("implementation", "verification", "report")
+            else "conversation"
+        )
         if self._tab.get(thread_id, "conversation") == wanted:
             return gr.update()
         self._tab[thread_id] = wanted
         return gr.update(selected=wanted)
 
-    async def _artifact_updates(self, thread_id: str, values: dict[str, Any], workspace: Path | None) -> tuple[Any, ...]:
+    async def _artifact_updates(
+        self, thread_id: str, values: dict[str, Any], workspace: Path | None
+    ) -> tuple[Any, ...]:
         """The artifacts panel (path, the two downloads, the file explorer), refreshed only when what it shows changes."""
         bundle_dir = str(values.get("project_bundle_dir") or "")
         archive = str(values.get("delivery_zip") or "")
-        key = artifact_key(str(workspace or ""), bundle_dir if Path(bundle_dir).is_dir() else "", archive)
+        key = artifact_key(
+            str(workspace or ""), bundle_dir if Path(bundle_dir).is_dir() else "", archive
+        )
         if self._artifact_seen.get(thread_id) == key:
             return (gr.update(), gr.update(), gr.update(), gr.update())
         self._artifact_seen[thread_id] = key
         blueprint = ""
         if key[1]:
-            blueprint = str(await asyncio.to_thread(blueprint_zip, bundle_dir, self._context.settings.deliveries_dir))
+            blueprint = str(
+                await asyncio.to_thread(
+                    blueprint_zip, bundle_dir, self._context.settings.deliveries_dir
+                )
+            )
         return (
             gr.update(value=str(workspace or "")),
             gr.update(value=archive or None, visible=bool(archive) and Path(archive).is_file()),
             gr.update(value=blueprint or None, visible=bool(blueprint)),
-            str(workspace or ""),  # the state the file explorer is (re)built from: its root cannot change in place
+            str(
+                workspace or ""
+            ),  # the state the file explorer is (re)built from: its root cannot change in place
         )
 
     async def view_file(self, thread_id: str, selection: Any) -> Any:
@@ -433,7 +510,9 @@ class SubmitService:
         values, _interrupt, _next = await self._read((thread_id or "").strip())
         workspace = str(values.get("workspace_dir") or "")
         view = read_workspace_file(workspace, selection) if workspace else FileView()
-        return gr.update(value=view.text, language=view.language, label=view.note or "Selected file")
+        return gr.update(
+            value=view.text, language=view.language, label=view.note or "Selected file"
+        )
 
     # ------------------------------------------------------------ sessions UI
 
@@ -453,7 +532,9 @@ class SubmitService:
         self._reset_view(thread_id)
         return await self._render(thread_id)
 
-    async def load_session(self, selected_thread_id: str | None, current_thread_id: str) -> tuple[Any, ...]:
+    async def load_session(
+        self, selected_thread_id: str | None, current_thread_id: str
+    ) -> tuple[Any, ...]:
         if not selected_thread_id:
             return await self._render(current_thread_id, status="Pick a saved session first.")
         self._reset_view(selected_thread_id)
@@ -481,9 +562,13 @@ class SubmitService:
             forgotten = forget(self._context.settings.library_dir, domain, entry)
         except ValueError:
             forgotten = False
-        return self.library_panel(domain, status=f"Forgot `{entry}`." if forgotten else f"No entry `{entry}` to forget.")
+        return self.library_panel(
+            domain, status=f"Forgot `{entry}`." if forgotten else f"No entry `{entry}` to forget."
+        )
 
-    async def delete_session(self, selected_thread_id: str | None, current_thread_id: str) -> tuple[Any, ...]:
+    async def delete_session(
+        self, selected_thread_id: str | None, current_thread_id: str
+    ) -> tuple[Any, ...]:
         if not selected_thread_id:
             return await self._render(current_thread_id, status="Pick a saved session first.")
         graph = await self._context.graphs.get()
@@ -531,13 +616,19 @@ class SubmitService:
                 preferences=stated_preferences(preferences),
             )
             pending_user = ViewEntry("idea", "You", text)
-            running = running_from_state(payload, ("research" if self._context.settings.enable_research else "panel",))
+            running = running_from_state(
+                payload, ("research" if self._context.settings.enable_research else "panel",)
+            )
             idea_title = text
             values = {}
         elif (kind := str((interrupt_payload or {}).get("kind") or "")) in GATES:
             spec = GATES[kind]
-            if thread_id in self._publishing:  # a decision now would move the graph on under the publish
-                yield await self._render(thread_id, status="Publishing to GitHub is in progress; wait for it to finish.")
+            if (
+                thread_id in self._publishing
+            ):  # a decision now would move the graph on under the publish
+                yield await self._render(
+                    thread_id, status="Publishing to GitHub is in progress; wait for it to finish."
+                )
                 return
             inputs = {**dict(gate_inputs or {}), PAYLOAD_INPUT: interrupt_payload or {}}
             if problem := spec.validate(inputs, interrupt_payload or {}):
@@ -551,9 +642,13 @@ class SubmitService:
         else:  # MODE_INTERRUPTED: continue from the last checkpoint
             payload = None
             running = running_from_state(values, next_nodes)
-            if bool(values.get("autopilot")) != autopilot:  # the toggle changed while the run was stopped
+            if (
+                bool(values.get("autopilot")) != autopilot
+            ):  # the toggle changed while the run was stopped
                 graph = await self._context.graphs.get()
-                await graph.aupdate_state({"configurable": {"thread_id": thread_id}}, {"autopilot": autopilot})
+                await graph.aupdate_state(
+                    {"configurable": {"thread_id": thread_id}}, {"autopilot": autopilot}
+                )
 
         if pending_user is not None and running is not None and mode in (MODE_IDEA, MODE_DONE):
             # New thread: nothing recorded yet, so draw the overlay alone.
@@ -561,7 +656,10 @@ class SubmitService:
                 status="Running panel discussion...",
                 mode=MODE_IDEA,
                 thread_id=thread_id,
-                chat=[_chat_message(pending_user), _chat_message(ViewEntry("thinking", running[0], running[1]))],
+                chat=[
+                    _chat_message(pending_user),
+                    _chat_message(ViewEntry("thinking", running[0], running[1])),
+                ],
                 stage="discussion",
                 clear_input=True,
             )
@@ -576,19 +674,30 @@ class SubmitService:
 
         graph = await self._context.graphs.get()
         config = run_config(thread_id, max_concurrency=self._context.settings.llm_max_concurrency)
-        console: list[ImplEvent] = []  # this run's events (the status line's progress); `_events` keeps the log
+        console: list[
+            ImplEvent
+        ] = []  # this run's events (the status line's progress); `_events` keeps the log
         live = self._live[thread_id] = LiveTurns()
         last_token_render = 0.0
         history = self._events.setdefault(thread_id, [])
-        if not history and (workspace_dir := str(values.get("workspace_dir") or "")) and Path(workspace_dir).is_dir():
-            history.extend(self._replay(Path(workspace_dir)))  # a restarted UI keeps what happened before
+        if (
+            not history
+            and (workspace_dir := str(values.get("workspace_dir") or ""))
+            and Path(workspace_dir).is_dir()
+        ):
+            history.extend(
+                self._replay(Path(workspace_dir))
+            )  # a restarted UI keeps what happened before
         last_progress = 0.0
         self._active.add(thread_id)
         try:
             # subgraphs=True: updates from inside the panel subgraph arrive too, so the chat fills turn by turn;
             # "custom" carries the live implementation events; "messages" the panel's tokens.
             async for _namespace, stream_mode, data in graph.astream(
-                payload, config=config, stream_mode=["updates", "custom", "messages"], subgraphs=True
+                payload,
+                config=config,
+                stream_mode=["updates", "custom", "messages"],
+                subgraphs=True,
             ):
                 if stream_mode == "messages":
                     if token := panel_token(data):
@@ -597,11 +706,16 @@ class SubmitService:
                         if now - last_token_render >= _TOKEN_INTERVAL_SECONDS:
                             last_token_render = now
                             yield await self._render(
-                                thread_id, status=_writing(live), live=live.entries(), idea_title=idea_title
+                                thread_id,
+                                status=_writing(live),
+                                live=live.entries(),
+                                idea_title=idea_title,
                             )
                     continue
                 if stream_mode != "custom":
-                    self._marks.pop(thread_id, None)  # a step was committed: its checkpoint time is new
+                    self._marks.pop(
+                        thread_id, None
+                    )  # a step was committed: its checkpoint time is new
                     self._settle_live(live, data)
                     yield await self._render(thread_id, live=live.entries(), idea_title=idea_title)
                     continue
@@ -611,13 +725,19 @@ class SubmitService:
                 history.append(data)  # type: ignore[arg-type]
                 del history[:-_LOG_LIMIT]
                 now = time.monotonic()
-                if data["kind"] in ("task_start", "task_end") or now - last_progress >= _PROGRESS_INTERVAL_SECONDS:
+                if (
+                    data["kind"] in ("task_start", "task_end")
+                    or now - last_progress >= _PROGRESS_INTERVAL_SECONDS
+                ):
                     last_progress = now
                     status, detail = implementation_progress(
                         console, total_budget=self._context.settings.implementer_max_total_usd
                     )
                     yield await self._render(
-                        thread_id, status=status or None, running=("Implementer", detail or status), idea_title=idea_title
+                        thread_id,
+                        status=status or None,
+                        running=("Implementer", detail or status),
+                        idea_title=idea_title,
                     )
         except Exception as exc:
             LOGGER.exception("Pipeline run failed")
@@ -678,11 +798,18 @@ class SubmitService:
             self._clients[thread_id] = self._context.github(self._context.settings)
         client = self._clients[thread_id]
         plan = await asyncio.to_thread(
-            plan_publish, values, self._context.settings, client, repo=(repo or "").strip() or None, visibility=visibility or None
+            plan_publish,
+            values,
+            self._context.settings,
+            client,
+            repo=(repo or "").strip() or None,
+            visibility=visibility or None,
         )
         return plan, client
 
-    async def publish_review(self, thread_id: str, repo: str | None, visibility: str | None) -> PublishScreen:
+    async def publish_review(
+        self, thread_id: str, repo: str | None, visibility: str | None
+    ) -> PublishScreen:
         """Work out and show what publishing would do. Creates nothing; the confirm button appears only for a plan
         without problems, and carries this plan's fingerprint."""
         thread_id = (thread_id or "").strip()
@@ -690,23 +817,34 @@ class SubmitService:
             return PublishScreen(publish_note(refusal, problem=True))
         plan, _client = await self._publish_plan(thread_id, repo, visibility, fresh=True)
         if not plan.ok:
-            return PublishScreen(publish_note("Nothing can be published yet.", problem=True), publish_preview_html(plan))
+            return PublishScreen(
+                publish_note("Nothing can be published yet.", problem=True),
+                publish_preview_html(plan),
+            )
         return PublishScreen(
-            publish_note("This is everything that would be sent. Nothing exists on GitHub until you confirm."),
+            publish_note(
+                "This is everything that would be sent. Nothing exists on GitHub until you confirm."
+            ),
             publish_preview_html(plan),
             plan.fingerprint,
             True,
         )
 
-    async def publish_confirm(self, thread_id: str, repo: str | None, visibility: str | None, shown: str | None) -> PublishScreen:
+    async def publish_confirm(
+        self, thread_id: str, repo: str | None, visibility: str | None, shown: str | None
+    ) -> PublishScreen:
         """Create the repository and push, if (and only if) the plan as it is now is the one the user reviewed.
 
         Otherwise the new plan is shown to be reviewed again; whatever went wrong is shown, never swallowed. A
         success is recorded in the thread's state, so the dashboard and a later `publish` know about it.
         """
         thread_id = (thread_id or "").strip()
-        if thread_id in self._publishing:  # checked and taken without an await, so two clicks cannot both pass
-            return PublishScreen(publish_note("A publish is already in progress for this session.", problem=True))
+        if (
+            thread_id in self._publishing
+        ):  # checked and taken without an await, so two clicks cannot both pass
+            return PublishScreen(
+                publish_note("A publish is already in progress for this session.", problem=True)
+            )
         self._publishing.add(thread_id)
         try:
             return await self._publish_confirmed(thread_id, repo, visibility, shown)
@@ -720,10 +858,16 @@ class SubmitService:
             return PublishScreen(publish_note(refusal, problem=True))
         plan, client = await self._publish_plan(thread_id, repo, visibility, fresh=False)
         if not plan.ok or client is None:
-            return PublishScreen(publish_note("Nothing can be published yet.", problem=True), publish_preview_html(plan))
+            return PublishScreen(
+                publish_note("Nothing can be published yet.", problem=True),
+                publish_preview_html(plan),
+            )
         if not shown or shown != plan.fingerprint:
             return PublishScreen(
-                publish_note("The plan is not the one you reviewed (or was not reviewed): check it, then confirm again.", problem=True),
+                publish_note(
+                    "The plan is not the one you reviewed (or was not reviewed): check it, then confirm again.",
+                    problem=True,
+                ),
                 publish_preview_html(plan),
                 plan.fingerprint,
                 True,
@@ -736,7 +880,13 @@ class SubmitService:
             LOGGER.warning("Publishing %s failed: %s", plan.full_name, error)
             return PublishScreen(publish_note(str(error), problem=True))
         self._clients.pop(thread_id, None)
-        note = publish_note(f"Published, but the session could not record it ({unrecorded}).", problem=True) if unrecorded else ""
+        note = (
+            publish_note(
+                f"Published, but the session could not record it ({unrecorded}).", problem=True
+            )
+            if unrecorded
+            else ""
+        )
         return PublishScreen(note + publish_info_html({"published": record}))
 
     async def stop_run(self, thread_id: str) -> tuple[Any, ...]:
@@ -745,7 +895,9 @@ class SubmitService:
         (the step that was running is redone by Continue); at a gate nothing changes."""
         thread_id = (thread_id or "").strip()
         self._marks.pop(thread_id, None)
-        self._active.discard(thread_id)  # its run is being cancelled: nothing on the board is running any more
+        self._active.discard(
+            thread_id
+        )  # its run is being cancelled: nothing on the board is running any more
         values, interrupt_payload, next_nodes = await self._read(thread_id)
         if mode_from_state(values, interrupt_payload, next_nodes=next_nodes) != MODE_INTERRUPTED:
             return await self._render(thread_id)
@@ -785,7 +937,11 @@ class SubmitService:
 
 def _writing(live: LiveTurns) -> str:
     names = [entry.speaker for entry in live.entries() if cast(TurnInfo, entry.data).live]
-    return f"{', '.join(names)} {'is' if len(names) == 1 else 'are'} writing..." if names else "Panel discussion..."
+    return (
+        f"{', '.join(names)} {'is' if len(names) == 1 else 'are'} writing..."
+        if names
+        else "Panel discussion..."
+    )
 
 
 def _read_text(path: Path) -> str:

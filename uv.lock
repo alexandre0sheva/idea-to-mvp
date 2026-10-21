@@ -1052,6 +1052,11 @@ dependencies = [
     { name = "python-dotenv" },
 ]
 
+[package.optional-dependencies]
+mcp = [
+    { name = "mcp" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
@@ -1074,9 +1079,11 @@ requires-dist = [
     { name = "langgraph", specifier = ">=1.2" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1.1" },
     { name = "markdown", specifier = ">=3.7" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.3" },
     { name = "pydantic-settings", specifier = ">=2.15" },
     { name = "python-dotenv", specifier = ">=1.0" },
 ]
+provides-extras = ["mcp"]
 
 [package.metadata.requires-dev]
 dev = [

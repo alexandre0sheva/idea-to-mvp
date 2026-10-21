@@ -84,7 +84,11 @@ def research_node(state: IdeaDiscussionState) -> dict[str, Any]:
     except Exception as exc:
         if is_transient(exc):
             raise  # retried with backoff; the run can be continued if it still fails
-        LOGGER.warning("Research failed, continuing without a brief: %s: %s", type(exc).__name__, exc)
+        LOGGER.warning(
+            "Research failed, continuing without a brief: %s: %s", type(exc).__name__, exc
+        )
         return {"research": {}}
-    merged = ResearchBrief.model_validate({**brief.model_dump(), "sources": [*grounded.sources, *brief.sources]})
+    merged = ResearchBrief.model_validate(
+        {**brief.model_dump(), "sources": [*grounded.sources, *brief.sources]}
+    )
     return {"research": merged.model_dump()}

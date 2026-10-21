@@ -25,7 +25,9 @@ MODE_ANSWERS = "answers"
 MODE_ARCH_CHOICE = "arch_choice"
 MODE_PLAN_GATE = "plan_gate"
 MODE_IMPL_GATE = "implement_gate"
-MODE_ITERATE_GATE = "iterate_gate"  # after a delivery: request changes for the next version, or finish
+MODE_ITERATE_GATE = (
+    "iterate_gate"  # after a delivery: request changes for the next version, or finish
+)
 MODE_DONE = "done"
 MODE_INTERRUPTED = "interrupted"  # paused mid-run (crash/stop), not at a gate: can be continued
 
@@ -54,7 +56,15 @@ _STAGES = [
 
 # Kinds whose entries are messages the user sent (rendered as user bubbles).
 USER_KINDS = frozenset(
-    {"idea", "preferences", "user_answers", "arch_decision", "planner_decision", "implement_decision", "change_request"}
+    {
+        "idea",
+        "preferences",
+        "user_answers",
+        "arch_decision",
+        "planner_decision",
+        "implement_decision",
+        "change_request",
+    }
 )
 
 # Graph node about to run -> (speaker, message) for the in-progress indicator.
@@ -67,14 +77,26 @@ _RUNNING: dict[str, tuple[str, str]] = {
         "Planner",
         "Generating the blueprint pack: PRD, architecture doc, plan, subagent definitions, and the agent harness...",
     ),
-    "prepare_workspace": ("Workspace", "Preparing the project workspace (copying the pack, initialising git)..."),
-    "acceptance_author": ("Acceptance author", "Writing held-out acceptance tests from the PRD and the contracts..."),
+    "prepare_workspace": (
+        "Workspace",
+        "Preparing the project workspace (copying the pack, initialising git)...",
+    ),
+    "acceptance_author": (
+        "Acceptance author",
+        "Writing held-out acceptance tests from the PRD and the contracts...",
+    ),
     "harness_tuning": (
         "Harness tuner",
         "Tuning the agent harness: a pilot task is built under the pack's harness and two proposed edits of it...",
     ),
-    "implementer": ("Implementer", "Implementation agents are building the project. This can take a while..."),
-    "verify": ("Verifier", "Verifying in parallel lanes: tests, quality, requirement coverage, and acceptance tests when there are any..."),
+    "implementer": (
+        "Implementer",
+        "Implementation agents are building the project. This can take a while...",
+    ),
+    "verify": (
+        "Verifier",
+        "Verifying in parallel lanes: tests, quality, requirement coverage, and acceptance tests when there are any...",
+    ),
     "fix": ("Fixer", "Fixing what verification found..."),
     "delivery_report": ("Delivery", "Assembling the delivery report..."),
     "reflect": ("Reflector", "Recording what this delivery showed in the experience library..."),
@@ -133,11 +155,18 @@ class LiveTurns:
     """
 
     def __init__(self) -> None:
-        self._turns: dict[str, tuple[str, str, str, bool]] = {}  # speaker -> (call id, phase, text so far, done)
+        self._turns: dict[
+            str, tuple[str, str, str, bool]
+        ] = {}  # speaker -> (call id, phase, text so far, done)
 
     def add(self, call_id: str, speaker: str, phase: str, text: str) -> None:
         previous_id, _phase, so_far, _done = self._turns.get(speaker, (call_id, phase, "", False))
-        self._turns[speaker] = (call_id, phase, (so_far if previous_id == call_id else "") + text, False)
+        self._turns[speaker] = (
+            call_id,
+            phase,
+            (so_far if previous_id == call_id else "") + text,
+            False,
+        )
 
     def finish(self, speaker: str, text: str, *, phase: str = "opening") -> None:
         """The speaker's node returned: its final text replaces the tokens (and is all there is for a model that
@@ -155,7 +184,9 @@ class LiveTurns:
         order = {name: index for index, name in enumerate(SPEAKER_ORDER)}
         return [
             ViewEntry("discussion", speaker, text, data=TurnInfo(phase, live=not done))
-            for speaker, (_id, phase, text, done) in sorted(self._turns.items(), key=lambda kv: order.get(kv[0], 99))
+            for speaker, (_id, phase, text, done) in sorted(
+                self._turns.items(), key=lambda kv: order.get(kv[0], 99)
+            )
         ]
 
 
@@ -167,7 +198,9 @@ def _reached(values: Mapping[str, Any], stage: str) -> bool:
 
 
 # Graph nodes that wait for the user: the time until the run continues from one of them is not work.
-GATE_NODES = frozenset({"collect_answers", "arch_choice", "plan_gate", "implement_gate", "iterate_gate"})
+GATE_NODES = frozenset(
+    {"collect_answers", "arch_choice", "plan_gate", "implement_gate", "iterate_gate"}
+)
 
 
 @dataclass(frozen=True)
@@ -193,11 +226,15 @@ def stage_marks(snapshots: Iterable[Any]) -> list[StageMark]:
             at = datetime.fromisoformat(str(created)).timestamp()
         except ValueError:
             continue
-        marks.append(StageMark(at, str(stage), bool(GATE_NODES & set(getattr(snapshot, "next", None) or ()))))
+        marks.append(
+            StageMark(at, str(stage), bool(GATE_NODES & set(getattr(snapshot, "next", None) or ())))
+        )
     return marks
 
 
-def stage_elapsed(marks: Sequence[StageMark], *, now: float | None = None, active: str | None = None) -> dict[str, float]:
+def stage_elapsed(
+    marks: Sequence[StageMark], *, now: float | None = None, active: str | None = None
+) -> dict[str, float]:
     """Seconds of work per pipeline step, derived from checkpoint times (nothing is stored for it).
 
     Each checkpoint is credited with the time since the previous one, unless the graph was waiting at a
@@ -229,7 +266,10 @@ def research_markdown(brief: Mapping[str, Any]) -> str:
     if competitors := brief.get("competitors") or []:
         rows += ["**Competitors**", ""]
         for c in competitors:
-            rows.append(f"- [{c['name']}]({c['url']}) — {c['positioning']}" + (f" (pricing: {c['pricing']})" if c.get("pricing") else ""))
+            rows.append(
+                f"- [{c['name']}]({c['url']}) — {c['positioning']}"
+                + (f" (pricing: {c['pricing']})" if c.get("pricing") else "")
+            )
         rows.append("")
     for title, key in (("Market notes", "market_notes"), ("Gaps", "gaps"), ("Sources", "sources")):
         if items := brief.get(key) or []:
@@ -247,7 +287,9 @@ def strategy_markdown(strategy: Mapping[str, Any]) -> str:
         lines += [f"**Starter template:** `{template}` (laid down before the first task)", ""]
     lines += [str(strategy.get("reasoning") or "").strip(), "", "**Workstreams:**"]
     for workstream in strategy.get("workstreams") or []:
-        lines.append(f"- `{workstream.get('name') or 'workstream'}` — {workstream.get('focus') or ''}")
+        lines.append(
+            f"- `{workstream.get('name') or 'workstream'}` — {workstream.get('focus') or ''}"
+        )
     return "\n".join(lines).strip()
 
 
@@ -261,7 +303,13 @@ ADOPTED_HARNESS = {
 
 def _run_line(probe: Mapping[str, Any]) -> str:
     tests = probe.get("tests") or {}
-    verdict = "tests not run" if not tests.get("ran") else "tests passed" if tests.get("passed") else "tests failed"
+    verdict = (
+        "tests not run"
+        if not tests.get("ran")
+        else "tests passed"
+        if tests.get("passed")
+        else "tests failed"
+    )
     delivered = "delivered" if probe.get("delivered") else "delivered nothing"
     return f"{delivered}, {verdict} · ${float(probe.get('cost_usd') or 0):.2f}"
 
@@ -280,25 +328,36 @@ def selection_sentences(record: Mapping[str, Any]) -> list[str]:
     if status == "skipped":
         return [f"No pilot build was selected: {selection.get('note') or 'no reason recorded'}."]
     if status == "none":
-        return [f"No pilot build was selected ({overruled or rationale or 'no reason recorded'}); {pilot} is built again."]
+        return [
+            f"No pilot build was selected ({overruled or rationale or 'no reason recorded'}); {pilot} is built again."
+        ]
     if status != "chosen":
         return []
     build = selection.get("choice")
     origin = ARM_HARNESS.get(str(selection.get("arm")), "an unknown harness")
     if selection.get("landed") is False:
-        return [f"Build {build} (built under {origin}) was selected, but {selection.get('note') or 'it was not applied'}."]
+        return [
+            f"Build {build} (built under {origin}) was selected, but {selection.get('note') or 'it was not applied'}."
+        ]
     count = len(selection.get("builds") or {})
-    sentences = [f"Build {build} of {count} (built under {origin}) was selected as {pilot}'s result, so it is not built again."]
+    sentences = [
+        f"Build {build} of {count} (built under {origin}) was selected as {pilot}'s result, so it is not built again."
+    ]
     if rationale:
         sentences.append(rationale)
     if overruled:
-        sentences.append(f"The selector chose build {selection.get('proposed')}, overruled: {overruled}.")
+        sentences.append(
+            f"The selector chose build {selection.get('proposed')}, overruled: {overruled}."
+        )
     return sentences
 
 
 def tuning_spend(record: Mapping[str, Any]) -> tuple[float, float]:
     """(the pilot builds and their tests lanes, the model calls) in dollars, from the probes and the ledger."""
-    probes = [record.get("base") or {}, *((record.get(kind) or {}).get("probe") or {} for kind in ("inv", "dom"))]
+    probes = [
+        record.get("base") or {},
+        *((record.get(kind) or {}).get("probe") or {} for kind in ("inv", "dom")),
+    ]
     sessions = sum(float(probe.get("cost_usd") or 0.0) for probe in probes)
     total = float((record.get("ledger") or {}).get("cost_usd") or 0.0)
     return sessions, max(0.0, total - sessions)
@@ -325,20 +384,30 @@ def tuning_markdown(record: Mapping[str, Any]) -> str:
         summary = str(candidate.get("summary") or "").strip() or "no edit"
         if candidate.get("inherited"):
             summary = "no usable edit (the base harness ran)"
-        lines.append(f"- {kind.upper()} edit: {summary} — {_run_line(candidate.get('probe') or {})}")
+        lines.append(
+            f"- {kind.upper()} edit: {summary} — {_run_line(candidate.get('probe') or {})}"
+        )
     if rationale := str(compose.get("rationale") or "").strip():
         lines.append(f"\n{rationale}")
     if overruled := str(compose.get("overruled") or "").strip():
         lines.append(f"\nThe composer chose `{compose.get('proposed')}`, overruled: {overruled}.")
     ledger = record.get("ledger") or {}
     if ledger and not ledger.get("ok"):
-        lines.append("\nThe ledger did not add up, so the base harness was kept: " + "; ".join(ledger.get("problems") or []) + ".")
+        lines.append(
+            "\nThe ledger did not add up, so the base harness was kept: "
+            + "; ".join(ledger.get("problems") or [])
+            + "."
+        )
     if record.get("commit"):
-        lines.append(f"\nCommitted as `harness: tuned (pilot {pilot.get('id', '')})` ({record['commit']}).")
+        lines.append(
+            f"\nCommitted as `harness: tuned (pilot {pilot.get('id', '')})` ({record['commit']})."
+        )
     if selected := selection_sentences(record):
         lines.append("\n" + " ".join(selected))
     sessions, calls = tuning_spend(record)
-    lines.append(f"\nSpend: ${sessions + calls:.2f} (pilot builds and their tests lanes ${sessions:.2f}, model calls ${calls:.2f}).")
+    lines.append(
+        f"\nSpend: ${sessions + calls:.2f} (pilot builds and their tests lanes ${sessions:.2f}, model calls ${calls:.2f})."
+    )
     return "\n".join(lines)
 
 
@@ -374,24 +443,34 @@ def reflection_markdown(record: Mapping[str, Any]) -> str:
         lines.append(f"**Experience library** ({domain}): no lesson from this delivery (NO_ENTRY).")
     if edits := record.get("edits") or []:
         lines.append("\nWhat the run tried, judged from its evidence:\n")
-        lines += [f"- `{row.get('edit', '')}`: {row.get('effect', '')} — {row.get('evidence', '')}" for row in edits]
+        lines += [
+            f"- `{row.get('edit', '')}`: {row.get('effect', '')} — {row.get('evidence', '')}"
+            for row in edits
+        ]
     if dropped := record.get("dropped") or []:
         lines.append("\nNot recorded: " + "; ".join(str(item) for item in dropped) + ".")
     if record.get("entry"):
-        lines.append(f"\nEntry `{record['entry']}` (browse or forget it in the *Experience library* panel).")
+        lines.append(
+            f"\nEntry `{record['entry']}` (browse or forget it in the *Experience library* panel)."
+        )
     return "\n".join(lines)
 
 
 def panel_running(values: Mapping[str, Any]) -> tuple[str, str]:
     """The in-progress indicator for the panel: parallel openings first, then one speaker at a time."""
     if values.get("panel_mode", "moderated") == "moderated" and not values.get("turn_count"):
-        return "Panel", "PM, Tech Lead, and Skeptic are writing their opening statements in parallel..."
+        return (
+            "Panel",
+            "PM, Tech Lead, and Skeptic are writing their opening statements in parallel...",
+        )
     speaker = str(values.get("next_speaker") or "PM")
     return speaker, f"{speaker} is drafting the next panel turn..."
 
 
 _CONSOLE_ACTIONS = 8
-_VERIFY_PREFIX = "verify:"  # task ids of the verification lanes and the fix session (implementation/verify.py)
+_VERIFY_PREFIX = (
+    "verify:"  # task ids of the verification lanes and the fix session (implementation/verify.py)
+)
 _PILOT_PREFIX = "pilot:"  # task ids of harness tuning's pilot runs and their tests lanes (nodes/harness_tuning.py)
 
 
@@ -451,7 +530,9 @@ def implementation_progress(events: Sequence[ImplEvent], *, total_budget: float)
     money = f"${spent:.2f} of ${total_budget:.2f}"
     if not running:
         named = last_label if _by_title(last_task) else last_task
-        return f"{_verb([last_task])}: {named} finished · {money}", "\n".join(finished[-_CONSOLE_ACTIONS:])
+        return f"{_verb([last_task])}: {named} finished · {money}", "\n".join(
+            finished[-_CONSOLE_ACTIONS:]
+        )
     names = [(tid, start["label"], start["detail"]) for tid, start in running.items()]
     verb = _verb([tid for tid, _, _ in names])
     if len(names) == 1:
@@ -476,7 +557,9 @@ def implementation_progress(events: Sequence[ImplEvent], *, total_budget: float)
     return f"{status} · {money}", "\n".join(lines)
 
 
-def running_from_state(values: Mapping[str, Any], next_nodes: Sequence[str]) -> tuple[str, str] | None:
+def running_from_state(
+    values: Mapping[str, Any], next_nodes: Sequence[str]
+) -> tuple[str, str] | None:
     """The (speaker, message) of the step that is about to run, if it is a working step."""
     for node in next_nodes:
         if node == "panel":
@@ -509,7 +592,11 @@ def status_from_state(
         if running[0] in ("PM", "Tech Lead", "Skeptic"):
             done = int(values.get("turn_count") or 0)
             total = int(values.get("max_rounds") or 0)
-            return f"Turn {done}/{total} complete. Next: {running[0]}." if done else "Running panel discussion..."
+            return (
+                f"Turn {done}/{total} complete. Next: {running[0]}."
+                if done
+                else "Running panel discussion..."
+            )
         return running[1]
     return {
         MODE_IDEA: "",
@@ -562,10 +649,14 @@ def transcript_from_state(
     if idea:
         entries.append(ViewEntry("idea", "You", idea))
         if lines := preference_lines(stated_preferences(values.get("preferences"))):
-            entries.append(ViewEntry("preferences", "You", "Project preferences:\n" + "\n".join(lines)))
+            entries.append(
+                ViewEntry("preferences", "You", "Project preferences:\n" + "\n".join(lines))
+            )
         research = values.get("research") or {}
         if research.get("competitors") or research.get("market_notes") or research.get("gaps"):
-            entries.append(ViewEntry("research", "Research", research_markdown(research), data=research))
+            entries.append(
+                ViewEntry("research", "Research", research_markdown(research), data=research)
+            )
 
     turns = [m for m in values.get("discussion_history") or [] if isinstance(m, AIMessage)]
     moderated = values.get("panel_mode", "moderated") == "moderated"
@@ -575,7 +666,9 @@ def transcript_from_state(
             phase="opening" if moderated and index < len(SPEAKER_ORDER) else "turn",
             collapsed=index < len(turns) - len(SPEAKER_ORDER),  # older than the last round
         )
-        entries.append(ViewEntry("discussion", speaker, normalize_message_content(message), data=info))
+        entries.append(
+            ViewEntry("discussion", speaker, normalize_message_content(message), data=info)
+        )
 
     convergence = values.get("convergence") or {}
     if convergence.get("converged") and (reason := str(convergence.get("reason") or "").strip()):
@@ -585,7 +678,9 @@ def transcript_from_state(
         entries.append(ViewEntry("summary", "Summary", summary))
 
     if questions := [str(q) for q in values.get("generated_questions") or []]:
-        entries.append(ViewEntry("questions", "Questions", "\n".join(questions), data=values.get("questions")))
+        entries.append(
+            ViewEntry("questions", "Questions", "\n".join(questions), data=values.get("questions"))
+        )
 
     if answers := str(values.get("user_answers") or "").strip():
         entries.append(ViewEntry("user_answers", "You", answers))
@@ -595,7 +690,9 @@ def transcript_from_state(
 
     choice = values.get("arch_choice") or {}
     if choice.get("option"):
-        text = with_notes(f"Architecture choice: Option {choice['option']}", str(choice.get("notes") or ""))
+        text = with_notes(
+            f"Architecture choice: Option {choice['option']}", str(choice.get("notes") or "")
+        )
         entries.append(ViewEntry("arch_decision", "You", text))
 
     strategy = values.get("execution_strategy") or {}
@@ -606,10 +703,23 @@ def transcript_from_state(
     generated = bool(plan_decision.get("generate"))
     if _reached(values, "plan_bundle"):
         label = PLAN_CHOICE_GENERATE if generated else PLAN_CHOICE_SKIP
-        entries.append(ViewEntry("planner_decision", "You", with_notes(label, str(plan_decision.get("notes") or ""))))
+        entries.append(
+            ViewEntry(
+                "planner_decision", "You", with_notes(label, str(plan_decision.get("notes") or ""))
+            )
+        )
 
-    if bundle := str(values.get("project_bundle_summary") or values.get("project_bundle_dir") or "").strip():
-        entries.append(ViewEntry("project_bundle", "Planner", bundle, data=list(values.get("project_bundle_files") or [])))
+    if bundle := str(
+        values.get("project_bundle_summary") or values.get("project_bundle_dir") or ""
+    ).strip():
+        entries.append(
+            ViewEntry(
+                "project_bundle",
+                "Planner",
+                bundle,
+                data=list(values.get("project_bundle_files") or []),
+            )
+        )
         if library := library_markdown(values.get("library") or {}):
             entries.append(ViewEntry("library", "Experience library", library))
 
@@ -620,10 +730,14 @@ def transcript_from_state(
         entries.append(ViewEntry("implement_decision", "You", with_notes(label, notes)))
 
     if tuning := tuning_markdown(values.get("harness_tuning") or {}):
-        entries.append(ViewEntry("harness_tuning", "Harness tuner", tuning, data=values.get("harness_tuning")))
+        entries.append(
+            ViewEntry("harness_tuning", "Harness tuner", tuning, data=values.get("harness_tuning"))
+        )
 
     for number, request in enumerate(values.get("change_requests") or [], start=2):
-        entries.append(ViewEntry("change_request", "You", f"Change request (v0.{number}): {request}"))
+        entries.append(
+            ViewEntry("change_request", "You", f"Change request (v0.{number}): {request}")
+        )
 
     if log := str(values.get("implementation_log") or "").strip():
         workspace = str(values.get("workspace_dir") or "").strip()
@@ -632,23 +746,33 @@ def transcript_from_state(
 
     verification = values.get("verification") or {}
     delivered = bool(str(values.get("delivery_report") or "").strip())
-    if str(verification.get("report") or "").strip() and not delivered:  # the dashboard carries the lanes once delivered
+    if (
+        str(verification.get("report") or "").strip() and not delivered
+    ):  # the dashboard carries the lanes once delivered
         verdict = "passed ✅" if verification.get("passed") else "failed ❌"
         attempts = int(verification.get("attempts") or 0)
-        content = (
-            f"Verification {verdict} after {attempts} fix attempt(s).\n\n{str(verification['report']).strip()}"
-        )
+        content = f"Verification {verdict} after {attempts} fix attempt(s).\n\n{str(verification['report']).strip()}"
         entries.append(ViewEntry("verification", "Verifier", content, data=verification))
 
     if report := str(values.get("delivery_report") or "").strip():
-        entries.append(ViewEntry("delivery_report", "Delivery", report, data=values))  # rendered as the dashboard
+        entries.append(
+            ViewEntry("delivery_report", "Delivery", report, data=values)
+        )  # rendered as the dashboard
         if reflection := reflection_markdown(values.get("reflection") or {}):
             entries.append(ViewEntry("reflection", "Reflector", reflection))
 
-    if no_change := values.get("no_change") or {}:  # the request was not built, so it is not a version above
-        entries.append(ViewEntry("change_request", "You", f"Change request: {no_change.get('request', '')}"))
+    if (
+        no_change := values.get("no_change") or {}
+    ):  # the request was not built, so it is not a version above
         entries.append(
-            ViewEntry("change_planner", "Change planner", f"No change needed: {no_change.get('reason', '')}")
+            ViewEntry("change_request", "You", f"Change request: {no_change.get('request', '')}")
+        )
+        entries.append(
+            ViewEntry(
+                "change_planner",
+                "Change planner",
+                f"No change needed: {no_change.get('reason', '')}",
+            )
         )
 
     entries.extend(_gate_card(pending_interrupt) if pending_user is None else [])
@@ -670,16 +794,24 @@ def _gate_card(pending_interrupt: Mapping[str, Any] | None) -> list[ViewEntry]:
     if kind == "arch_choice":
         return [
             ViewEntry(
-                "arch_choice", "Architect", question or "Which architecture option should we target?"
+                "arch_choice",
+                "Architect",
+                question or "Which architecture option should we target?",
             )
         ]
     if kind == "plan_gate":
         return [ViewEntry("planner_offer", "Planner", question or "Generate the execution pack?")]
     if kind == "implement_gate":
-        cards = [ViewEntry("implement_gate", "Planner", question or "Start the implementation stage now?")]
+        cards = [
+            ViewEntry(
+                "implement_gate", "Planner", question or "Start the implementation stage now?"
+            )
+        ]
         if warning := str(payload.get("warning") or "").strip():
             cards.append(ViewEntry("warning", "Security warning", warning))
         return cards
     if kind == "iterate_gate":
-        return [ViewEntry("iterate_gate", "Delivery", question or "Want changes for the next version?")]
+        return [
+            ViewEntry("iterate_gate", "Delivery", question or "Want changes for the next version?")
+        ]
     return []  # the answers gate is the questions entry itself

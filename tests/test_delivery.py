@@ -35,7 +35,9 @@ def names(archive: Path) -> set[str]:
 
 
 def git(workspace: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=workspace, capture_output=True, text=True, check=True).stdout.strip()
+    return subprocess.run(
+        ["git", *args], cwd=workspace, capture_output=True, text=True, check=True
+    ).stdout.strip()
 
 
 # ------------------------------------------------------------------------- zip
@@ -44,22 +46,42 @@ def git(workspace: Path, *args: str) -> str:
 def test_the_zip_holds_the_project_under_its_own_folder(workspace: Path, tmp_path: Path) -> None:
     archive = make_delivery_zip(workspace, tmp_path / "deliveries")
     assert archive.parent == tmp_path / "deliveries" and archive.suffix == ".zip"
-    assert {f"{workspace.name}/README.md", f"{workspace.name}/src/app.py", f"{workspace.name}/.gitignore"} <= names(archive)
+    assert {
+        f"{workspace.name}/README.md",
+        f"{workspace.name}/src/app.py",
+        f"{workspace.name}/.gitignore",
+    } <= names(archive)
 
 
 @pytest.mark.parametrize(
     "excluded",
-    ["node_modules/pkg/index.js", ".venv/bin/python", "venv/lib/x.py", "coverage/lcov.info", "dist/app.js", "src/__pycache__/app.pyc",
-     ".pytest_cache/v/cache", ".idea-to-mvp/progress.json", ".idea-to-mvp/ledger.json", ".idea-to-mvp/trajectories/T01.md"],
+    [
+        "node_modules/pkg/index.js",
+        ".venv/bin/python",
+        "venv/lib/x.py",
+        "coverage/lcov.info",
+        "dist/app.js",
+        "src/__pycache__/app.pyc",
+        ".pytest_cache/v/cache",
+        ".idea-to-mvp/progress.json",
+        ".idea-to-mvp/ledger.json",
+        ".idea-to-mvp/trajectories/T01.md",
+    ],
 )
-def test_dependencies_build_output_and_orchestrator_files_are_left_out(workspace: Path, tmp_path: Path, excluded: str) -> None:
+def test_dependencies_build_output_and_orchestrator_files_are_left_out(
+    workspace: Path, tmp_path: Path, excluded: str
+) -> None:
     path = workspace / excluded
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("x")
-    assert f"{workspace.name}/{excluded}" not in names(make_delivery_zip(workspace, tmp_path / "out"))
+    assert f"{workspace.name}/{excluded}" not in names(
+        make_delivery_zip(workspace, tmp_path / "out")
+    )
 
 
-def test_secrets_are_never_zipped_but_the_example_env_file_is(workspace: Path, tmp_path: Path) -> None:
+def test_secrets_are_never_zipped_but_the_example_env_file_is(
+    workspace: Path, tmp_path: Path
+) -> None:
     (workspace / ".env").write_text("API_KEY=secret")
     (workspace / ".env.local").write_text("API_KEY=secret")
     (workspace / ".env.example").write_text("API_KEY=")
@@ -68,7 +90,9 @@ def test_secrets_are_never_zipped_but_the_example_env_file_is(workspace: Path, t
     assert f"{workspace.name}/.env" not in found and f"{workspace.name}/.env.local" not in found
 
 
-def test_symlinks_are_skipped_so_the_zip_cannot_leak_files_from_outside_the_project(workspace: Path, tmp_path: Path) -> None:
+def test_symlinks_are_skipped_so_the_zip_cannot_leak_files_from_outside_the_project(
+    workspace: Path, tmp_path: Path
+) -> None:
     secret = tmp_path / "secret.txt"
     secret.write_text("outside")
     (workspace / "link.txt").symlink_to(secret)
@@ -79,20 +103,29 @@ def test_symlinks_are_skipped_so_the_zip_cannot_leak_files_from_outside_the_proj
 
 def test_the_git_history_is_left_out_unless_asked_for(workspace: Path, tmp_path: Path) -> None:
     assert not any("/.git/" in name for name in names(make_delivery_zip(workspace, tmp_path / "a")))
-    assert any(name.startswith(f"{workspace.name}/.git/") for name in names(make_delivery_zip(workspace, tmp_path / "b", include_git=True)))
+    assert any(
+        name.startswith(f"{workspace.name}/.git/")
+        for name in names(make_delivery_zip(workspace, tmp_path / "b", include_git=True))
+    )
 
 
-def test_each_version_gets_its_own_zip_and_a_rerun_updates_it_in_place(workspace: Path, tmp_path: Path) -> None:
+def test_each_version_gets_its_own_zip_and_a_rerun_updates_it_in_place(
+    workspace: Path, tmp_path: Path
+) -> None:
     out = tmp_path / "out"
     v1 = make_delivery_zip(workspace, out, label="v0.1")
     (workspace / "src" / "new.py").write_text("x = 1\n")
     v2 = make_delivery_zip(workspace, out, label="v0.2")
     assert v1 != v2 and v1.name.endswith("-v0.1.zip") and v2.name.endswith("-v0.2.zip")
-    assert f"{workspace.name}/src/new.py" not in names(v1) and f"{workspace.name}/src/new.py" in names(v2)
+    assert f"{workspace.name}/src/new.py" not in names(
+        v1
+    ) and f"{workspace.name}/src/new.py" in names(v2)
     (workspace / "src" / "newer.py").write_text("y = 2\n")
     assert make_delivery_zip(workspace, out, label="v0.2") == v2
     assert f"{workspace.name}/src/newer.py" in names(v2)
-    assert sorted(p.name for p in out.iterdir()) == sorted([v1.name, v2.name])  # no temp files left behind
+    assert sorted(p.name for p in out.iterdir()) == sorted(
+        [v1.name, v2.name]
+    )  # no temp files left behind
 
 
 # ------------------------------------------------------------------------- tag

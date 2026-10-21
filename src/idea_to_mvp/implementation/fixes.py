@@ -63,7 +63,9 @@ _ENVIRONMENT_PATTERNS = tuple(
 
 @dataclass(frozen=True)
 class Classification:
-    environment: list[str] = field(default_factory=list)  # failures no change to the project can fix
+    environment: list[str] = field(
+        default_factory=list
+    )  # failures no change to the project can fix
     code: list[str] = field(default_factory=list)  # everything else
 
     @property
@@ -133,7 +135,9 @@ def parse_notes(text: str) -> list[Note]:
         parts = [part.strip() for part in raw.strip().lstrip("-*• ").split("->")]
         if len(parts) < 3 or parts[0].lower() not in _NOTE_VERDICTS or not parts[1] or not parts[2]:
             continue
-        notes.append(Note(parts[0].lower(), parts[1][:_LINE_LIMIT], " -> ".join(parts[2:])[:_LINE_LIMIT]))
+        notes.append(
+            Note(parts[0].lower(), parts[1][:_LINE_LIMIT], " -> ".join(parts[2:])[:_LINE_LIMIT])
+        )
     return notes
 
 
@@ -188,7 +192,9 @@ def write_attempt(
     folder = fix_root(workspace) / attempt_name(iteration, attempt)
     folder.mkdir(parents=True, exist_ok=True)
     listing = "\n".join(f"- {failure}" for failure in failures) or "- (none listed)"
-    (folder / "failures.md").write_text(f"# Failures fix attempt {attempt} was given\n\n{listing}\n", encoding="utf-8")
+    (folder / "failures.md").write_text(
+        f"# Failures fix attempt {attempt} was given\n\n{listing}\n", encoding="utf-8"
+    )
     (folder / "diff.patch").write_text(diff if diff.strip() else _NO_CHANGES, encoding="utf-8")
     target = folder / "trajectory.md"
     target.unlink(missing_ok=True)
@@ -197,13 +203,21 @@ def write_attempt(
     return folder
 
 
-def write_after(workspace: Path, *, iteration: int, attempt: int, passed: bool, report: str) -> None:
+def write_after(
+    workspace: Path, *, iteration: int, attempt: int, passed: bool, report: str
+) -> None:
     """Add the lane reports that followed attempt `attempt` (the round the next verdict has just judged)."""
     folder = fix_root(workspace) / attempt_name(iteration, attempt)
     if not folder.is_dir():
         return
-    outcome = "Verification passed after this attempt." if passed else "Verification was still failing after this attempt."
-    (folder / "after.md").write_text(f"# After fix attempt {attempt}\n\n{outcome}\n\n{report.strip()}\n", encoding="utf-8")
+    outcome = (
+        "Verification passed after this attempt."
+        if passed
+        else "Verification was still failing after this attempt."
+    )
+    (folder / "after.md").write_text(
+        f"# After fix attempt {attempt}\n\n{outcome}\n\n{report.strip()}\n", encoding="utf-8"
+    )
 
 
 def evidence_block(workspace: Path, *, iteration: int, attempt: int) -> str:
@@ -283,10 +297,15 @@ def history_entry(
 
 def close_entry(entry: Any, *, passed: bool, remaining: int) -> FixAttempt:
     """The entry of an attempt once the round after it is judged."""
-    return cast(FixAttempt, {**entry, "result": "passed" if passed else "failed", "remaining": remaining})
+    return cast(
+        FixAttempt, {**entry, "result": "passed" if passed else "failed", "remaining": remaining}
+    )
 
 
-_RESULT_TEXT = {"passed": "verification passed", "stopped": "stopped: nothing in the project could fix it"}
+_RESULT_TEXT = {
+    "passed": "verification passed",
+    "stopped": "stopped: nothing in the project could fix it",
+}
 
 
 def result_text(entry: Any) -> str:
@@ -304,16 +323,21 @@ def history_markdown(history: Sequence[Any]) -> str:
     blocks = ["### Fix attempts"]
     for entry in history:
         cost = f" · ${float(entry.get('cost_usd') or 0.0):.2f}" if entry.get("cost_usd") else ""
-        lines = [f"**Attempt {entry.get('attempt')}** · {entry.get('model') or 'unknown model'}{cost} · {result_text(entry)}"]
+        lines = [
+            f"**Attempt {entry.get('attempt')}** · {entry.get('model') or 'unknown model'}{cost} · {result_text(entry)}"
+        ]
         if files := entry.get("files") or []:
             lines.append("- Changed: " + ", ".join(f"`{name}`" for name in files))
         elif entry.get("kind") != "environment":
             lines.append("- Changed nothing.")
         lines += [
-            f"- {note.get('verdict')}: {note.get('hypothesis')} (evidence: {note.get('evidence')})" for note in entry.get("notes") or []
+            f"- {note.get('verdict')}: {note.get('hypothesis')} (evidence: {note.get('evidence')})"
+            for note in entry.get("notes") or []
         ]
         if entry.get("kind") == "environment":
-            lines.append(f"- The session reported an environment problem: {entry.get('summary') or 'see the folder'}")
+            lines.append(
+                f"- The session reported an environment problem: {entry.get('summary') or 'see the folder'}"
+            )
         if entry.get("notes_problem"):
             lines.append(f"- Note: {entry['notes_problem']}")
         blocks.append("\n".join(lines))

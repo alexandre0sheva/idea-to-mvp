@@ -49,7 +49,9 @@ _MAX_CHANGES_BYTES = 200_000
 _REASON_LIMIT = 300
 _PATH_LIMIT = 200
 
-_SKIPPED_DIRS = frozenset({*IGNORED_DIRS, *GENERATED_DIRS, "vendor"})  # vendored code is not the project's tests
+_SKIPPED_DIRS = frozenset(
+    {*IGNORED_DIRS, *GENERATED_DIRS, "vendor"}
+)  # vendored code is not the project's tests
 _TEST_DIRS = frozenset({"tests", "test", "__tests__", "spec", "specs", "e2e", "integration_tests"})
 _CODE_SUFFIXES = frozenset(
     {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte", ".go", ".rb", ".rs", ".java",
@@ -83,7 +85,9 @@ _SKIP = re.compile(
 _PY_TEST = re.compile(r"^(\s*)(?:async\s+)?def\s+(test\w*)\s*\(")
 _JS_TEST = re.compile(r"^\s*(?:it|test|specify)(?:\.\w+)*\s*\(\s*(['\"`])(.+?)\1")
 _GO_TEST = re.compile(r"^func\s+(Test\w*)\s*\(")
-_JUSTIFICATION = re.compile(r"^\s*[-*]\s+(`?)(?P<key>[^`\s:]+)\1\s*(?::|\s[—–-])\s*(?P<reason>\S.*?)\s*$")
+_JUSTIFICATION = re.compile(
+    r"^\s*[-*]\s+(`?)(?P<key>[^`\s:]+)\1\s*(?::|\s[—–-])\s*(?P<reason>\S.*?)\s*$"
+)
 
 
 class IntegrityFinding(TypedDict):
@@ -131,7 +135,9 @@ class FileFacts:
     digest: str
     assertions: int
     skips: int
-    blocks: dict[str, BlockFacts] = field(default_factory=dict)  # test name -> facts; '' = the whole file
+    blocks: dict[str, BlockFacts] = field(
+        default_factory=dict
+    )  # test name -> facts; '' = the whole file
 
     @property
     def holds_tests(self) -> bool:
@@ -181,7 +187,9 @@ def _block_ranges(lines: list[str], suffix: str) -> list[tuple[str, int, int]]:
             indent, end = len(match.group(1).expandtabs()), index + 1
             while end < len(lines) and (
                 not lines[end].strip()
-                or lines[end].lstrip().startswith((")", "]"))  # the end of a signature split over lines
+                or lines[end]
+                .lstrip()
+                .startswith((")", "]"))  # the end of a signature split over lines
                 or len(lines[end].expandtabs()) - len(lines[end].expandtabs().lstrip()) > indent
             ):
                 end += 1
@@ -191,8 +199,15 @@ def _block_ranges(lines: list[str], suffix: str) -> list[tuple[str, int, int]]:
     pattern = _GO_TEST if suffix == ".go" else _JS_TEST if suffix in _JS_SUFFIXES else None
     if pattern is None:
         return []
-    starts = [(index, match.group(match.lastindex or 1)) for index, line in enumerate(lines) if (match := pattern.match(line))]
-    return [(name, start, starts[n + 1][0] if n + 1 < len(starts) else len(lines)) for n, (start, name) in enumerate(starts)]
+    starts = [
+        (index, match.group(match.lastindex or 1))
+        for index, line in enumerate(lines)
+        if (match := pattern.match(line))
+    ]
+    return [
+        (name, start, starts[n + 1][0] if n + 1 < len(starts) else len(lines))
+        for n, (start, name) in enumerate(starts)
+    ]
 
 
 def file_facts(text: str, relative: str) -> FileFacts:
@@ -219,7 +234,9 @@ def file_facts(text: str, relative: str) -> FileFacts:
             key += "#"
         blocks[key] = BlockFacts(
             assertions=sum(1 for kind in kinds[start:end] if kind == "assert"),
-            others=_digest("\n".join(lines[i].strip() for i in range(start, end) if kinds[i] == "other")),
+            others=_digest(
+                "\n".join(lines[i].strip() for i in range(start, end) if kinds[i] == "other")
+            ),
         )
     return FileFacts(digest=_digest(text), assertions=assertions, skips=skips, blocks=blocks)
 
@@ -254,7 +271,14 @@ def snapshot(root: Path) -> Snapshot:
 
 
 def _finding(
-    *, session: str, iteration: int, kind: FindingKind, path: str, before: int, detail: str, block: str = ""
+    *,
+    session: str,
+    iteration: int,
+    kind: FindingKind,
+    path: str,
+    before: int,
+    detail: str,
+    block: str = "",
 ) -> IntegrityFinding:
     return {
         "id": f"v{iteration}:{session}:{kind}:{path}:{block}",
@@ -291,7 +315,11 @@ def compare(
             if not old.holds_tests:
                 continue
             moved = next((other for other, digest in added.items() if digest == old.digest), None)
-            what = f"renamed the test file {shown} to {clip(moved, _PATH_LIMIT)}" if moved else f"deleted the test file {shown}"
+            what = (
+                f"renamed the test file {shown} to {clip(moved, _PATH_LIMIT)}"
+                if moved
+                else f"deleted the test file {shown}"
+            )
             findings.append(
                 _finding(
                     session=session,
@@ -370,14 +398,22 @@ class SessionWatch:
         self._iteration = iteration
         enabled = settings.test_integrity != "off"
         self._before: Snapshot | None = snapshot(self._root) if enabled else None
-        self._known = read_justifications(self._root) if enabled else {}  # cannot justify what this session does
+        self._known = (
+            read_justifications(self._root) if enabled else {}
+        )  # cannot justify what this session does
 
-    def findings(self, *, session: str | None = None, exempt: Collection[str] = ()) -> list[IntegrityFinding]:
+    def findings(
+        self, *, session: str | None = None, exempt: Collection[str] = ()
+    ) -> list[IntegrityFinding]:
         """`session` names the session if its label was only known once it ran (a trajectory label like `T01-2`)."""
         if self._before is None:
             return []
         found = compare(
-            self._before, snapshot(self._root), session=session or self._session, iteration=self._iteration, exempt=exempt
+            self._before,
+            snapshot(self._root),
+            session=session or self._session,
+            iteration=self._iteration,
+            exempt=exempt,
         )
         for finding in found:
             finding["stale"] = self._known.get(finding["path"], "")
@@ -401,13 +437,17 @@ def read_justifications(workspace: Path) -> dict[str, str]:
     return reasons
 
 
-def _restored(finding: IntegrityFinding, current: Mapping[str, FileFacts], test_count: int | None) -> bool:
+def _restored(
+    finding: IntegrityFinding, current: Mapping[str, FileFacts], test_count: int | None
+) -> bool:
     kind, before = finding["kind"], finding["before"]
     if kind == "count_dropped":
         return test_count is not None and test_count >= before
     facts = current.get(finding["path"])
     if kind == "skip_added":
-        return facts is None or facts.skips <= before  # a file deleted since is a finding of its own
+        return (
+            facts is None or facts.skips <= before
+        )  # a file deleted since is a finding of its own
     if facts is None:
         return False
     if kind == "assertions_removed":

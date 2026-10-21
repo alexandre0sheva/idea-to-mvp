@@ -13,7 +13,9 @@ ENV_EXAMPLE = Path(__file__).resolve().parents[1] / ".env.example"
 def _commented_role_settings() -> dict[str, str]:
     """The per-role `# PM_MODEL=...` lines: commented out so that copying the file does not pin the models
     (an explicit model overrides the profile), but they must still document the real defaults."""
-    found = re.findall(r"^#\s*([A-Z_]+_(?:MODEL|PROVIDER))=(\S+)\s*$", ENV_EXAMPLE.read_text(), re.MULTILINE)
+    found = re.findall(
+        r"^#\s*([A-Z_]+_(?:MODEL|PROVIDER))=(\S+)\s*$", ENV_EXAMPLE.read_text(), re.MULTILINE
+    )
     return {key: value for key, value in found if key.lower() in Settings.model_fields}
 
 
@@ -42,7 +44,9 @@ def test_env_example_matches_settings_defaults(monkeypatch) -> None:
 
 
 def test_every_model_setting_is_documented_in_env_example() -> None:
-    documented = {k.lower() for k in dotenv_values(ENV_EXAMPLE)} | {k.lower() for k in _commented_role_settings()}
+    documented = {k.lower() for k in dotenv_values(ENV_EXAMPLE)} | {
+        k.lower() for k in _commented_role_settings()
+    }
     for field in Settings.model_fields:
         if field.endswith("_model") or field.endswith("_provider"):
             assert field in documented, f"{field.upper()} missing from .env.example"
@@ -52,7 +56,9 @@ def test_panel_and_concurrency_defaults() -> None:
     settings = Settings(_env_file=None)
     assert settings.panel_mode == "moderated"
     assert settings.llm_max_concurrency == 4
-    assert settings.moderator_provider == "anthropic" and settings.moderator_model.startswith("claude-haiku")
+    assert settings.moderator_provider == "anthropic" and settings.moderator_model.startswith(
+        "claude-haiku"
+    )
 
 
 def test_blueprint_review_settings() -> None:
@@ -82,7 +88,11 @@ def test_implementer_safety_defaults() -> None:
 
 def test_allowed_domains_can_be_given_as_a_comma_separated_list(monkeypatch) -> None:
     monkeypatch.setenv("IMPLEMENTER_ALLOWED_DOMAINS", "pypi.org, example.com ,, crates.io")
-    assert Settings(_env_file=None).implementer_allowed_domains == ["pypi.org", "example.com", "crates.io"]
+    assert Settings(_env_file=None).implementer_allowed_domains == [
+        "pypi.org",
+        "example.com",
+        "crates.io",
+    ]
     monkeypatch.setenv("IMPLEMENTER_ALLOWED_DOMAINS", "")
     assert Settings(_env_file=None).implementer_allowed_domains == []
 
@@ -96,7 +106,11 @@ def test_the_sandbox_setting_is_validated() -> None:
 def test_env_example_documents_the_allowed_domains_default() -> None:
     text = ENV_EXAMPLE.read_text()
     assert "IMPLEMENTER_SANDBOX=" in text and "IMPLEMENTER_ALLOWED_DOMAINS=" in text
-    domains = next(line for line in text.splitlines() if line.lstrip("# ").startswith("IMPLEMENTER_ALLOWED_DOMAINS="))
+    domains = next(
+        line
+        for line in text.splitlines()
+        if line.lstrip("# ").startswith("IMPLEMENTER_ALLOWED_DOMAINS=")
+    )
     listed = domains.split("=", 1)[1].split(",")
     assert [d.strip() for d in listed] == Settings(_env_file=None).implementer_allowed_domains
 
@@ -116,7 +130,11 @@ def test_the_old_budget_variable_still_sets_the_per_task_cap(monkeypatch) -> Non
 
 
 def test_budgets_and_turns_must_be_positive() -> None:
-    for field in ("implementer_max_total_usd", "implementer_max_task_usd", "implementer_max_task_turns"):
+    for field in (
+        "implementer_max_total_usd",
+        "implementer_max_task_usd",
+        "implementer_max_task_turns",
+    ):
         with pytest.raises(ValidationError):
             Settings(_env_file=None, **{field: 0})
 
@@ -146,9 +164,15 @@ def test_the_default_profile_is_balanced_and_equals_the_field_defaults() -> None
             assert getattr(settings, f"{role}_provider") == provider
 
 
-def test_every_profile_covers_every_role_that_has_its_own_model_settings_and_every_agent_session_kind() -> None:
-    roles = {spec.provider_setting.removesuffix("_provider") for spec in ROLES.values()} | set(AGENT_ROLES)
-    assert {profile: set(mapping) for profile, mapping in PROFILES.items()} == dict.fromkeys(PROFILES, roles)
+def test_every_profile_covers_every_role_that_has_its_own_model_settings_and_every_agent_session_kind() -> (
+    None
+):
+    roles = {spec.provider_setting.removesuffix("_provider") for spec in ROLES.values()} | set(
+        AGENT_ROLES
+    )
+    assert {profile: set(mapping) for profile, mapping in PROFILES.items()} == dict.fromkeys(
+        PROFILES, roles
+    )
 
 
 def test_the_fast_profile_resolves_a_cheaper_architect_than_quality(monkeypatch) -> None:
@@ -164,9 +188,9 @@ def test_the_fast_profile_resolves_a_cheaper_architect_than_quality(monkeypatch)
 def test_roles_that_share_the_architects_settings_share_its_profile_model(monkeypatch) -> None:
     monkeypatch.delenv("ARCHITECT_MODEL", raising=False)
     settings = Settings(_env_file=None, model_profile="quality")
-    assert {resolve_role_model(settings, key) for key in ("architect", "strategy", "plan_writer")} == {
-        ("anthropic", "claude-opus-5-5")
-    }
+    assert {
+        resolve_role_model(settings, key) for key in ("architect", "strategy", "plan_writer")
+    } == {("anthropic", "claude-opus-5-5")}
 
 
 def test_an_explicit_model_env_var_overrides_the_profile(monkeypatch) -> None:
@@ -174,7 +198,9 @@ def test_an_explicit_model_env_var_overrides_the_profile(monkeypatch) -> None:
     monkeypatch.setenv("MODEL_PROFILE", "fast")
     settings = Settings(_env_file=None)
     assert resolve_role_model(settings, "architect") == ("anthropic", "my-own-model")
-    assert resolve_role_model(settings, "pm") == PROFILES["fast"]["pm"]  # other roles still follow the profile
+    assert (
+        resolve_role_model(settings, "pm") == PROFILES["fast"]["pm"]
+    )  # other roles still follow the profile
 
 
 def test_an_explicit_provider_keeps_the_roles_own_model_setting(monkeypatch) -> None:
@@ -221,7 +247,9 @@ def test_the_balanced_profile_builds_on_sonnet_and_escalates_to_opus(no_agent_pi
     assert resolve_agent_model(settings, "escalation") == "claude-opus-5-5"
 
 
-def test_escalation_is_never_a_cheaper_model_than_the_task_sessions_in_any_profile(no_agent_pins: None) -> None:
+def test_escalation_is_never_a_cheaper_model_than_the_task_sessions_in_any_profile(
+    no_agent_pins: None,
+) -> None:
     from idea_to_mvp.model_catalog import get_catalog
 
     catalog = get_catalog()
@@ -233,7 +261,9 @@ def test_escalation_is_never_a_cheaper_model_than_the_task_sessions_in_any_profi
         assert (escalation.output_per_mtok or 0) > (task.output_per_mtok or 0), profile
 
 
-def test_a_pinned_implementer_model_still_drives_every_session_as_before_the_split(no_agent_pins: None, monkeypatch) -> None:
+def test_a_pinned_implementer_model_still_drives_every_session_as_before_the_split(
+    no_agent_pins: None, monkeypatch
+) -> None:
     """An `.env` from before VERIFIER_MODEL / ESCALATION_MODEL existed keeps running every session on its model."""
     monkeypatch.setenv("IMPLEMENTER_MODEL", "claude-opus-5-5")
     monkeypatch.setenv("MODEL_PROFILE", "fast")
@@ -241,7 +271,9 @@ def test_a_pinned_implementer_model_still_drives_every_session_as_before_the_spl
     assert {resolve_agent_model(settings, role) for role in AGENT_ROLES} == {"claude-opus-5-5"}
 
 
-def test_a_pinned_verifier_or_escalation_model_wins_over_the_implementer_and_the_profile(no_agent_pins: None, monkeypatch) -> None:
+def test_a_pinned_verifier_or_escalation_model_wins_over_the_implementer_and_the_profile(
+    no_agent_pins: None, monkeypatch
+) -> None:
     monkeypatch.setenv("IMPLEMENTER_MODEL", "claude-opus-5-5")
     monkeypatch.setenv("VERIFIER_MODEL", "claude-haiku-5-5")
     settings = Settings(_env_file=None)

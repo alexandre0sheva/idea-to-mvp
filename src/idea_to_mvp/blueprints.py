@@ -123,8 +123,12 @@ class BundleFileSpec:
     # (README, the four AGENTS guides, plan). 3: the per-workstream subagent definitions (they need the plan).
     wave: int = 1
     needs: tuple[str, ...] = ()  # upstream documents (by relative path) injected into this prompt
-    structured: bool = False  # produced as typed data (the plan writer, the harness writer), not as free text
-    revisable: bool = True  # the critic's blockers can regenerate it (the harness has its own validator instead)
+    structured: bool = (
+        False  # produced as typed data (the plan writer, the harness writer), not as free text
+    )
+    revisable: bool = (
+        True  # the critic's blockers can regenerate it (the harness has its own validator instead)
+    )
 
 
 WAVES = (1, 2, 3)
@@ -305,11 +309,15 @@ def prompt_for(
     for path in spec.needs:
         text = (generated.get(path) or "").strip()
         if text:
-            parts.append(f"## Upstream document: {path}\n\n{truncate_document(text, MAX_UPSTREAM_CHARS)}")
+            parts.append(
+                f"## Upstream document: {path}\n\n{truncate_document(text, MAX_UPSTREAM_CHARS)}"
+            )
     if reference.strip():
         parts.append(reference.strip())
     if issues.strip():
-        parts.append(f"## Review issues to fix in this revision\n\n{issues.strip()}\n\n{NO_CHANGE_REVISION.strip()}")
+        parts.append(
+            f"## Review issues to fix in this revision\n\n{issues.strip()}\n\n{NO_CHANGE_REVISION.strip()}"
+        )
     if previous.strip():
         parts.append(
             f"## Your previous version of {spec.relative_path}\n\n{truncate_document(previous.strip(), MAX_UPSTREAM_CHARS)}"
@@ -343,9 +351,13 @@ def write_bundle(
     specs = bundle_file_plan(strategy)
     # plan.json is the source of truth; a missing or broken one becomes a valid fallback plan.
     plan = load_plan(docs.get(PLAN_JSON_PATH)) or fallback_plan(strategy, docs.get("PRD.md") or "")
-    plan = with_template_commands(plan, (strategy or {}).get("template"))  # the scaffold's config assumes them
+    plan = with_template_commands(
+        plan, (strategy or {}).get("template")
+    )  # the scaffold's config assumes them
     agents_fallback = next(spec.fallback for spec in specs if spec.relative_path == AGENTS_MD)
-    harness = pack_harness(docs.get(HARNESS_SPEC_PATH), plan, (docs.get(AGENTS_MD) or "").strip() or agents_fallback)
+    harness = pack_harness(
+        docs.get(HARNESS_SPEC_PATH), plan, (docs.get(AGENTS_MD) or "").strip() or agents_fallback
+    )
     for spec in specs:
         if spec.relative_path == PLAN_PATH:
             write(PLAN_PATH, render_plan_markdown(plan))
@@ -402,7 +414,9 @@ def build_bundle_context(
 ) -> str:
     choice = arch_choice or {}
     extra_guidance = (planning_request or "").strip()
-    strategy_text = json.dumps(strategy, indent=2) if strategy else "No execution strategy available."
+    strategy_text = (
+        json.dumps(strategy, indent=2) if strategy else "No execution strategy available."
+    )
     details = chosen_option_details.strip()
     details_block = f"Chosen option details:\n{details}\n\n" if details else ""
     template_block = prompt_block((strategy or {}).get("template"))

@@ -96,9 +96,16 @@ def test_the_typical_run_covers_the_planning_roles_and_the_agent_sessions() -> N
     catalog = get_catalog()
     profile_roles = {spec.provider_setting.removesuffix("_provider") for spec in ROLES.values()}
     assert set(catalog.typical_run) <= profile_roles | set(AGENT_ROLES)
-    assert {"pm", "tech_lead", "skeptic", "moderator", "summarizer", "architect", "implementer", "verifier"} <= set(
-        catalog.typical_run
-    )
+    assert {
+        "pm",
+        "tech_lead",
+        "skeptic",
+        "moderator",
+        "summarizer",
+        "architect",
+        "implementer",
+        "verifier",
+    } <= set(catalog.typical_run)
 
 
 def test_the_catalog_file_is_shipped_with_the_package() -> None:
@@ -111,7 +118,10 @@ def test_the_catalog_file_is_shipped_with_the_package() -> None:
 
 def test_a_well_formed_catalog_validates() -> None:
     catalog = ModelCatalog.model_validate(catalog_data())
-    assert set(catalog.models) == {"m-1", "m-2"} and catalog.profile_choices("fast")["pm"] == ("anthropic", "m-1")
+    assert set(catalog.models) == {"m-1", "m-2"} and catalog.profile_choices("fast")["pm"] == (
+        "anthropic",
+        "m-1",
+    )
 
 
 def test_duplicate_model_ids_are_rejected() -> None:
@@ -146,7 +156,9 @@ def test_a_price_needs_both_input_and_output_and_cannot_be_negative() -> None:
 
 
 def test_a_model_may_be_unpriced() -> None:
-    unpriced = ModelEntry.model_validate(entry(input_per_mtok=None, output_per_mtok=None, cached_input_per_mtok=None))
+    unpriced = ModelEntry.model_validate(
+        entry(input_per_mtok=None, output_per_mtok=None, cached_input_per_mtok=None)
+    )
     assert not unpriced.priced and unpriced.cost(1000, 1000) is None
 
 
@@ -159,7 +171,9 @@ def test_a_source_must_be_a_web_address() -> None:
 
 
 def test_a_model_is_found_by_id_or_alias_and_unknown_ids_are_not_found() -> None:
-    catalog = ModelCatalog.model_validate(catalog_data([entry("m-1", aliases=["m-latest"]), entry("m-2")]))
+    catalog = ModelCatalog.model_validate(
+        catalog_data([entry("m-1", aliases=["m-latest"]), entry("m-2")])
+    )
     assert catalog.find("m-1") is catalog.find("m-latest") and catalog.find("  m-1 ") is not None
     assert catalog.find("other") is None and catalog.find("") is None
 
@@ -178,10 +192,15 @@ def test_cached_tokens_cost_the_full_price_when_the_catalog_has_no_cached_rate()
 
 def test_the_estimated_run_cost_follows_the_models_a_profile_chooses() -> None:
     catalog = get_catalog()
-    fast, balanced, quality = (catalog.estimate_run(name) for name in ("fast", "balanced", "quality"))
+    fast, balanced, quality = (
+        catalog.estimate_run(name) for name in ("fast", "balanced", "quality")
+    )
     assert 0 < fast.planning < balanced.planning <= quality.planning
     assert 0 < fast.agents < balanced.agents < quality.agents
-    assert balanced.total == pytest.approx(balanced.planning + balanced.agents) and not balanced.unpriced
+    assert (
+        balanced.total == pytest.approx(balanced.planning + balanced.agents)
+        and not balanced.unpriced
+    )
 
 
 def test_a_model_given_for_a_role_replaces_the_profiles_choice_in_the_estimate() -> None:
@@ -205,7 +224,10 @@ def test_agent_sessions_count_as_agents_and_the_rest_as_planning() -> None:
 
 def test_an_unpriced_model_is_listed_and_left_out_of_the_estimate() -> None:
     data = catalog_data(
-        [entry("m-1", input_per_mtok=None, output_per_mtok=None, cached_input_per_mtok=None), entry("m-2")]
+        [
+            entry("m-1", input_per_mtok=None, output_per_mtok=None, cached_input_per_mtok=None),
+            entry("m-2"),
+        ]
     )
     estimate = ModelCatalog.model_validate(data).estimate_run("fast")
     assert estimate.unpriced == ["pm"] and estimate.planning == 0
@@ -215,26 +237,44 @@ def test_an_unpriced_model_is_listed_and_left_out_of_the_estimate() -> None:
 
 
 @pytest.mark.parametrize(
-    "model", ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "gemini-3.8-flash", "gpt-6.1-sol", "gpt-6-luna"]
+    "model",
+    [
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5",
+        "gemini-3.8-flash",
+        "gpt-6.1-sol",
+        "gpt-6-luna",
+    ],
 )
 def test_a_catalogued_model_that_rejects_sampling_is_known_from_the_catalog(model: str) -> None:
     assert get_catalog().find(model) is not None and not accepts_sampling(model)
 
 
 def test_a_catalogued_model_that_accepts_sampling_and_its_alias() -> None:
-    catalog = ModelCatalog.model_validate(catalog_data([entry("m-1", aliases=["m-latest"], sampling=True)]))
+    catalog = ModelCatalog.model_validate(
+        catalog_data([entry("m-1", aliases=["m-latest"], sampling=True)])
+    )
     assert accepts_sampling("m-1", catalog) and accepts_sampling("m-latest", catalog)
 
 
 def test_the_catalog_decides_before_the_name_pattern_does() -> None:
     catalog = ModelCatalog.model_validate(
-        catalog_data([entry("gpt-5-custom", sampling=True), entry("claude-opus-5-9", sampling=False)])
+        catalog_data(
+            [entry("gpt-5-custom", sampling=True), entry("claude-opus-5-9", sampling=False)]
+        )
     )
-    assert accepts_sampling("gpt-5-custom", catalog) and not accepts_sampling("claude-opus-5-9", catalog)
+    assert accepts_sampling("gpt-5-custom", catalog) and not accepts_sampling(
+        "claude-opus-5-9", catalog
+    )
 
 
-@pytest.mark.parametrize("model", ["claude-opus-4-8", "claude-fable-5", "gemini-3-flash-preview", "gpt-6.9-x"])
-def test_an_unlisted_model_falls_back_to_the_name_pattern_for_current_generations(model: str) -> None:
+@pytest.mark.parametrize(
+    "model", ["claude-opus-4-8", "claude-fable-5", "gemini-3-flash-preview", "gpt-6.9-x"]
+)
+def test_an_unlisted_model_falls_back_to_the_name_pattern_for_current_generations(
+    model: str,
+) -> None:
     assert get_catalog().find(model) is None and not accepts_sampling(model)
 
 
@@ -258,13 +298,18 @@ def test_an_unlisted_older_model_accepts_sampling(model: str) -> None:
         ("gemini-3-flash-preview", ("gemini", "flash"), (3,)),
     ],
 )
-def test_a_model_id_splits_into_a_family_and_a_version(model_id: str, family: tuple[str, ...], version: tuple[int, ...]) -> None:
+def test_a_model_id_splits_into_a_family_and_a_version(
+    model_id: str, family: tuple[str, ...], version: tuple[int, ...]
+) -> None:
     parsed = parse_model_id(model_id)
     assert (parsed.family, parsed.version) == (family, version)
 
 
 def test_a_preview_is_flagged_so_it_does_not_count_as_a_newer_release() -> None:
-    assert parse_model_id("gemini-3-flash-preview").preview and not parse_model_id("gemini-3.8-flash").preview
+    assert (
+        parse_model_id("gemini-3-flash-preview").preview
+        and not parse_model_id("gemini-3.8-flash").preview
+    )
 
 
 def configured(*items: tuple[str, str, str]) -> list[tuple[str, str, str]]:
@@ -282,7 +327,15 @@ def test_check_flags_unknown_deprecated_and_outdated_models_and_passes_the_rest(
             ]
         )
     )
-    listings = {"anthropic": ["m-1", "claude-haiku-4-5-20251001", "claude-haiku-5-5", "old-model", "retired-model"]}
+    listings = {
+        "anthropic": [
+            "m-1",
+            "claude-haiku-4-5-20251001",
+            "claude-haiku-5-5",
+            "old-model",
+            "retired-model",
+        ]
+    }
     findings = check_models(
         configured(
             ("pm", "anthropic", "m-1"),
@@ -297,9 +350,15 @@ def test_check_flags_unknown_deprecated_and_outdated_models_and_passes_the_rest(
     )
     by_model = {f.model: f for f in findings}
     assert "m-1" not in by_model
-    assert by_model["claude-haiku-4-5-20251001"].kind == "outdated" and "claude-haiku-5-5" in by_model["claude-haiku-4-5-20251001"].detail
+    assert (
+        by_model["claude-haiku-4-5-20251001"].kind == "outdated"
+        and "claude-haiku-5-5" in by_model["claude-haiku-4-5-20251001"].detail
+    )
     assert by_model["typo-model"].kind == "unknown"
-    assert by_model["old-model"].kind == "deprecated" and by_model["retired-model"].kind == "deprecated"
+    assert (
+        by_model["old-model"].kind == "deprecated"
+        and by_model["retired-model"].kind == "deprecated"
+    )
     assert all(f.roles for f in findings)
 
 
@@ -314,10 +373,22 @@ def test_check_reports_each_model_once_with_every_role_that_uses_it() -> None:
     assert len(findings) == 1 and findings[0].roles == ["architect", "strategy"]
 
 
-def test_check_accepts_a_model_the_provider_lists_by_its_alias_and_ignores_previews_and_other_families() -> None:
-    catalog = ModelCatalog.model_validate(catalog_data([entry("claude-haiku-4-5-20251001", aliases=["claude-haiku-4-5"])]))
+def test_check_accepts_a_model_the_provider_lists_by_its_alias_and_ignores_previews_and_other_families() -> (
+    None
+):
+    catalog = ModelCatalog.model_validate(
+        catalog_data([entry("claude-haiku-4-5-20251001", aliases=["claude-haiku-4-5"])])
+    )
     listings = {"anthropic": ["claude-haiku-4-5", "claude-haiku-9-0-preview", "claude-opus-9-9"]}
-    assert check_models(configured(("m", "anthropic", "claude-haiku-4-5-20251001")), listings, catalog, today=TODAY) == []
+    assert (
+        check_models(
+            configured(("m", "anthropic", "claude-haiku-4-5-20251001")),
+            listings,
+            catalog,
+            today=TODAY,
+        )
+        == []
+    )
 
 
 def test_check_marks_a_provider_whose_models_could_not_be_listed() -> None:
@@ -328,7 +399,9 @@ def test_check_marks_a_provider_whose_models_could_not_be_listed() -> None:
         catalog,
         today=TODAY,
     )
-    assert [(f.kind, f.model) for f in findings] == [("unavailable", "openai")] and "401" in findings[0].detail
+    assert [(f.kind, f.model) for f in findings] == [
+        ("unavailable", "openai")
+    ] and "401" in findings[0].detail
 
 
 # ------------------------------------------------------------------ live listing
@@ -373,7 +446,10 @@ def test_listing_google_strips_the_models_prefix_and_follows_the_page_token() ->
         assert headers["x-goog-api-key"] == "g" and "key=" not in url
         return pages[len(urls) - 1]
 
-    assert list_provider_models("google", "g", fetch) == ["gemini-3.8-flash", "gemini-3-flash-preview"]
+    assert list_provider_models("google", "g", fetch) == [
+        "gemini-3.8-flash",
+        "gemini-3-flash-preview",
+    ]
     assert "pageToken=t2" in urls[1]
 
 
@@ -384,7 +460,14 @@ def test_the_models_report_shows_every_role_for_every_profile_with_prices_and_co
     text = model_report.format_models_report(Settings(_env_file=None))
     for role in ("pm", "tech_lead", "skeptic", "moderator", "summarizer", "architect", "research"):
         assert role in text
-    for name in ("fast", "balanced", "quality", "claude-sonnet-5-5", "gpt-6-luna", "gemini-3.8-flash"):
+    for name in (
+        "fast",
+        "balanced",
+        "quality",
+        "claude-sonnet-5-5",
+        "gpt-6-luna",
+        "gemini-3.8-flash",
+    ):
         assert name in text
     assert "$" in text and "typical run" in text.lower()
     for kind in ("implementer", "verifier", "escalation"):
@@ -392,11 +475,15 @@ def test_the_models_report_shows_every_role_for_every_profile_with_prices_and_co
 
 
 def test_the_report_marks_models_that_are_not_in_the_catalog_as_unpriced() -> None:
-    text = model_report.format_models_report(Settings(_env_file=None, implementer_model="my-agent-model"))
+    text = model_report.format_models_report(
+        Settings(_env_file=None, implementer_model="my-agent-model")
+    )
     assert "my-agent-model" in text and "unpriced" in text.lower()
 
 
-def test_cli_models_prints_the_report(capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch) -> None:
+def test_cli_models_prints_the_report(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch
+) -> None:
     from idea_to_mvp.config import clear_settings_cache
 
     monkeypatch.chdir(tmp_path)  # never pick up the developer's real .env
@@ -420,10 +507,14 @@ def fake_listing(monkeypatch, models: dict[str, list[str]]) -> list[str]:
 
 
 def keyed(**overrides: Any) -> Settings:
-    return Settings(_env_file=None, openai_api_key="o", anthropic_api_key="a", google_api_key="g", **overrides)
+    return Settings(
+        _env_file=None, openai_api_key="o", anthropic_api_key="a", google_api_key="g", **overrides
+    )
 
 
-def test_models_check_lists_each_provider_once_and_passes_when_nothing_is_wrong(monkeypatch) -> None:
+def test_models_check_lists_each_provider_once_and_passes_when_nothing_is_wrong(
+    monkeypatch,
+) -> None:
     catalog = get_catalog()
     asked = fake_listing(
         monkeypatch,
@@ -440,7 +531,14 @@ def test_models_check_lists_each_provider_once_and_passes_when_nothing_is_wrong(
 
 
 def test_models_check_exits_nonzero_for_a_model_the_provider_does_not_list(monkeypatch) -> None:
-    fake_listing(monkeypatch, {"openai": ["gpt-6.1-sol"], "anthropic": ["claude-opus-5-5"], "google": ["gemini-3.8-flash"]})
+    fake_listing(
+        monkeypatch,
+        {
+            "openai": ["gpt-6.1-sol"],
+            "anthropic": ["claude-opus-5-5"],
+            "google": ["gemini-3.8-flash"],
+        },
+    )
     out: list[str] = []
     assert model_report.run_models(keyed(), check=True, out=out.append) == 1
     assert "unknown" in "\n".join(out).lower()
@@ -477,12 +575,16 @@ def doctor_settings(**overrides: Any) -> Settings:
 
 
 def test_doctor_stays_quiet_about_the_default_models() -> None:
-    checks = collect_checks(doctor_settings(), runtime_for=lambda role: None, ping=lambda r: "OK", offline=True)
+    checks = collect_checks(
+        doctor_settings(), runtime_for=lambda role: None, ping=lambda r: "OK", offline=True
+    )
     assert [c for c in checks if c.name.startswith("catalog")] == []
 
 
 def test_doctor_warns_offline_about_a_model_that_is_not_in_the_catalog() -> None:
-    checks = collect_checks(doctor_settings(architect_model="my-own-model"), ping=lambda r: "OK", offline=True)
+    checks = collect_checks(
+        doctor_settings(architect_model="my-own-model"), ping=lambda r: "OK", offline=True
+    )
     warned = [c for c in checks if c.name.startswith("catalog")]
     assert len(warned) == 1 and warned[0].status == "warn" and "my-own-model" in warned[0].name
     assert "unknown" in warned[0].detail.lower()
@@ -492,7 +594,13 @@ def test_doctor_warns_about_an_unpriced_model_and_a_deprecated_one() -> None:
     catalog = ModelCatalog.model_validate(
         catalog_data(
             [
-                entry("gpt-6.1-sol", provider="openai", input_per_mtok=None, output_per_mtok=None, cached_input_per_mtok=None),
+                entry(
+                    "gpt-6.1-sol",
+                    provider="openai",
+                    input_per_mtok=None,
+                    output_per_mtok=None,
+                    cached_input_per_mtok=None,
+                ),
                 entry("claude-sonnet-5-5", status="deprecated"),
                 entry("claude-haiku-5-5"),
                 entry("gemini-3.8-flash", provider="google"),
@@ -503,7 +611,9 @@ def test_doctor_warns_about_an_unpriced_model_and_a_deprecated_one() -> None:
     checks = collect_checks(doctor_settings(), ping=lambda r: "OK", offline=True, catalog=catalog)
     details = {c.name: c.detail.lower() for c in checks if c.name.startswith("catalog")}
     assert any("gpt-6.1-sol" in name and "no price" in detail for name, detail in details.items())
-    assert any("claude-sonnet-5-5" in name and "deprecated" in detail for name, detail in details.items())
+    assert any(
+        "claude-sonnet-5-5" in name and "deprecated" in detail for name, detail in details.items()
+    )
 
 
 def test_the_settings_accordion_shows_each_models_price(monkeypatch) -> None:
@@ -511,10 +621,14 @@ def test_the_settings_accordion_shows_each_models_price(monkeypatch) -> None:
         monkeypatch.delenv(key, raising=False)
     text = model_profile_markdown(Settings(_env_file=None))
     assert "$2.00 / $10.00" in text  # gpt-6.1-sol, per MTok in / out
-    assert "unpriced" in model_profile_markdown(Settings(_env_file=None, implementer_model="homemade"))
+    assert "unpriced" in model_profile_markdown(
+        Settings(_env_file=None, implementer_model="homemade")
+    )
 
 
-def test_the_settings_accordion_shows_every_agent_session_kind_and_each_profiles_typical_run(monkeypatch) -> None:
+def test_the_settings_accordion_shows_every_agent_session_kind_and_each_profiles_typical_run(
+    monkeypatch,
+) -> None:
     for key in ("IMPLEMENTER_MODEL", "VERIFIER_MODEL", "ESCALATION_MODEL"):
         monkeypatch.delenv(key, raising=False)
     text = model_profile_markdown(Settings(_env_file=None))
@@ -531,7 +645,9 @@ def test_the_settings_accordion_shows_every_agent_session_kind_and_each_profiles
 def test_the_architecture_docs_model_choices_table_matches_the_balanced_profile() -> None:
     doc = (ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
     section = doc.split("### Model choices", 1)[1].split("\n## ", 1)[0].split("\n### ", 1)[0]
-    rows = re.findall(r"^\| `([a-z_]+)`[^|]*\| `([^`]+)` \|[^|]*\| ([^|]+) \|$", section, flags=re.MULTILINE)
+    rows = re.findall(
+        r"^\| `([a-z_]+)`[^|]*\| `([^`]+)` \|[^|]*\| ([^|]+) \|$", section, flags=re.MULTILINE
+    )
     catalog = get_catalog()
     assert {role for role, _, _ in rows} == set(PROFILES["balanced"])
     for role, model, price in rows:
@@ -546,4 +662,6 @@ def test_the_readme_quotes_each_profiles_typical_run_cost_from_the_catalog() -> 
     catalog = get_catalog()
     for name in PROFILES:
         estimate = catalog.estimate_run(name)
-        assert re.search(rf"^\| `{name}`[^|]*\|.*\| \${estimate.total:.2f} \|$", readme, flags=re.MULTILINE), name
+        assert re.search(
+            rf"^\| `{name}`[^|]*\|.*\| \${estimate.total:.2f} \|$", readme, flags=re.MULTILINE
+        ), name

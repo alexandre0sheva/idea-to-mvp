@@ -47,19 +47,20 @@ from idea_to_mvp.text_utils import normalize_content
 DEMO_TEST_REPORT_COMMAND = "python tests/run_with_report.py .idea-to-mvp/reports/junit.xml"
 
 _IDEA_RE = re.compile(
-    r"(?:Anchor idea|Initial user idea|Original idea|Initial idea|Idea):\n(.+?)(?:\n\n|\Z)", flags=re.DOTALL
+    r"(?:Anchor idea|Initial user idea|Original idea|Initial idea|Idea):\n(.+?)(?:\n\n|\Z)",
+    flags=re.DOTALL,
 )
 _WORKSTREAM_RE = re.compile(r'"name":\s*"([a-z0-9-]+)"')
 _ROUND_RE = re.compile(r"round (\d+) of (\d+)")
-_UPSTREAM_PRD_RE = re.compile(r"## Upstream document: PRD\.md\n\n(.*?)(?=\n\n## Upstream document:|\Z)", flags=re.DOTALL)
+_UPSTREAM_PRD_RE = re.compile(
+    r"## Upstream document: PRD\.md\n\n(.*?)(?=\n\n## Upstream document:|\Z)", flags=re.DOTALL
+)
 _REQUIREMENT_ID_RE = re.compile(r"\bR\d+\b")
 _DEFAULT_REQUIREMENT_IDS = ["R1", "R2", "R3"]
 _TURN_COUNT_RE = re.compile(r"(PM|Tech Lead|Skeptic): (\d+)")
 _DEFAULT_WORKSTREAMS = ["core-app", "quality"]
 
-CONVERGENCE_REASON = (
-    "The panel converged: one core journey, a small monolith, and validation with real users before expanding."
-)
+CONVERGENCE_REASON = "The panel converged: one core journey, a small monolith, and validation with real users before expanding."
 
 STRATEGY_REASONING = (
     "Two loosely coupled workstreams: the product code and a quality lane owning tests and fixtures. "
@@ -284,24 +285,36 @@ def architect(messages: list[BaseMessage]) -> str:
 def question_set(messages: list[BaseMessage]) -> QuestionSet:
     idea = idea_from(messages)
     rows = [
-        ("Which single user journey must work end to end in the MVP?",
-         "It fixes the scope every other decision hangs on.",
-         f"One core journey for “{idea[:60]}”, from first use to the first valuable result."),
-        ("Which capabilities are explicitly out of scope for v0?",
-         "It prevents building features nobody validated.",
-         "Sharing, integrations, and admin tooling wait until after validation."),
-        ("What data must be stored, and what are the privacy expectations?",
-         "It drives the persistence and security choices.",
-         "Per-user records in one relational store; no data sold or shared."),
-        ("Which integrations, if any, are mandatory at launch?",
-         "Each integration multiplies build and test effort.",
-         "None; export to a file is enough for launch."),
-        ("What result would prove the MVP worked within its first month?",
-         "It defines what the first version must measure.",
-         "Most pilot users complete the core journey at least twice in a week."),
+        (
+            "Which single user journey must work end to end in the MVP?",
+            "It fixes the scope every other decision hangs on.",
+            f"One core journey for “{idea[:60]}”, from first use to the first valuable result.",
+        ),
+        (
+            "Which capabilities are explicitly out of scope for v0?",
+            "It prevents building features nobody validated.",
+            "Sharing, integrations, and admin tooling wait until after validation.",
+        ),
+        (
+            "What data must be stored, and what are the privacy expectations?",
+            "It drives the persistence and security choices.",
+            "Per-user records in one relational store; no data sold or shared.",
+        ),
+        (
+            "Which integrations, if any, are mandatory at launch?",
+            "Each integration multiplies build and test effort.",
+            "None; export to a file is enough for launch.",
+        ),
+        (
+            "What result would prove the MVP worked within its first month?",
+            "It defines what the first version must measure.",
+            "Most pilot users complete the core journey at least twice in a week.",
+        ),
     ]
     return QuestionSet(
-        questions=[MvpQuestion(question=q, why_it_matters=w, suggested_answer=a) for q, w, a in rows]
+        questions=[
+            MvpQuestion(question=q, why_it_matters=w, suggested_answer=a) for q, w, a in rows
+        ]
     )
 
 
@@ -343,7 +356,9 @@ def architecture_proposal(messages: list[BaseMessage]) -> ArchitectureProposal:
 def moderator_decision(messages: list[BaseMessage]) -> ModeratorDecision:
     """Steer to whoever has spoken least; converge once everyone has had two turns."""
     line = re.search(r"Turns so far: (.+)", _human_text(messages))
-    turns = {name: int(count) for name, count in _TURN_COUNT_RE.findall(line.group(1))} if line else {}
+    turns = (
+        {name: int(count) for name, count in _TURN_COUNT_RE.findall(line.group(1))} if line else {}
+    )
     if all(turns.get(name, 0) >= 2 for name in SPEAKER_ORDER):
         return ModeratorDecision(converged=True, next_speaker=None, reason=CONVERGENCE_REASON)
     quietest = min(SPEAKER_ORDER, key=lambda name: turns.get(name, 0))
@@ -359,7 +374,9 @@ _PLAN_TITLES = ["Project setup", "Core journey", "Progress view"]
 
 def plan(messages: list[BaseMessage]) -> Plan:
     """A valid plan over the real workstreams and PRD requirement ids: setup first, then parallel slices."""
-    names = list(dict.fromkeys(_WORKSTREAM_RE.findall(_human_text(messages)))) or [DEFAULT_WORKSTREAM]
+    names = list(dict.fromkeys(_WORKSTREAM_RE.findall(_human_text(messages)))) or [
+        DEFAULT_WORKSTREAM
+    ]
     requirements = requirement_ids_from(messages)
     count = max(len(_PLAN_TITLES), len(names))
     tasks = []
@@ -384,7 +401,11 @@ def plan(messages: list[BaseMessage]) -> Plan:
             )
         )
     return Plan(
-        contracts=[Contract(id="C1", name="Core entry contract", description="How the slices share entries.")],
+        contracts=[
+            Contract(
+                id="C1", name="Core entry contract", description="How the slices share entries."
+            )
+        ],
         tasks=tasks,
         commands=ProjectCommands(
             install=None,
@@ -428,7 +449,7 @@ def change_plan(messages: list[BaseMessage]) -> ChangePlan:
     )
 
 
-DEMO_ACCEPTANCE_TESTS = '''import unittest
+DEMO_ACCEPTANCE_TESTS = """import unittest
 
 from demo_app.core import IDEA, add_entry, describe
 
@@ -439,13 +460,16 @@ class AcceptanceTests(unittest.TestCase):
 
     def test_R2_entries_are_kept_in_the_order_they_were_added(self):
         self.assertEqual(add_entry(add_entry([], "first"), "second"), ["first", "second"], "R2: progress must keep every entry")
-'''
+"""
 
 
 def acceptance_suite(messages: list[BaseMessage]) -> AcceptanceSuite:
     """Black-box checks of the demo project's public functions, run with the demo's own report runner."""
     return AcceptanceSuite(
-        files=[AcceptanceFile(path="__init__.py", content=""), AcceptanceFile(path="test_acceptance.py", content=DEMO_ACCEPTANCE_TESTS)],
+        files=[
+            AcceptanceFile(path="__init__.py", content=""),
+            AcceptanceFile(path="test_acceptance.py", content=DEMO_ACCEPTANCE_TESTS),
+        ],
         command=f"python tests/run_with_report.py {ACCEPTANCE_REPORT} acceptance",
         covers=["R1", "R2"],
     )
@@ -481,8 +505,8 @@ def harness_spec(messages: list[BaseMessage]) -> HarnessSpec:
 DEMO_INV_SKILL = HarnessFile(
     path=".claude/skills/start-a-task/SKILL.md",
     content=(
-        "---\nname: start-a-task\ndescription: \"Use when you start a task: see where the project stands before you "
-        "change it.\"\n---\n\n"
+        '---\nname: start-a-task\ndescription: "Use when you start a task: see where the project stands before you '
+        'change it."\n---\n\n'
         "1. Run `bash scripts/check.sh` once and note which tests already pass.\n"
         "2. Read the task's acceptance criteria and the files it names.\n"
         "3. Make the change, then run `bash scripts/check.sh` again before you finish.\n"
@@ -491,8 +515,8 @@ DEMO_INV_SKILL = HarnessFile(
 DEMO_DOM_SKILL = HarnessFile(
     path=".claude/skills/write-a-unittest/SKILL.md",
     content=(
-        "---\nname: write-a-unittest\ndescription: \"Use when you add a test: the standard-library unittest "
-        "conventions of this project.\"\n---\n\n"
+        '---\nname: write-a-unittest\ndescription: "Use when you add a test: the standard-library unittest '
+        'conventions of this project."\n---\n\n'
         "1. Put the test in `tests/test_<module>.py`, in a `unittest.TestCase` subclass.\n"
         "2. Name it `test_<behaviour>` and give every assertion a message in product terms.\n"
         "3. Run `bash scripts/check.sh test`.\n"
@@ -506,12 +530,16 @@ def harness_edit(messages: list[BaseMessage]) -> HarnessEdit:
     if "Edit kind: DOM" in prompt:
         return HarnessEdit(
             summary="Add a skill for writing tests the way this project does.",
-            evidence=["[ACTION] Write tests/test_core.py: the session had to work out the test layout itself."],
+            evidence=[
+                "[ACTION] Write tests/test_core.py: the session had to work out the test layout itself."
+            ],
             files=[DEMO_DOM_SKILL],
         )
     return HarnessEdit(
         summary="Start every task by running the checks.",
-        evidence=["[TEXT] Implementing (simulated): the session started editing before it knew which tests passed."],
+        evidence=[
+            "[TEXT] Implementing (simulated): the session started editing before it knew which tests passed."
+        ],
         files=[DEMO_INV_SKILL],
     )
 
@@ -521,8 +549,16 @@ def composition(messages: list[BaseMessage]) -> Composition:
         decision="merge",
         files=[DEMO_INV_SKILL, DEMO_DOM_SKILL],
         notes=[
-            ComposeNote(verdict="kept", edit="INV: start-a-task skill", evidence="Demo: every run delivered and its tests passed."),
-            ComposeNote(verdict="kept", edit="DOM: write-a-unittest skill", evidence="Demo: every run delivered and its tests passed."),
+            ComposeNote(
+                verdict="kept",
+                edit="INV: start-a-task skill",
+                evidence="Demo: every run delivered and its tests passed.",
+            ),
+            ComposeNote(
+                verdict="kept",
+                edit="DOM: write-a-unittest skill",
+                evidence="Demo: every run delivered and its tests passed.",
+            ),
         ],
         rationale="Demo mode: both edits are small and every run delivered, so both are kept.",
     )
@@ -532,10 +568,21 @@ def selection(messages: list[BaseMessage]) -> Selection:
     """The demo builds are the same, so every build scores alike and the first one is taken."""
     prompt = str(messages[-1].content) if messages else ""
     builds = re.findall(r"^### Build ([A-C])$", prompt, flags=re.MULTILINE) or ["A"]
-    marks = {"delivery": 4, "conformance": 4, "fidelity": 4, "consistency": 4, "operational_fitness": 4, "finish": 3}
+    marks = {
+        "delivery": 4,
+        "conformance": 4,
+        "fidelity": 4,
+        "consistency": 4,
+        "operational_fitness": 4,
+        "finish": 3,
+    }
     notes = "Demo: the build delivers the task and its tests pass."
     scores = [BuildScore(build=build, notes=notes, **marks) for build in builds]
-    return Selection(choice=builds[0], scores=scores, rationale=f"Demo mode: the builds are the same, so build {builds[0]} is taken.")
+    return Selection(
+        choice=builds[0],
+        scores=scores,
+        rationale=f"Demo mode: the builds are the same, so build {builds[0]} is taken.",
+    )
 
 
 _EDIT_TO_JUDGE_RE = re.compile(r"^- `([a-z]+:[A-Za-z0-9-]+)`:", flags=re.MULTILINE)
@@ -552,8 +599,14 @@ def reflection(messages: list[BaseMessage]) -> Reflection:
     test runner, unless the library already holds it."""
     prompt = str(messages[-1].content) if messages else ""
     edits = [
-        EditRow(edit=edit, effect="confounded", evidence="Demo: one run per harness, and every run delivered the same build.")
-        for edit in dict.fromkeys(_EDIT_TO_JUDGE_RE.findall(prompt.split("## Edits to judge", 1)[-1]))
+        EditRow(
+            edit=edit,
+            effect="confounded",
+            evidence="Demo: one run per harness, and every run delivered the same build.",
+        )
+        for edit in dict.fromkeys(
+            _EDIT_TO_JUDGE_RE.findall(prompt.split("## Edits to judge", 1)[-1])
+        )
     ]
     known = DEMO_LESSON.cue in prompt.split("## Edits to judge", 1)[0]
     return Reflection(
@@ -588,15 +641,28 @@ def execution_strategy(messages: list[BaseMessage]) -> ExecutionStrategy:
 
 
 DEMO_COMPETITORS = [
-    ("Demo Logbook", "https://demo-logbook.example.com", "A simple logbook for one niche", "Free; $4/month for export"),
-    ("Sample Tracker", "https://sample-tracker.example.com", "An all-in-one tracker with a large community", "$9/month"),
+    (
+        "Demo Logbook",
+        "https://demo-logbook.example.com",
+        "A simple logbook for one niche",
+        "Free; $4/month for export",
+    ),
+    (
+        "Sample Tracker",
+        "https://sample-tracker.example.com",
+        "An all-in-one tracker with a large community",
+        "$9/month",
+    ),
 ]
 
 
 def researcher(messages: list[BaseMessage]) -> str:
     """The research notes a real model would write from search results (canned: demo mode never searches)."""
     idea = idea_from(messages)
-    rows = [f"- **{name}** ({url}): {positioning}. Pricing: {pricing}." for name, url, positioning, pricing in DEMO_COMPETITORS]
+    rows = [
+        f"- **{name}** ({url}): {positioning}. Pricing: {pricing}."
+        for name, url, positioning, pricing in DEMO_COMPETITORS
+    ]
     return (
         f"## Competitors for \u201c{idea}\u201d\n" + "\n".join(rows) + "\n\n"
         "## Market notes\n- The niche is small but growing.\n- Most users try two or three tools before settling.\n\n"
@@ -611,7 +677,10 @@ def research_brief(messages: list[BaseMessage]) -> ResearchBrief:
             {"name": name, "url": url, "positioning": positioning, "pricing": pricing}  # type: ignore[misc]
             for name, url, positioning, pricing in DEMO_COMPETITORS
         ],
-        market_notes=["The niche is small but growing.", "Most users try two or three tools before settling."],
+        market_notes=[
+            "The niche is small but growing.",
+            "Most users try two or three tools before settling.",
+        ],
         gaps=["Nobody connects the core journey to a simple progress view."],
         sources=[url for _n, url, _p, _c in DEMO_COMPETITORS],
     )
@@ -620,9 +689,15 @@ def research_brief(messages: list[BaseMessage]) -> ResearchBrief:
 def judge_scores(messages: list[BaseMessage]) -> JudgeScores:
     """Canned rubric scores, so the eval script runs offline in demo mode."""
     return JudgeScores(
-        requirement_coverage=CriterionScore(score=4, rationale="Demo: every P0 requirement has a task."),
-        contract_consistency=CriterionScore(score=4, rationale="Demo: the tasks share one contract."),
-        test_specificity=CriterionScore(score=3, rationale="Demo: tests are listed per acceptance criterion."),
+        requirement_coverage=CriterionScore(
+            score=4, rationale="Demo: every P0 requirement has a task."
+        ),
+        contract_consistency=CriterionScore(
+            score=4, rationale="Demo: the tasks share one contract."
+        ),
+        test_specificity=CriterionScore(
+            score=3, rationale="Demo: tests are listed per acceptance criterion."
+        ),
     )
 
 
@@ -658,7 +733,9 @@ def respond(role: str, messages: list[BaseMessage]) -> str:
     try:
         builder = RESPONSES[role]
     except KeyError as exc:
-        raise KeyError(f"No demo text fixture for role {role!r}; add one to demo/fixtures.py") from exc
+        raise KeyError(
+            f"No demo text fixture for role {role!r}; add one to demo/fixtures.py"
+        ) from exc
     return builder(messages)
 
 
@@ -666,5 +743,7 @@ def respond_structured(schema: type[BaseModel], messages: list[BaseMessage]) -> 
     try:
         builder = STRUCTURED[schema]
     except KeyError as exc:
-        raise KeyError(f"No demo fixture for schema {schema.__name__}; add one to demo/fixtures.py") from exc
+        raise KeyError(
+            f"No demo fixture for schema {schema.__name__}; add one to demo/fixtures.py"
+        ) from exc
     return builder(messages)

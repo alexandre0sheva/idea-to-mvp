@@ -19,7 +19,25 @@ def test_every_role_references_real_settings_fields() -> None:
 
 
 def test_expected_roles_present() -> None:
-    assert set(ROLES) == {"pm", "tech_lead", "skeptic", "moderator", "summarizer", "architect", "strategy", "plan_writer", "change_planner", "blueprint_critic", "researcher", "acceptance_author", "harness_writer", "harness_editor", "harness_composer", "pilot_selector", "reflector"}
+    assert set(ROLES) == {
+        "pm",
+        "tech_lead",
+        "skeptic",
+        "moderator",
+        "summarizer",
+        "architect",
+        "strategy",
+        "plan_writer",
+        "change_planner",
+        "blueprint_critic",
+        "researcher",
+        "acceptance_author",
+        "harness_writer",
+        "harness_editor",
+        "harness_composer",
+        "pilot_selector",
+        "reflector",
+    }
 
 
 def test_speaker_order_derives_from_registry() -> None:
@@ -47,8 +65,15 @@ def test_skeptic_prompt_requires_constructive_pairing() -> None:
 
 
 def test_blueprint_roles_reuse_the_architect_model_with_their_own_token_budget() -> None:
-    assert ROLES["plan_writer"].model_setting == ROLES["blueprint_critic"].model_setting == "architect_model"
+    assert (
+        ROLES["plan_writer"].model_setting
+        == ROLES["blueprint_critic"].model_setting
+        == "architect_model"
+    )
     assert ROLES["plan_writer"].max_tokens_setting == "plan_max_tokens"
     planner = ROLES["plan_writer"].system_prompt
     assert "T01" in planner and "P0" in planner and "upstream PRD.md" in planner
-    assert "blocker" in ROLES["blueprint_critic"].system_prompt and "warning" in ROLES["blueprint_critic"].system_prompt
+    assert (
+        "blocker" in ROLES["blueprint_critic"].system_prompt
+        and "warning" in ROLES["blueprint_critic"].system_prompt
+    )

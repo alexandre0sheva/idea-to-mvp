@@ -19,7 +19,9 @@ def _bundle(workspace: Path, iteration: int, verified: bool) -> tuple[str, str]:
     the user can take the project along even when verification did not pass. Failures are logged, not fatal."""
     tag = tag_iteration(workspace, iteration) if verified else ""
     try:
-        archive = make_delivery_zip(workspace, get_settings().deliveries_dir, label=f"v0.{iteration}")
+        archive = make_delivery_zip(
+            workspace, get_settings().deliveries_dir, label=f"v0.{iteration}"
+        )
     except OSError:
         LOGGER.exception("Could not write the delivery zip for %s", workspace)
         return tag, ""
@@ -33,18 +35,29 @@ def delivery_report_node(state: IdeaDiscussionState) -> dict[str, Any]:
     verdict = "PASSED ✅" if passed else "FAILED ❌"
     attempts = int(verification.get("attempts") or 0)
     iteration = int(state.get("iteration") or 1)
-    tag, archive = _bundle(Path(workspace_dir), iteration, passed) if workspace_dir and Path(workspace_dir).is_dir() else ("", "")
+    tag, archive = (
+        _bundle(Path(workspace_dir), iteration, passed)
+        if workspace_dir and Path(workspace_dir).is_dir()
+        else ("", "")
+    )
     if workspace_dir and Path(workspace_dir).is_dir():
         check = check_ledger(Path(workspace_dir), state.get("usage") or [])
-        if not check.ok:  # spend that the ledger or the usage record misses: worth a line in the log
+        if (
+            not check.ok
+        ):  # spend that the ledger or the usage record misses: worth a line in the log
             LOGGER.warning("%s", check.message)
     lane_verdicts = " · ".join(
-        f"{lane.get('lane')} {'✅' if lane.get('passed') else '❌'}" for lane in verification.get("lanes") or []
+        f"{lane.get('lane')} {'✅' if lane.get('passed') else '❌'}"
+        for lane in verification.get("lanes") or []
     )
     lane_line = f"**Lanes:** {lane_verdicts}\n\n" if lane_verdicts else ""
     history = history_markdown(verification.get("history") or [])
     history_section = f"{history}\n\n" if history else ""
-    version = f"**Version:** v0.{iteration}" + (f" (git tag `{tag}`)" if tag else " (not tagged: verification did not pass)") + "\n\n"
+    version = (
+        f"**Version:** v0.{iteration}"
+        + (f" (git tag `{tag}`)" if tag else " (not tagged: verification did not pass)")
+        + "\n\n"
+    )
     download = f"**Download:** `{archive}`\n\n" if archive else ""
     report = (
         "## Delivery report\n\n"

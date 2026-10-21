@@ -1,0 +1,35 @@
+name: Release build
+
+# Builds the sdist and wheel for a version tag and checks them; it never uploads them anywhere.
+# Publishing to PyPI stays a manual step (see CONTRIBUTING.md, "Releasing"), so this workflow has no credentials.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: The tag matches the package version
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match version ${version} in pyproject.toml" >&2
+            exit 1
+          fi
+      - name: Lockfile is up to date
+        run: uv lock --check
+      - name: Build the sdist and wheel
+        run: uv build
+      - name: Check the package metadata
+        run: uvx twine check --strict dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error

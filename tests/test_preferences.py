@@ -33,7 +33,12 @@ STATED = {
 def test_preferences_default_to_no_constraints() -> None:
     prefs = ProjectPreferences()
     assert prefs.platform == "any"
-    assert (prefs.stack_hints, prefs.deploy_target, prefs.must_use, prefs.must_avoid) == ("", "", "", "")
+    assert (prefs.stack_hints, prefs.deploy_target, prefs.must_use, prefs.must_avoid) == (
+        "",
+        "",
+        "",
+        "",
+    )
 
 
 def test_preferences_reject_an_unknown_platform() -> None:
@@ -50,7 +55,9 @@ def test_a_new_run_starts_with_the_preferences_it_was_given() -> None:
 # ----------------------------------------------------------------- the block
 
 
-@pytest.mark.parametrize("prefs", [None, {}, ProjectPreferences().model_dump(), {"stack_hints": "  ", "must_use": "\n"}])
+@pytest.mark.parametrize(
+    "prefs", [None, {}, ProjectPreferences().model_dump(), {"stack_hints": "  ", "must_use": "\n"}]
+)
 def test_the_block_is_empty_when_nothing_was_stated(prefs: dict | None) -> None:
     assert preferences_block(prefs) == ""
 
@@ -69,12 +76,19 @@ def test_must_use_and_must_avoid_are_hard_constraints() -> None:
 
 def test_the_block_leaves_out_what_was_not_stated() -> None:
     block = preferences_block({"stack_hints": "Rust"})
-    assert "Rust" in block and "Deploy" not in block and "Platform" not in block and "hard constraint" not in block.lower()
+    assert (
+        "Rust" in block
+        and "Deploy" not in block
+        and "Platform" not in block
+        and "hard constraint" not in block.lower()
+    )
 
 
 def test_the_block_ignores_unknown_keys_and_bad_values() -> None:
     assert "Rust" in preferences_block({"stack_hints": "Rust", "nonsense": 1})
-    assert preferences_block({"platform": "smart-fridge"}) == ""  # an invalid value is dropped, not a crash
+    assert (
+        preferences_block({"platform": "smart-fridge"}) == ""
+    )  # an invalid value is dropped, not a crash
 
 
 # ------------------------------------------------ the prompts carry the block
@@ -98,7 +112,9 @@ def prompts(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         sent.append("\n".join(str(m.content) for m in messages[1:]))
         return "a document"
 
-    def structured(runtime: Any, messages: list[BaseMessage], schema: Any, *, fallback: Any = None) -> Any:
+    def structured(
+        runtime: Any, messages: list[BaseMessage], schema: Any, *, fallback: Any = None
+    ) -> Any:
         sent.append("\n".join(str(m.content) for m in messages[1:]))
         return fallback()
 
@@ -109,8 +125,12 @@ def prompts(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 def stated_state() -> dict[str, Any]:
-    state: dict[str, Any] = dict(make_initial_state("A climbing log", 1, preferences=ProjectPreferences(**STATED)))
-    state.update(summary="s", generated_questions=["1. Q?"], user_answers="a", architecture="## Option A")
+    state: dict[str, Any] = dict(
+        make_initial_state("A climbing log", 1, preferences=ProjectPreferences(**STATED))
+    )
+    state.update(
+        summary="s", generated_questions=["1. Q?"], user_answers="a", architecture="## Option A"
+    )
     return state
 
 
@@ -122,7 +142,9 @@ def assert_hard_constraints(prompt: str) -> None:
 
 def test_the_panel_sees_the_preferences(prompts: list[str]) -> None:
     state = stated_state()
-    opening_turn_node(OpeningInput(speaker="PM", user_idea="A climbing log", max_rounds=3, preferences=STATED))  # type: ignore[typeddict-item]
+    opening_turn_node(
+        OpeningInput(speaker="PM", user_idea="A climbing log", max_rounds=3, preferences=STATED)
+    )  # type: ignore[typeddict-item]
     discussion_node(state)  # type: ignore[arg-type]
     assert len(prompts) == 2
     for prompt in prompts:
@@ -156,7 +178,14 @@ def test_every_blueprint_document_is_written_with_the_preferences(prompts: list[
     assert_hard_constraints(context)
     spec = bundle_file_plan(None)[0]
     generate_doc_node(
-        DocInput(path=spec.relative_path, strategy=None, context_block=context, upstream={}, issues="", previous="")
+        DocInput(
+            path=spec.relative_path,
+            strategy=None,
+            context_block=context,
+            upstream={},
+            issues="",
+            previous="",
+        )
     )
     (prompt,) = prompts
     assert_hard_constraints(prompt)
@@ -167,4 +196,6 @@ def test_without_preferences_no_prompt_mentions_them(prompts: list[str]) -> None
     state["preferences"] = ProjectPreferences().model_dump()
     architect_node(state)  # type: ignore[arg-type]
     summarizer_node(state)  # type: ignore[arg-type]
-    assert blueprint_context(state) and not any("hard constraint" in p.lower() for p in [*prompts, blueprint_context(state)])  # type: ignore[arg-type]
+    assert blueprint_context(state) and not any(
+        "hard constraint" in p.lower() for p in [*prompts, blueprint_context(state)]
+    )  # type: ignore[arg-type]

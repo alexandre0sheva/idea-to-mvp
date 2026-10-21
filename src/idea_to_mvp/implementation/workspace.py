@@ -110,7 +110,9 @@ def run_git(
             check=False,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        LOGGER.warning("git is not usable (%s); the workspace at %s is not version controlled.", exc, workspace)
+        LOGGER.warning(
+            "git is not usable (%s); the workspace at %s is not version controlled.", exc, workspace
+        )
         return None
 
 
@@ -143,7 +145,10 @@ def prepare_workspace(bundle_dir: Path, projects_root: Path) -> Path:
         suffix = datetime.now().strftime("%H%M%S%f")
         workspace = projects_root / f"{bundle_dir.name}-{suffix}"
     shutil.copytree(
-        bundle_dir, workspace, symlinks=True, ignore=shutil.ignore_patterns(*IGNORED_DIRS, ".DS_Store")
+        bundle_dir,
+        workspace,
+        symlinks=True,
+        ignore=shutil.ignore_patterns(*IGNORED_DIRS, ".DS_Store"),
     )
     _write_gitignore(workspace)
     initialised = run_git(workspace, "init", "-q")
@@ -183,7 +188,11 @@ def commit_workspace(workspace: Path, message: str) -> bool:
 def head_commit(workspace: Path) -> str | None:
     """Short id of the workspace's current commit (None when there is none or git is unusable)."""
     done = run_git(Path(workspace), "rev-parse", "--short", "HEAD")
-    return done.stdout.strip() if done is not None and done.returncode == 0 and done.stdout.strip() else None
+    return (
+        done.stdout.strip()
+        if done is not None and done.returncode == 0 and done.stdout.strip()
+        else None
+    )
 
 
 def workspace_tree(workspace: Path, limit: int = 60) -> str:
@@ -218,9 +227,13 @@ def diff_stat(workspace: Path, commit: str) -> str:
     if not _COMMIT_ID.match(commit or "") or git_dir.is_symlink() or not git_dir.is_dir():
         return ""
     harden_git_dir(git_dir)
-    done = run_git(workspace, "diff", "--stat", "--no-ext-diff", "--no-textconv", f"{commit}^1", commit)
+    done = run_git(
+        workspace, "diff", "--stat", "--no-ext-diff", "--no-textconv", f"{commit}^1", commit
+    )
     if done is None or done.returncode != 0:  # the first commit has no parent
-        done = run_git(workspace, "show", "--stat", "--format=", "--no-ext-diff", "--no-textconv", commit)
+        done = run_git(
+            workspace, "show", "--stat", "--format=", "--no-ext-diff", "--no-textconv", commit
+        )
     if done is None or done.returncode != 0:
         return ""
     return done.stdout.strip()[:_DIFF_STAT_LIMIT]
@@ -238,7 +251,9 @@ def diff_since(workspace: Path, commit: str, limit: int = DIFF_LIMIT) -> str:
     if not _COMMIT_ID.match(commit or "") or git_dir.is_symlink() or not git_dir.is_dir():
         return ""
     harden_git_dir(git_dir)
-    done = run_git(workspace, "diff", "--no-ext-diff", "--no-textconv", "--no-color", commit, "HEAD")
+    done = run_git(
+        workspace, "diff", "--no-ext-diff", "--no-textconv", "--no-color", commit, "HEAD"
+    )
     if done is None or done.returncode != 0:
         return ""
     text = done.stdout
@@ -255,7 +270,9 @@ def commit_diff(workspace: Path, commit: str, limit: int = DIFF_LIMIT) -> str:
     if not _COMMIT_ID.match(commit or "") or git_dir.is_symlink() or not git_dir.is_dir():
         return ""
     harden_git_dir(git_dir)
-    done = run_git(workspace, "diff", "--no-ext-diff", "--no-textconv", "--no-color", f"{commit}^1", commit)
+    done = run_git(
+        workspace, "diff", "--no-ext-diff", "--no-textconv", "--no-color", f"{commit}^1", commit
+    )
     if done is None or done.returncode != 0:
         return ""
     text = done.stdout

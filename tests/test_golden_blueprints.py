@@ -32,7 +32,9 @@ from idea_to_mvp.plan import (
 from idea_to_mvp.schemas import ProjectPreferences
 from idea_to_mvp.state import make_initial_state
 
-GOLDEN = json.loads((Path(__file__).parent / "fixtures" / "golden_ideas.json").read_text(encoding="utf-8"))
+GOLDEN = json.loads(
+    (Path(__file__).parent / "fixtures" / "golden_ideas.json").read_text(encoding="utf-8")
+)
 PACK_FILES = ("PRD.md", "ARCHITECTURE.md", "plan.md", "plan.json")
 
 
@@ -68,7 +70,9 @@ def test_autopilot_reaches_the_implement_gate_with_a_written_pack(pack: dict[str
     bundle = Path(pack["values"]["project_bundle_dir"])
     assert bundle.is_dir() and all((bundle / name).is_file() for name in PACK_FILES)
     written = load_plan((bundle / "plan.json").read_text(encoding="utf-8"))
-    assert written is not None and written == plan_of(pack["values"])  # the file is the state's plan
+    assert written is not None and written == plan_of(
+        pack["values"]
+    )  # the file is the state's plan
 
 
 def test_the_plan_passes_validation(pack: dict[str, Any]) -> None:
@@ -104,7 +108,9 @@ def test_the_pack_carries_a_complete_agent_harness_that_validates(pack: dict[str
     bundle = Path(pack["values"]["project_bundle_dir"])
     files = read_harness(bundle)
     assert validate_harness(files) == []
-    assert {CLAUDE_MD, CHECK_SCRIPT, SETTINGS_PATH} <= set(files) and any("/skills/" in path for path in files)
+    assert {CLAUDE_MD, CHECK_SCRIPT, SETTINGS_PATH} <= set(files) and any(
+        "/skills/" in path for path in files
+    )
     assert "## Guardrails" in files["AGENTS.md"] and os.access(bundle / CHECK_SCRIPT, os.X_OK)
     plan = plan_of(pack["values"])
     assert (plan.commands.test_report or plan.commands.test) in files[CHECK_SCRIPT]

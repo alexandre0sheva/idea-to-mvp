@@ -91,4 +91,8 @@ def save_result(workspace: Path, result: TaskResult) -> None:
 
 def spent_in_iteration(progress: dict[str, TaskResult], iteration: int) -> float:
     """What the tasks of one version (`T..` for v0.1, `I<n>-..` for iteration n) have cost so far."""
-    return sum(result["cost_usd"] for task_id, result in progress.items() if iteration_of(task_id) == iteration)
+    return sum(
+        result["cost_usd"]
+        for task_id, result in progress.items()
+        if iteration_of(task_id) == iteration
+    )

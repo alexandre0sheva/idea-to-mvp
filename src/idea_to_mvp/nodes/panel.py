@@ -148,7 +148,9 @@ def apply_moderator_rules(
     decision: ModeratorDecision, turns: Counter[str], last_speaker: str | None
 ) -> tuple[bool, str | None]:
     """The moderator's decision after the hard rules: `(converged, next_speaker)`."""
-    if decision.converged and all(turns[name] >= MIN_TURNS_BEFORE_CONVERGENCE for name in SPEAKER_ORDER):
+    if decision.converged and all(
+        turns[name] >= MIN_TURNS_BEFORE_CONVERGENCE for name in SPEAKER_ORDER
+    ):
         return True, None
     if decision.next_speaker is not None and decision.next_speaker != last_speaker:
         return False, decision.next_speaker
@@ -226,7 +228,9 @@ def build_panel_subgraph() -> CompiledStateGraph:
     """The panel, compiled to be mounted as the parent graph's `panel` node (it inherits the
     parent's checkpointer, so a crash mid-panel resumes from the last finished turn)."""
     builder = StateGraph(IdeaDiscussionState, input_schema=PanelInput)
-    builder.add_node("opening_turn", opening_turn_node, input_schema=OpeningInput, retry_policy=LLM_RETRY)
+    builder.add_node(
+        "opening_turn", opening_turn_node, input_schema=OpeningInput, retry_policy=LLM_RETRY
+    )
     builder.add_node("merge_openings", merge_openings_node)
     builder.add_node("moderator", moderator_node, retry_policy=LLM_RETRY)
     builder.add_node("speaker_turn", discussion_node, retry_policy=LLM_RETRY)

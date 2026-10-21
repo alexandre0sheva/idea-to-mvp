@@ -86,9 +86,13 @@ def test_the_other_lanes_are_not_asked_to_apply_the_rubric(name: str) -> None:
 
 def test_a_revision_may_change_nothing_when_no_issue_holds() -> None:
     prd = next(spec for spec in bundle_file_plan(None) if spec.relative_path == "PRD.md")
-    revision = prompt_for(prd, "CONTEXT", {}, issues="- [blocker] R4 has no owner", previous="# PRD")
+    revision = prompt_for(
+        prd, "CONTEXT", {}, issues="- [blocker] R4 has no owner", previous="# PRD"
+    )
     assert NO_CHANGE_REVISION.strip() in revision
-    assert NO_CHANGE_REVISION.strip() not in prompt_for(prd, "CONTEXT", {})  # a first draft has nothing to keep
+    assert NO_CHANGE_REVISION.strip() not in prompt_for(
+        prd, "CONTEXT", {}
+    )  # a first draft has nothing to keep
 
 
 def test_the_change_planner_may_answer_with_no_tasks_and_a_reason() -> None:
@@ -96,7 +100,9 @@ def test_the_change_planner_may_answer_with_no_tasks_and_a_reason() -> None:
     assert "`tasks: []`" in prompt and "`reason`" in prompt and "already" in prompt
 
 
-@pytest.mark.parametrize("prompt", [TASK_PROMPT, FIX_PROMPT, RESOLVER_PROMPT], ids=["task", "fix", "resolver"])
+@pytest.mark.parametrize(
+    "prompt", [TASK_PROMPT, FIX_PROMPT, RESOLVER_PROMPT], ids=["task", "fix", "resolver"]
+)
 def test_every_session_that_changes_code_is_told_not_to_weaken_the_tests(prompt: str) -> None:
     assert TEST_INTEGRITY in prompt
     assert "quality/TEST_CHANGES.md" in TEST_INTEGRITY and "test-count" in TEST_INTEGRITY

@@ -84,7 +84,9 @@ class FakeQuery:
         yield AssistantMessage(
             content=[
                 TextBlock(text=f"Working on {task_id}."),
-                ToolUseBlock(id="1", name="Write", input={"file_path": f"src/{task_id.lower()}.py"}),
+                ToolUseBlock(
+                    id="1", name="Write", input={"file_path": f"src/{task_id.lower()}.py"}
+                ),
             ],
             model="claude-x",
         )
@@ -117,7 +119,11 @@ def git_log(workspace: Path) -> list[str]:
 
 def head(workspace: Path) -> str:
     return subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"], cwd=workspace, capture_output=True, text=True, check=True
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
 
 
@@ -141,7 +147,9 @@ def test_the_budget_tracker_ignores_negative_charges_and_survives_threads() -> N
     budget = BudgetTracker(1000.0)
     budget.charge(-5.0)
     assert budget.remaining() == 1000.0
-    threads = [threading.Thread(target=lambda: [budget.charge(0.01) for _ in range(500)]) for _ in range(8)]
+    threads = [
+        threading.Thread(target=lambda: [budget.charge(0.01) for _ in range(500)]) for _ in range(8)
+    ]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -158,11 +166,19 @@ def test_a_successful_task_is_committed_recorded_and_charged(workspace: Path) ->
     budget = BudgetTracker(25.0)
     task = make_task("T01", title="Project setup")
 
-    result = run(run_task(workspace, task, make_settings(), budget=budget, emit=events.append, query_fn=query))
+    result = run(
+        run_task(
+            workspace, task, make_settings(), budget=budget, emit=events.append, query_fn=query
+        )
+    )
 
     assert git_log(workspace)[0] == "T01: Project setup"
     assert result["status"] == "done" and result["summary"] == "Built T01."
-    assert result["cost_usd"] == 0.42 and result["turns"] == 9 and result["session_id"] == "session-T01"
+    assert (
+        result["cost_usd"] == 0.42
+        and result["turns"] == 9
+        and result["session_id"] == "session-T01"
+    )
     assert result["commit"] == head(workspace)
     assert load_progress(workspace)["T01"] == result
     assert budget.remaining() == pytest.approx(24.58)
@@ -173,10 +189,23 @@ def test_a_successful_task_is_committed_recorded_and_charged(workspace: Path) ->
 
 def test_the_orchestrator_commits_and_the_progress_file_stays_out_of_git(workspace: Path) -> None:
     query = FakeQuery(workspace)
-    run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
-    tracked = subprocess.run(["git", "ls-files"], cwd=workspace, capture_output=True, text=True).stdout.split()
+    run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=workspace, capture_output=True, text=True
+    ).stdout.split()
     assert "src/t01.py" in tracked and not any(name.startswith(".idea-to-mvp") for name in tracked)
-    status = subprocess.run(["git", "status", "--porcelain"], cwd=workspace, capture_output=True, text=True).stdout
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=workspace, capture_output=True, text=True
+    ).stdout
     assert status == ""
 
 
@@ -199,9 +228,30 @@ def test_the_task_prompt_carries_everything_the_agent_needs(workspace: Path) -> 
             ),
         ]
     )
-    save_result(workspace, {"task_id": "T01", "status": "done", "summary": "Scaffolded the FastAPI app.", "cost_usd": 1.0, "turns": 3, "session_id": None, "commit": None})
+    save_result(
+        workspace,
+        {
+            "task_id": "T01",
+            "status": "done",
+            "summary": "Scaffolded the FastAPI app.",
+            "cost_usd": 1.0,
+            "turns": 3,
+            "session_id": None,
+            "commit": None,
+        },
+    )
     query = FakeQuery(workspace)
-    run(run_task(workspace, plan.tasks[1], make_settings(), budget=BudgetTracker(25), emit=lambda e: None, plan=plan, query_fn=query))
+    run(
+        run_task(
+            workspace,
+            plan.tasks[1],
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            plan=plan,
+            query_fn=query,
+        )
+    )
     prompt = query.calls[0][0]
     for needle in (
         "task T02",
@@ -227,25 +277,67 @@ def test_the_task_prompt_carries_everything_the_agent_needs(workspace: Path) -> 
 def test_the_sdk_budget_is_the_smaller_of_the_task_cap_and_what_is_left(workspace: Path) -> None:
     settings = make_settings(implementer_max_task_usd=5.0)
     query = FakeQuery(workspace, cost=0.0)
-    run(run_task(workspace, make_task("T01"), settings, budget=BudgetTracker(25.0), emit=lambda e: None, query_fn=query))
+    run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            settings,
+            budget=BudgetTracker(25.0),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     assert query.options_for("T01").max_budget_usd == 5.0
     assert query.options_for("T01").max_turns == 17  # implementer_max_task_turns
-    run(run_task(workspace, make_task("T02"), settings, budget=BudgetTracker(1.75), emit=lambda e: None, query_fn=query))
+    run(
+        run_task(
+            workspace,
+            make_task("T02"),
+            settings,
+            budget=BudgetTracker(1.75),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     assert query.options_for("T02").max_budget_usd == pytest.approx(1.75)
 
 
 def test_the_session_is_confined_like_every_other_agent_session(workspace: Path) -> None:
     query = FakeQuery(workspace)
-    run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     options = query.options_for("T01")
-    assert Path(str(options.cwd)) == workspace and options.setting_sources == ["project"] and options.hooks
+    assert (
+        Path(str(options.cwd)) == workspace
+        and options.setting_sources == ["project"]
+        and options.hooks
+    )
 
 
 def test_an_exhausted_budget_fails_the_task_without_starting_a_session(workspace: Path) -> None:
     query = FakeQuery(workspace)
     events: list[ImplEvent] = []
-    result = run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(0.0), emit=events.append, query_fn=query))
-    assert query.calls == [] and result["status"] == "failed" and "budget" in result["summary"].lower()
+    result = run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=BudgetTracker(0.0),
+            emit=events.append,
+            query_fn=query,
+        )
+    )
+    assert (
+        query.calls == [] and result["status"] == "failed" and "budget" in result["summary"].lower()
+    )
     assert load_progress(workspace)["T01"]["status"] == "failed"
     assert events[-1]["kind"] == "task_end" and "budget" in events[-1]["detail"].lower()
     assert git_log(workspace) == ["blueprint"]
@@ -254,10 +346,30 @@ def test_an_exhausted_budget_fails_the_task_without_starting_a_session(workspace
 def test_a_task_that_is_already_done_is_skipped_on_a_rerun(workspace: Path) -> None:
     query = FakeQuery(workspace, cost=0.3)
     budget = BudgetTracker(25.0)
-    first = run(run_task(workspace, make_task("T01"), make_settings(), budget=budget, emit=lambda e: None, query_fn=query))
+    first = run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=budget,
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     events: list[ImplEvent] = []
-    again = run(run_task(workspace, make_task("T01"), make_settings(), budget=budget, emit=events.append, query_fn=query))
-    assert query.tasks_run == ["T01"] and again == first  # no second session, the stored result comes back
+    again = run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=budget,
+            emit=events.append,
+            query_fn=query,
+        )
+    )
+    assert (
+        query.tasks_run == ["T01"] and again == first
+    )  # no second session, the stored result comes back
     assert budget.remaining() == pytest.approx(24.7)  # and nothing is charged twice
     assert [e["kind"] for e in events] == ["task_end"] and "earlier run" in events[0]["detail"]
 
@@ -265,11 +377,33 @@ def test_a_task_that_is_already_done_is_skipped_on_a_rerun(workspace: Path) -> N
 def test_a_failed_task_is_retried_on_the_next_run(workspace: Path) -> None:
     query = FakeQuery(workspace)
     query.fail = {"T01"}
-    failed = run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
-    assert failed["status"] == "failed" and failed["commit"] is None and "Stopped early" in failed["summary"]
+    failed = run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
+    assert (
+        failed["status"] == "failed"
+        and failed["commit"] is None
+        and "Stopped early" in failed["summary"]
+    )
     assert git_log(workspace) == ["blueprint"]  # a failed session is never committed
     query.fail = set()
-    retried = run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    retried = run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     assert retried["status"] == "done" and query.tasks_run == ["T01", "T01"]
     assert load_progress(workspace)["T01"]["status"] == "done"
 
@@ -278,14 +412,32 @@ def test_a_failed_session_is_still_charged(workspace: Path) -> None:
     query = FakeQuery(workspace, cost=1.25)
     query.fail = {"T01"}
     budget = BudgetTracker(25.0)
-    result = run(run_task(workspace, make_task("T01"), make_settings(), budget=budget, emit=lambda e: None, query_fn=query))
+    result = run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=budget,
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     assert result["cost_usd"] == 1.25 and budget.remaining() == pytest.approx(23.75)
 
 
 def test_a_session_that_crashes_becomes_a_failed_task_not_a_crash(workspace: Path) -> None:
     query = FakeQuery(workspace)
     query.crash = {"T01"}
-    result = run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    result = run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     assert result["status"] == "failed" and "agent process died" in result["summary"]
     assert load_progress(workspace)["T01"]["status"] == "failed"
 
@@ -295,14 +447,32 @@ def test_a_missing_sandbox_is_a_configuration_error_not_a_failed_task(
 ) -> None:
     monkeypatch.setattr(opts, "sandbox_supported", lambda *a, **k: False)
     with pytest.raises(opts.SandboxUnavailableError):
-        run(run_task(workspace, make_task("T01"), make_settings(implementer_sandbox="on"), budget=BudgetTracker(25), emit=lambda e: None, query_fn=FakeQuery(workspace)))
+        run(
+            run_task(
+                workspace,
+                make_task("T01"),
+                make_settings(implementer_sandbox="on"),
+                budget=BudgetTracker(25),
+                emit=lambda e: None,
+                query_fn=FakeQuery(workspace),
+            )
+        )
     assert load_progress(workspace) == {}
 
 
 def test_a_task_that_changes_nothing_is_done_without_a_commit(workspace: Path) -> None:
     query = FakeQuery(workspace)
     query.no_changes = {"T01"}
-    result = run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    result = run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     assert result["status"] == "done" and result["commit"] is None
     assert git_log(workspace) == ["blueprint"]
 
@@ -323,26 +493,52 @@ def diamond():
 
 def test_a_plan_runs_its_waves_in_order_and_commits_each_task(workspace: Path) -> None:
     query = FakeQuery(workspace)
-    results = run(run_plan(workspace, diamond(), make_settings(), emit=lambda e: None, query_fn=query))
+    results = run(
+        run_plan(workspace, diamond(), make_settings(), emit=lambda e: None, query_fn=query)
+    )
     assert query.tasks_run == ["T01", "T02", "T03", "T04"]
-    assert [r["status"] for r in results] == ["done"] * 4 and [r["task_id"] for r in results] == ["T01", "T02", "T03", "T04"]
+    assert [r["status"] for r in results] == ["done"] * 4 and [r["task_id"] for r in results] == [
+        "T01",
+        "T02",
+        "T03",
+        "T04",
+    ]
     assert git_log(workspace)[:4] == ["T04: Join", "T03: Right", "T02: Left", "T01: Setup"]
 
 
 def test_the_position_of_every_task_is_announced(workspace: Path) -> None:
     events: list[ImplEvent] = []
-    run(run_plan(workspace, diamond(), make_settings(), emit=events.append, query_fn=FakeQuery(workspace)))
+    run(
+        run_plan(
+            workspace, diamond(), make_settings(), emit=events.append, query_fn=FakeQuery(workspace)
+        )
+    )
     starts = [(e["task_id"], e["detail"]) for e in events if e["kind"] == "task_start"]
     assert starts == [("T01", "1/4"), ("T02", "2/4"), ("T03", "3/4"), ("T04", "4/4")]
 
 
-def test_tasks_that_depend_on_a_failed_task_are_skipped_but_independent_ones_still_run(workspace: Path) -> None:
+def test_tasks_that_depend_on_a_failed_task_are_skipped_but_independent_ones_still_run(
+    workspace: Path,
+) -> None:
     query = FakeQuery(workspace)
     query.fail = {"T02"}
-    results = {r["task_id"]: r for r in run(run_plan(workspace, diamond(), make_settings(), emit=lambda e: None, query_fn=query))}
-    assert {k: v["status"] for k, v in results.items()} == {"T01": "done", "T02": "failed", "T03": "done", "T04": "skipped"}
+    results = {
+        r["task_id"]: r
+        for r in run(
+            run_plan(workspace, diamond(), make_settings(), emit=lambda e: None, query_fn=query)
+        )
+    }
+    assert {k: v["status"] for k, v in results.items()} == {
+        "T01": "done",
+        "T02": "failed",
+        "T03": "done",
+        "T04": "skipped",
+    }
     assert query.tasks_run == ["T01", "T02", "T03"]
-    assert "T02" in results["T04"]["summary"] and load_progress(workspace)["T04"]["status"] == "skipped"
+    assert (
+        "T02" in results["T04"]["summary"]
+        and load_progress(workspace)["T04"]["status"] == "skipped"
+    )
 
 
 def test_the_whole_run_budget_is_shared_by_all_tasks(workspace: Path) -> None:
@@ -356,7 +552,18 @@ def test_the_whole_run_budget_is_shared_by_all_tasks(workspace: Path) -> None:
 
 
 def test_a_resumed_run_counts_what_earlier_runs_already_spent(workspace: Path) -> None:
-    save_result(workspace, {"task_id": "T01", "status": "done", "summary": "earlier", "cost_usd": 4.0, "turns": 5, "session_id": "s", "commit": None})
+    save_result(
+        workspace,
+        {
+            "task_id": "T01",
+            "status": "done",
+            "summary": "earlier",
+            "cost_usd": 4.0,
+            "turns": 5,
+            "session_id": "s",
+            "commit": None,
+        },
+    )
     events: list[ImplEvent] = []
     query = FakeQuery(workspace, cost=0.0)
     settings = make_settings(implementer_max_total_usd=7.0, implementer_max_task_usd=5.0)
@@ -373,8 +580,17 @@ def test_the_task_log_summarises_every_result(workspace: Path) -> None:
     plan = diamond()
     results = run(run_plan(workspace, plan, make_settings(), emit=lambda e: None, query_fn=query))
     log = render_task_log(plan, results)
-    assert "## T01 — Setup: done" in log and "## T03 — Right: failed" in log and "## T04 — Join: skipped" in log
-    assert "$0.50" in log and "4 turns" in log and "Built T01." in log and "Stopped early on T03." in log
+    assert (
+        "## T01 — Setup: done" in log
+        and "## T03 — Right: failed" in log
+        and "## T04 — Join: skipped" in log
+    )
+    assert (
+        "$0.50" in log
+        and "4 turns" in log
+        and "Built T01." in log
+        and "Stopped early on T03." in log
+    )
 
 
 # -------------------------------------------------------------------- demo mode
@@ -384,7 +600,9 @@ def test_demo_mode_builds_a_real_project_task_by_task_without_the_sdk(workspace:
     from idea_to_mvp.demo.implementer import demo_verify_lane
 
     events: list[ImplEvent] = []
-    plan = make_plan([make_task("T01", title="Setup"), make_task("T02", title="Core", depends_on=["T01"])])
+    plan = make_plan(
+        [make_task("T01", title="Setup"), make_task("T02", title="Core", depends_on=["T01"])]
+    )
     results = run(run_plan(workspace, plan, make_settings(demo_mode=True), emit=events.append))
     assert [r["status"] for r in results] == ["done", "done"]
     assert git_log(workspace)[:2] == ["T02: Core", "T01: Setup"]
@@ -397,7 +615,9 @@ def test_demo_mode_builds_a_real_project_task_by_task_without_the_sdk(workspace:
 # ------------------------------------------------------------ worktree mode (parallel tasks)
 
 
-def test_a_task_in_a_worktree_runs_and_commits_there_and_leaves_recording_to_the_merge_step(workspace: Path) -> None:
+def test_a_task_in_a_worktree_runs_and_commits_there_and_leaves_recording_to_the_merge_step(
+    workspace: Path,
+) -> None:
     worktree = run(merge.create_worktree(workspace, "T02"))
     query = FakeQuery(worktree)
     events: list[ImplEvent] = []
@@ -408,9 +628,13 @@ def test_a_task_in_a_worktree_runs_and_commits_there_and_leaves_recording_to_the
             work_dir=worktree, persist=False, announce_end=False, query_fn=query,
         )
     )  # fmt: skip
-    assert Path(str(query.options_for("T02").cwd)) == worktree  # the session's sandbox root is the worktree
+    assert (
+        Path(str(query.options_for("T02").cwd)) == worktree
+    )  # the session's sandbox root is the worktree
     assert result["status"] == "done" and result["commit"] == head_of(worktree)
-    assert git_log(worktree)[0] == "T02: Left" and git_log(workspace) == ["blueprint"]  # main is untouched until merged
+    assert git_log(worktree)[0] == "T02: Left" and git_log(workspace) == [
+        "blueprint"
+    ]  # main is untouched until merged
     assert load_progress(workspace) == {}  # `done` is recorded only after the merge
     assert [e["kind"] for e in events if e["kind"] in ("task_start", "task_end")] == ["task_start"]
 
@@ -419,7 +643,9 @@ def head_of(path: Path) -> str:
     return head(path)
 
 
-def test_the_task_prompt_asks_for_the_check_script_and_points_at_the_project_skills(workspace: Path) -> None:
+def test_the_task_prompt_asks_for_the_check_script_and_points_at_the_project_skills(
+    workspace: Path,
+) -> None:
     prompt = build_task_prompt(make_task("T01"), make_plan(), {})
     assert "bash scripts/check.sh" in prompt and ".claude/skills/" in prompt
 
@@ -428,18 +654,66 @@ def test_the_prompt_of_a_worktree_task_says_dependencies_are_not_installed(works
     worktree = run(merge.create_worktree(workspace, "T01"))
     query = FakeQuery(worktree)
     plan = make_plan([make_task("T01")])
-    run(run_task(workspace, plan.tasks[0], make_settings(), budget=BudgetTracker(5.0), emit=lambda e: None, plan=plan, work_dir=worktree, persist=False, query_fn=query))
+    run(
+        run_task(
+            workspace,
+            plan.tasks[0],
+            make_settings(),
+            budget=BudgetTracker(5.0),
+            emit=lambda e: None,
+            plan=plan,
+            work_dir=worktree,
+            persist=False,
+            query_fn=query,
+        )
+    )
     prompt = query.calls[0][0]
-    assert "worktree" in prompt.lower() and "install command" in prompt.lower() and "merged back" in prompt.lower()
+    assert (
+        "worktree" in prompt.lower()
+        and "install command" in prompt.lower()
+        and "merged back" in prompt.lower()
+    )
     sequential = FakeQuery(workspace)
-    run(run_task(workspace, make_task("T09"), make_settings(), budget=BudgetTracker(5.0), emit=lambda e: None, plan=plan, query_fn=sequential))
+    run(
+        run_task(
+            workspace,
+            make_task("T09"),
+            make_settings(),
+            budget=BudgetTracker(5.0),
+            emit=lambda e: None,
+            plan=plan,
+            query_fn=sequential,
+        )
+    )
     assert "worktree" not in sequential.calls[0][0].lower()
 
 
 def test_a_done_task_is_still_skipped_when_it_would_run_in_a_worktree(workspace: Path) -> None:
-    save_result(workspace, {"task_id": "T01", "status": "done", "summary": "earlier", "cost_usd": 1.0, "turns": 2, "session_id": None, "commit": "abc"})
+    save_result(
+        workspace,
+        {
+            "task_id": "T01",
+            "status": "done",
+            "summary": "earlier",
+            "cost_usd": 1.0,
+            "turns": 2,
+            "session_id": None,
+            "commit": "abc",
+        },
+    )
     query = FakeQuery(workspace)
-    result = run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(5.0), emit=lambda e: None, work_dir=workspace / "nowhere", persist=False, query_fn=query))
+    result = run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=BudgetTracker(5.0),
+            emit=lambda e: None,
+            work_dir=workspace / "nowhere",
+            persist=False,
+            query_fn=query,
+        )
+    )
     assert query.calls == [] and result["summary"] == "earlier"
 
 
@@ -453,32 +727,79 @@ def conflict_workspace(workspace: Path) -> list[str]:
     (right / "README.md").write_text("RIGHT\n")
     (workspace / "README.md").write_text("base\n")
     subprocess.run(["git", "add", "-A"], cwd=workspace, check=True)
-    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base"], cwd=workspace, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base"],
+        cwd=workspace,
+        check=True,
+    )
     return ["README.md"]
 
 
-def test_the_resolver_session_gets_the_conflicts_the_task_and_the_test_command(workspace: Path) -> None:
+def test_the_resolver_session_gets_the_conflicts_the_task_and_the_test_command(
+    workspace: Path,
+) -> None:
     plan = make_plan([make_task("T03", title="Right", goal="Build the right half.")])
     query = FakeQuery(workspace, cost=0.3, turns=6)
     query.task_of = lambda prompt: "T03"  # type: ignore[method-assign]
     outcome = run(
-        run_merge_resolver(workspace, plan.tasks[0], ["README.md", "src/app.py"], make_settings(), emit=lambda e: None, budget_usd=2.5, plan=plan, query_fn=query)
+        run_merge_resolver(
+            workspace,
+            plan.tasks[0],
+            ["README.md", "src/app.py"],
+            make_settings(),
+            emit=lambda e: None,
+            budget_usd=2.5,
+            plan=plan,
+            query_fn=query,
+        )
     )
     assert outcome.success and outcome.cost_usd == 0.3 and outcome.summary == "Built T03."
     prompt, options = query.calls[0]
-    for needle in ("README.md", "src/app.py", "T03", "Build the right half.", "pytest", "conflict markers", "Do not run `git commit`"):
+    for needle in (
+        "README.md",
+        "src/app.py",
+        "T03",
+        "Build the right half.",
+        "pytest",
+        "conflict markers",
+        "Do not run `git commit`",
+    ):
         assert needle in prompt, needle
-    assert Path(str(options.cwd)) == workspace  # resolves in the main workspace, where the merge is in progress
+    assert (
+        Path(str(options.cwd)) == workspace
+    )  # resolves in the main workspace, where the merge is in progress
     assert options.max_budget_usd == 2.5 and options.max_turns == 17
 
 
-def test_tasks_run_on_the_implementer_model_and_the_resolver_on_the_escalation_model(workspace: Path) -> None:
+def test_tasks_run_on_the_implementer_model_and_the_resolver_on_the_escalation_model(
+    workspace: Path,
+) -> None:
     settings = make_settings(implementer_model="m-task", escalation_model="m-hard")
     plan = make_plan([make_task("T03")])
     task_query, resolver_query = FakeQuery(workspace), FakeQuery(workspace)
     resolver_query.task_of = lambda prompt: "T03"  # type: ignore[method-assign]
-    run(run_task(workspace, make_task("T01"), settings, budget=BudgetTracker(25), emit=lambda e: None, query_fn=task_query))
-    run(run_merge_resolver(workspace, plan.tasks[0], ["a"], settings, emit=lambda e: None, budget_usd=1.0, plan=plan, query_fn=resolver_query))
+    run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            settings,
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=task_query,
+        )
+    )
+    run(
+        run_merge_resolver(
+            workspace,
+            plan.tasks[0],
+            ["a"],
+            settings,
+            emit=lambda e: None,
+            budget_usd=1.0,
+            plan=plan,
+            query_fn=resolver_query,
+        )
+    )
     assert task_query.calls[0][1].model == "m-task" and resolver_query.calls[0][1].model == "m-hard"
 
 
@@ -486,17 +807,49 @@ def test_a_resolver_that_fails_or_crashes_reports_failure_without_raising(worksp
     plan = make_plan([make_task("T03")])
     failing = FakeQuery(workspace)
     failing.fail = {"T03"}
-    outcome = run(run_merge_resolver(workspace, plan.tasks[0], ["a"], make_settings(), emit=lambda e: None, budget_usd=1.0, plan=plan, query_fn=failing))
+    outcome = run(
+        run_merge_resolver(
+            workspace,
+            plan.tasks[0],
+            ["a"],
+            make_settings(),
+            emit=lambda e: None,
+            budget_usd=1.0,
+            plan=plan,
+            query_fn=failing,
+        )
+    )
     assert not outcome.success and "Stopped early" in outcome.summary
     crashing = FakeQuery(workspace)
     crashing.crash = {"T03"}
-    outcome = run(run_merge_resolver(workspace, plan.tasks[0], ["a"], make_settings(), emit=lambda e: None, budget_usd=1.0, plan=plan, query_fn=crashing))
+    outcome = run(
+        run_merge_resolver(
+            workspace,
+            plan.tasks[0],
+            ["a"],
+            make_settings(),
+            emit=lambda e: None,
+            budget_usd=1.0,
+            plan=plan,
+            query_fn=crashing,
+        )
+    )
     assert not outcome.success and "agent process died" in outcome.summary
 
 
 def test_the_resolver_is_a_no_op_success_in_demo_mode(workspace: Path) -> None:
     plan = make_plan([make_task("T03")])
-    outcome = run(run_merge_resolver(workspace, plan.tasks[0], ["a"], make_settings(demo_mode=True), emit=lambda e: None, budget_usd=1.0, plan=plan))
+    outcome = run(
+        run_merge_resolver(
+            workspace,
+            plan.tasks[0],
+            ["a"],
+            make_settings(demo_mode=True),
+            emit=lambda e: None,
+            budget_usd=1.0,
+            plan=plan,
+        )
+    )
     assert outcome.success and outcome.cost_usd == 0.0
 
 
@@ -515,10 +868,30 @@ def test_a_task_session_leaves_a_trajectory_and_a_ledger_row(workspace: Path) ->
     from idea_to_mvp.roles import resolve_agent_model
 
     settings = make_settings()
-    run(run_task(workspace, make_task("T01"), settings, budget=BudgetTracker(25), emit=lambda e: None, query_fn=FakeQuery(workspace)))
+    run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            settings,
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=FakeQuery(workspace),
+        )
+    )
     (row,) = load_ledger(workspace)
-    assert (row["kind"], row["label"], row["task_id"], row["iteration"], row["attempt"]) == ("task", "T01", "T01", 1, 1)
-    assert (row["cost_usd"], row["turns"], row["outcome"], row["session_id"]) == (0.5, 5, "success", "session-T01")
+    assert (row["kind"], row["label"], row["task_id"], row["iteration"], row["attempt"]) == (
+        "task",
+        "T01",
+        "T01",
+        1,
+        1,
+    )
+    assert (row["cost_usd"], row["turns"], row["outcome"], row["session_id"]) == (
+        0.5,
+        5,
+        "success",
+        "session-T01",
+    )
     assert row["model"] == resolve_agent_model(settings, "implementer")
     assert trajectory_tags(workspace, "T01") == ["TEXT", "ACTION", "RESULT"]
 
@@ -528,33 +901,104 @@ def test_every_attempt_at_a_task_keeps_its_own_trajectory(workspace: Path) -> No
 
     query = FakeQuery(workspace)
     query.fail = {"T01"}
-    run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     query.fail = set()
-    run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     rows = load_ledger(workspace)
-    assert [(r["label"], r["attempt"], r["outcome"]) for r in rows] == [("T01", 1, "failed"), ("T01-2", 2, "success")]
-    assert "ERROR" in trajectory_tags(workspace, "T01") and "ERROR" not in trajectory_tags(workspace, "T01-2")
+    assert [(r["label"], r["attempt"], r["outcome"]) for r in rows] == [
+        ("T01", 1, "failed"),
+        ("T01-2", 2, "success"),
+    ]
+    assert "ERROR" in trajectory_tags(workspace, "T01") and "ERROR" not in trajectory_tags(
+        workspace, "T01-2"
+    )
 
 
-def test_a_crashed_session_is_in_the_ledger_with_the_reason_in_its_trajectory(workspace: Path) -> None:
+def test_a_crashed_session_is_in_the_ledger_with_the_reason_in_its_trajectory(
+    workspace: Path,
+) -> None:
     from idea_to_mvp.implementation.ledger import load_ledger
     from idea_to_mvp.implementation.trajectory import parse_trajectory
 
     query = FakeQuery(workspace)
     query.crash = {"T01"}
-    run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     assert [r["outcome"] for r in load_ledger(workspace)] == ["crashed"]
-    errors = [text for tag, text in parse_trajectory((workspace / ".idea-to-mvp/trajectories/T01.md").read_text()) if tag == "ERROR"]
+    errors = [
+        text
+        for tag, text in parse_trajectory(
+            (workspace / ".idea-to-mvp/trajectories/T01.md").read_text()
+        )
+        if tag == "ERROR"
+    ]
     assert any("agent process died" in text for text in errors)
 
 
 def test_no_session_means_no_row(workspace: Path) -> None:
     from idea_to_mvp.implementation.ledger import load_ledger
 
-    run(run_task(workspace, make_task("T01"), make_settings(), budget=BudgetTracker(0.0), emit=lambda e: None, query_fn=FakeQuery(workspace)))
-    save_result(workspace, {"task_id": "T02", "status": "done", "summary": "earlier", "cost_usd": 1.0, "turns": 2, "session_id": None, "commit": "abc"})
-    run(run_task(workspace, make_task("T02"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=FakeQuery(workspace)))
-    assert load_ledger(workspace) == []  # the budget was gone and the task was already done: nothing ran
+    run(
+        run_task(
+            workspace,
+            make_task("T01"),
+            make_settings(),
+            budget=BudgetTracker(0.0),
+            emit=lambda e: None,
+            query_fn=FakeQuery(workspace),
+        )
+    )
+    save_result(
+        workspace,
+        {
+            "task_id": "T02",
+            "status": "done",
+            "summary": "earlier",
+            "cost_usd": 1.0,
+            "turns": 2,
+            "session_id": None,
+            "commit": "abc",
+        },
+    )
+    run(
+        run_task(
+            workspace,
+            make_task("T02"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=FakeQuery(workspace),
+        )
+    )
+    assert (
+        load_ledger(workspace) == []
+    )  # the budget was gone and the task was already done: nothing ran
 
 
 def test_a_later_versions_task_is_recorded_under_its_iteration(workspace: Path) -> None:
@@ -562,19 +1006,49 @@ def test_a_later_versions_task_is_recorded_under_its_iteration(workspace: Path) 
 
     async def query(*, prompt: str, options: Any) -> AsyncIterator[Any]:
         yield ResultMessage(
-            subtype="success", duration_ms=1, duration_api_ms=1, is_error=False, num_turns=2, session_id="s", total_cost_usd=0.1, result="ok"
+            subtype="success",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=2,
+            session_id="s",
+            total_cost_usd=0.1,
+            result="ok",
         )
 
-    run(run_task(workspace, make_task("I2-01"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    run(
+        run_task(
+            workspace,
+            make_task("I2-01"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     assert [(r["label"], r["iteration"]) for r in load_ledger(workspace)] == [("I2-01", 2)]
 
 
-def test_a_worktree_session_is_recorded_in_the_main_workspace_where_the_worktree_will_not_outlive_it(workspace: Path) -> None:
+def test_a_worktree_session_is_recorded_in_the_main_workspace_where_the_worktree_will_not_outlive_it(
+    workspace: Path,
+) -> None:
     from idea_to_mvp.implementation.ledger import load_ledger
 
     worktree = run(merge.create_worktree(workspace, "T02"))
     plan = make_plan([make_task("T01"), make_task("T02", depends_on=["T01"])])
-    run(run_task(workspace, plan.tasks[1], make_settings(), budget=BudgetTracker(5.0), emit=lambda e: None, plan=plan, work_dir=worktree, persist=False, query_fn=FakeQuery(worktree)))
+    run(
+        run_task(
+            workspace,
+            plan.tasks[1],
+            make_settings(),
+            budget=BudgetTracker(5.0),
+            emit=lambda e: None,
+            plan=plan,
+            work_dir=worktree,
+            persist=False,
+            query_fn=FakeQuery(worktree),
+        )
+    )
     assert [r["label"] for r in load_ledger(workspace)] == ["T02"]
     assert trajectory_tags(workspace, "T02") and not (worktree / ".idea-to-mvp").exists()
 
@@ -586,28 +1060,60 @@ def test_the_resolver_has_its_own_row_on_the_escalation_model(workspace: Path) -
     query = FakeQuery(workspace, cost=0.3, turns=6)
     query.task_of = lambda prompt: "T03"  # type: ignore[method-assign]
     settings = make_settings(escalation_model="m-hard")
-    run(run_merge_resolver(workspace, plan.tasks[0], ["README.md"], settings, emit=lambda e: None, budget_usd=2.0, plan=plan, query_fn=query))
+    run(
+        run_merge_resolver(
+            workspace,
+            plan.tasks[0],
+            ["README.md"],
+            settings,
+            emit=lambda e: None,
+            budget_usd=2.0,
+            plan=plan,
+            query_fn=query,
+        )
+    )
     (row,) = load_ledger(workspace)
-    assert (row["kind"], row["label"], row["task_id"], row["model"], row["cost_usd"]) == ("resolver", "T03-resolver", "T03", "m-hard", 0.3)
+    assert (row["kind"], row["label"], row["task_id"], row["model"], row["cost_usd"]) == (
+        "resolver",
+        "T03-resolver",
+        "T03",
+        "m-hard",
+        0.3,
+    )
 
 
 def test_demo_sessions_are_recorded_too_so_the_console_survives_a_restart(workspace: Path) -> None:
     from idea_to_mvp.implementation.ledger import load_ledger
 
-    plan = make_plan([make_task("T01", title="Setup"), make_task("T02", title="Core", depends_on=["T01"])])
+    plan = make_plan(
+        [make_task("T01", title="Setup"), make_task("T02", title="Core", depends_on=["T01"])]
+    )
     run(run_plan(workspace, plan, make_settings(demo_mode=True), emit=lambda e: None))
     rows = load_ledger(workspace)
-    assert [(r["label"], r["outcome"], r["cost_usd"], r["turns"], r["model"]) for r in rows] == [("T01", "success", 0.0, 3, "demo"), ("T02", "success", 0.0, 3, "demo")]
-    assert trajectory_tags(workspace, "T01")[-1] == "RESULT" and "ACTION" in trajectory_tags(workspace, "T01")
+    assert [(r["label"], r["outcome"], r["cost_usd"], r["turns"], r["model"]) for r in rows] == [
+        ("T01", "success", 0.0, 3, "demo"),
+        ("T02", "success", 0.0, 3, "demo"),
+    ]
+    assert trajectory_tags(workspace, "T01")[-1] == "RESULT" and "ACTION" in trajectory_tags(
+        workspace, "T01"
+    )
 
 
 def test_the_ledger_equals_the_agent_spend_that_usage_reports(workspace: Path) -> None:
     from idea_to_mvp.implementation.ledger import check_ledger
     from idea_to_mvp.nodes.implement import usage_records
 
-    plan = make_plan([make_task("T01"), make_task("T02", depends_on=["T01"]), make_task("T03", depends_on=["T02"])])
+    plan = make_plan(
+        [
+            make_task("T01"),
+            make_task("T02", depends_on=["T01"]),
+            make_task("T03", depends_on=["T02"]),
+        ]
+    )
     query = FakeQuery(workspace, cost=0.5)
-    query.fail = {"T02"}  # a failed session still cost money; its dependent is skipped and costs none
+    query.fail = {
+        "T02"
+    }  # a failed session still cost money; its dependent is skipped and costs none
     settings = make_settings()
     results = run(run_plan(workspace, plan, settings, emit=lambda e: None, query_fn=query))
     check = check_ledger(workspace, usage_records(results, settings))
@@ -625,7 +1131,11 @@ def with_tests(workspace: Path, *names: str) -> None:
     for name in names or ("test_app.py",):
         (workspace / "tests" / name).write_text(TEST_FILE)
     subprocess.run(["git", "add", "-A"], cwd=workspace, check=True)
-    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "tests"], cwd=workspace, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "tests"],
+        cwd=workspace,
+        check=True,
+    )
 
 
 class WeakeningQuery(FakeQuery):
@@ -645,18 +1155,43 @@ def delete_test(cwd: Path) -> None:
     (cwd / "tests" / "test_app.py").unlink()
 
 
-def test_a_task_that_deletes_a_test_carries_the_finding_and_keeps_it_across_a_restart(workspace: Path) -> None:
+def test_a_task_that_deletes_a_test_carries_the_finding_and_keeps_it_across_a_restart(
+    workspace: Path,
+) -> None:
     with_tests(workspace)
     query = WeakeningQuery(workspace, delete_test)
-    result = run(run_task(workspace, make_task("T02"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    result = run(
+        run_task(
+            workspace,
+            make_task("T02"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     [finding] = result["integrity"]
-    assert (finding["session"], finding["kind"], finding["path"], finding["before"]) == ("T02", "deleted", "tests/test_app.py", 2)
+    assert (finding["session"], finding["kind"], finding["path"], finding["before"]) == (
+        "T02",
+        "deleted",
+        "tests/test_app.py",
+        2,
+    )
     assert load_progress(workspace)["T02"]["integrity"] == result["integrity"]
 
 
 def test_a_task_that_leaves_the_tests_alone_has_no_findings(workspace: Path) -> None:
     with_tests(workspace)
-    result = run(run_task(workspace, make_task("T02"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=FakeQuery(workspace)))
+    result = run(
+        run_task(
+            workspace,
+            make_task("T02"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=FakeQuery(workspace),
+        )
+    )
     assert "integrity" not in result
 
 
@@ -664,7 +1199,16 @@ def test_with_the_guard_off_nothing_is_flagged(workspace: Path) -> None:
     with_tests(workspace)
     query = WeakeningQuery(workspace, delete_test)
     settings = make_settings(test_integrity="off")
-    result = run(run_task(workspace, make_task("T02"), settings, budget=BudgetTracker(25), emit=lambda e: None, query_fn=query))
+    result = run(
+        run_task(
+            workspace,
+            make_task("T02"),
+            settings,
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=query,
+        )
+    )
     assert "integrity" not in result
 
 
@@ -674,21 +1218,51 @@ def test_a_failed_worktree_session_is_thrown_away_with_its_findings(workspace: P
     query = WeakeningQuery(workspace, delete_test)
     query.fail = {"T02"}
     result = run(
-        run_task(workspace, make_task("T02"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, work_dir=work_dir, query_fn=query)
+        run_task(
+            workspace,
+            make_task("T02"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            work_dir=work_dir,
+            query_fn=query,
+        )
     )
     assert result["status"] == "failed" and "integrity" not in result
 
 
-def test_a_retried_task_keeps_the_findings_of_its_failed_attempt_in_the_workspace(workspace: Path) -> None:
+def test_a_retried_task_keeps_the_findings_of_its_failed_attempt_in_the_workspace(
+    workspace: Path,
+) -> None:
     with_tests(workspace)
     failing = WeakeningQuery(workspace, delete_test)
     failing.fail = {"T02"}
-    run(run_task(workspace, make_task("T02"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=failing))
-    retried = run(run_task(workspace, make_task("T02"), make_settings(), budget=BudgetTracker(25), emit=lambda e: None, query_fn=FakeQuery(workspace)))
+    run(
+        run_task(
+            workspace,
+            make_task("T02"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=failing,
+        )
+    )
+    retried = run(
+        run_task(
+            workspace,
+            make_task("T02"),
+            make_settings(),
+            budget=BudgetTracker(25),
+            emit=lambda e: None,
+            query_fn=FakeQuery(workspace),
+        )
+    )
     assert retried["status"] == "done" and [f["kind"] for f in retried["integrity"]] == ["deleted"]
 
 
-def test_the_resolver_may_pick_a_side_in_a_conflicted_test_but_not_delete_another(workspace: Path) -> None:
+def test_the_resolver_may_pick_a_side_in_a_conflicted_test_but_not_delete_another(
+    workspace: Path,
+) -> None:
     with_tests(workspace, "test_a.py", "test_b.py")
 
     def resolve_badly(cwd: Path) -> None:
@@ -699,13 +1273,37 @@ def test_the_resolver_may_pick_a_side_in_a_conflicted_test_but_not_delete_anothe
     query = WeakeningQuery(workspace, resolve_badly)
     query.task_of = lambda prompt: "T03"  # type: ignore[method-assign]
     outcome = run(
-        run_merge_resolver(workspace, plan.tasks[0], ["tests/test_a.py"], make_settings(), emit=lambda e: None, budget_usd=1.0, plan=plan, query_fn=query)
+        run_merge_resolver(
+            workspace,
+            plan.tasks[0],
+            ["tests/test_a.py"],
+            make_settings(),
+            emit=lambda e: None,
+            budget_usd=1.0,
+            plan=plan,
+            query_fn=query,
+        )
     )
-    assert [(f["session"], f["kind"], f["path"]) for f in outcome.integrity] == [("T03-resolver", "deleted", "tests/test_b.py")]
+    assert [(f["session"], f["kind"], f["path"]) for f in outcome.integrity] == [
+        ("T03-resolver", "deleted", "tests/test_b.py")
+    ]
 
 
-def test_a_tampered_progress_file_cannot_smuggle_malformed_findings_into_the_run(workspace: Path) -> None:
-    save_result(workspace, {"task_id": "T01", "status": "done", "summary": "s", "cost_usd": 0.0, "turns": 1, "session_id": None, "commit": None})
+def test_a_tampered_progress_file_cannot_smuggle_malformed_findings_into_the_run(
+    workspace: Path,
+) -> None:
+    save_result(
+        workspace,
+        {
+            "task_id": "T01",
+            "status": "done",
+            "summary": "s",
+            "cost_usd": 0.0,
+            "turns": 1,
+            "session_id": None,
+            "commit": None,
+        },
+    )
     path = workspace / ".idea-to-mvp" / "progress.json"
     raw = path.read_text().replace('"commit": null', '"commit": null, "integrity": [{"id": "x"}]')
     path.write_text(raw)

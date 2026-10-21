@@ -42,7 +42,9 @@ def test_empty_twice_returns_empty_string_after_exactly_one_retry() -> None:
 
 
 def test_google_truncated_output_retries_with_doubled_token_budget() -> None:
-    truncated = AIMessage(content="cut off mid sentence", response_metadata={"finish_reason": "MAX_TOKENS"})
+    truncated = AIMessage(
+        content="cut off mid sentence", response_metadata={"finish_reason": "MAX_TOKENS"}
+    )
     llm = ScriptedLlm([truncated, AIMessage(content="A complete answer.")])
     text = invoke_text(_runtime(llm, provider="google"), [HumanMessage(content="hi")])
     assert text == "A complete answer."
@@ -53,7 +55,9 @@ def test_google_truncated_output_retries_with_doubled_token_budget() -> None:
 def test_google_complete_output_at_max_tokens_is_not_retried() -> None:
     done = AIMessage(content="Finished.", response_metadata={"finish_reason": "MAX_TOKENS"})
     llm = ScriptedLlm([done])
-    assert invoke_text(_runtime(llm, provider="google"), [HumanMessage(content="hi")]) == "Finished."
+    assert (
+        invoke_text(_runtime(llm, provider="google"), [HumanMessage(content="hi")]) == "Finished."
+    )
     assert len(llm.calls) == 1
 
 
@@ -65,7 +69,9 @@ def test_non_google_truncation_is_not_retried() -> None:
 
 
 def test_extract_text_handles_content_blocks_and_refusal() -> None:
-    blocks = AIMessage(content=[{"type": "text", "text": "part one"}, {"type": "text", "text": "part two"}])
+    blocks = AIMessage(
+        content=[{"type": "text", "text": "part one"}, {"type": "text", "text": "part two"}]
+    )
     assert extract_text(blocks) == "part one\npart two"
     refused = AIMessage(content="", additional_kwargs={"refusal": "I cannot help with that."})
     assert extract_text(refused) == "I cannot help with that."

@@ -42,7 +42,9 @@ def fallback_question_set() -> QuestionSet:
         ),
     ]
     return QuestionSet(
-        questions=[MvpQuestion(question=q, why_it_matters=w, suggested_answer=a) for q, w, a in rows]
+        questions=[
+            MvpQuestion(question=q, why_it_matters=w, suggested_answer=a) for q, w, a in rows
+        ]
     )
 
 

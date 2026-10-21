@@ -18,7 +18,9 @@ def test_prepare_workspace_copies_bundle(tmp_path) -> None:
     bundle = tmp_path / "blueprints" / "20260101-000000-000000-my-idea"
     (bundle / ".claude" / "agents").mkdir(parents=True)
     (bundle / "plan.md").write_text("# plan")
-    (bundle / ".claude" / "agents" / "backend-api.md").write_text("---\nname: backend-api\n---\n\nbody")
+    (bundle / ".claude" / "agents" / "backend-api.md").write_text(
+        "---\nname: backend-api\n---\n\nbody"
+    )
 
     projects_root = tmp_path / "generated_projects"
     workspace = prepare_workspace(bundle, projects_root)
@@ -89,7 +91,14 @@ def test_the_lead_session_is_in_the_ledger_with_its_trajectory(tmp_path, monkeyp
     _fake_sessions(monkeypatch)
     assert run_implementation(tmp_path, STRATEGY, _settings()) == "Built it."
     (row,) = load_ledger(tmp_path)
-    assert (row["kind"], row["label"], row["task_id"], row["cost_usd"], row["turns"], row["outcome"]) == ("task", "lead", None, 0.4, 7, "success")
+    assert (
+        row["kind"],
+        row["label"],
+        row["task_id"],
+        row["cost_usd"],
+        row["turns"],
+        row["outcome"],
+    ) == ("task", "lead", None, 0.4, 7, "success")
     assert "Building." in (tmp_path / row["trajectory"]).read_text()
 
 
@@ -99,7 +108,10 @@ def test_every_workstream_session_of_a_team_has_its_own_row(tmp_path, monkeypatc
 
     _fake_sessions(monkeypatch)
     run_implementation(tmp_path, {**STRATEGY, "mode": "agent_team"}, _settings())
-    assert [r["label"] for r in load_ledger(tmp_path)] == ["workstream-backend-api", "workstream-web-ui"]
+    assert [r["label"] for r in load_ledger(tmp_path)] == [
+        "workstream-backend-api",
+        "workstream-web-ui",
+    ]
 
 
 def test_a_session_that_ends_in_an_error_or_dies_is_recorded_as_such(tmp_path, monkeypatch) -> None:
@@ -113,4 +125,7 @@ def test_a_session_that_ends_in_an_error_or_dies_is_recorded_as_such(tmp_path, m
     _fake_sessions(monkeypatch, crash=True)
     with pytest.raises(RuntimeError, match="agent process died"):
         run_implementation(tmp_path, STRATEGY, _settings())
-    assert [(r["label"], r["outcome"]) for r in load_ledger(tmp_path)] == [("lead", "failed"), ("lead-2", "crashed")]
+    assert [(r["label"], r["outcome"]) for r in load_ledger(tmp_path)] == [
+        ("lead", "failed"),
+        ("lead-2", "crashed"),
+    ]

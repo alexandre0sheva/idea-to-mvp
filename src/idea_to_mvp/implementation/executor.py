@@ -42,7 +42,8 @@ LOGGER = logging.getLogger(__name__)
 _SUMMARY_LIMIT = 2000
 _DEPENDENCY_SUMMARY_LIMIT = 400
 
-TASK_PROMPT = """\
+TASK_PROMPT = (
+    """\
 You are implementing task {task_id} of this project: {title}.
 This is a fresh session. Earlier tasks are already in the workspace; build on them and never rewrite them.
 
@@ -76,7 +77,11 @@ Project skills in `.claude/skills/` describe this stack's recurring procedures; 
 - Do not run `git commit` or change git configuration; the orchestrator commits when you finish.
 - Finish with a short summary of what you built and anything the next tasks must know.
 
-""" + ANSWER_FREE + "\n" + TEST_INTEGRITY
+"""
+    + ANSWER_FREE
+    + "\n"
+    + TEST_INTEGRITY
+)
 
 
 WORKTREE_NOTE = """\
@@ -87,7 +92,8 @@ Your changes are merged back into the project automatically when you finish.
 
 """
 
-RESOLVER_PROMPT = """\
+RESOLVER_PROMPT = (
+    """\
 You are resolving a git merge conflict in this project.
 
 Task {task_id} ("{title}") was built in a separate worktree and is being merged into the project's main
@@ -107,7 +113,11 @@ incompatible. Then run the project's test command{test_hint} and fix anything th
 - Do not run `git commit`, `git merge`, or `git merge --abort`; the orchestrator completes the merge when you finish.
 - Finish with one short paragraph on how you resolved it.
 
-""" + TEST_INTEGRITY + "\n" + EVIDENCE_BOUNDARY
+"""
+    + TEST_INTEGRITY
+    + "\n"
+    + EVIDENCE_BOUNDARY
+)
 
 
 class BudgetTracker:
@@ -160,7 +170,16 @@ def build_task_prompt(
     commands = ""
     if plan is not None:
         c = plan.commands
-        lines = [f"- {name}: `{value}`" for name, value in (("Install", c.install), ("Test", c.test), ("Lint", c.lint), ("Run", c.run)) if value]
+        lines = [
+            f"- {name}: `{value}`"
+            for name, value in (
+                ("Install", c.install),
+                ("Test", c.test),
+                ("Lint", c.lint),
+                ("Run", c.run),
+            )
+            if value
+        ]
         commands = "\n### Project commands\n" + "\n".join(lines) + "\n"
     return TASK_PROMPT.format(
         task_id=task.id,
@@ -220,7 +239,9 @@ async def _run_session(
                 )
     except SandboxUnavailableError:
         raise  # a configuration problem, not a failed task
-    except Exception as exc:  # the agent process died, the API failed, ...: this task fails, the run goes on
+    except (
+        Exception
+    ) as exc:  # the agent process died, the API failed, ...: this task fails, the run goes on
         LOGGER.exception("Session for task %s failed", task.id)
         outcome = _Outcome(
             success=False,
@@ -235,7 +256,9 @@ async def _run_session(
 
 def _finish_log(log: SessionLog, outcome: _Outcome) -> None:
     """Close a session's trajectory and add it to the ledger; what went wrong is written into the trajectory."""
-    result: SessionOutcome = "crashed" if outcome.crashed else "success" if outcome.success else "failed"
+    result: SessionOutcome = (
+        "crashed" if outcome.crashed else "success" if outcome.success else "failed"
+    )
     log.finish(
         outcome=result,
         cost_usd=outcome.cost_usd,
@@ -245,14 +268,18 @@ def _finish_log(log: SessionLog, outcome: _Outcome) -> None:
     )
 
 
-async def _run_demo_session(workspace: Path, task: PlanTask, emit: Callable[[ImplEvent], None]) -> _Outcome:
+async def _run_demo_session(
+    workspace: Path, task: PlanTask, emit: Callable[[ImplEvent], None]
+) -> _Outcome:
     from idea_to_mvp.demo.implementer import demo_task
 
     await asyncio.sleep(0)
     return _Outcome(success=True, summary=demo_task(workspace, task, emit), turns=3)
 
 
-async def _session_findings(watch: SessionWatch | None, label: str, *, keep: bool) -> list[IntegrityFinding]:
+async def _session_findings(
+    watch: SessionWatch | None, label: str, *, keep: bool
+) -> list[IntegrityFinding]:
     """What a session did to the tests. A failed session in a worktree is thrown away with it (`keep=False`)."""
     if watch is None or not keep:
         return []
@@ -284,9 +311,15 @@ async def run_task(
     progress = load_progress(workspace)
     previous = progress.get(task.id)
     if previous is not None and previous["status"] == "done":
-        emit(make_event("task_end", task_id=task.id, label=task.title, detail="done (from an earlier run)"))
+        emit(
+            make_event(
+                "task_end", task_id=task.id, label=task.title, detail="done (from an earlier run)"
+            )
+        )
         return previous
-    carried_cost = previous["cost_usd"] if previous is not None else 0.0  # spent on earlier failed attempts
+    carried_cost = (
+        previous["cost_usd"] if previous is not None else 0.0
+    )  # spent on earlier failed attempts
     detail = f"{position[0]}/{position[1]}" if position else ""
     emit(make_event("task_start", task_id=task.id, label=task.title, detail=detail))
 
@@ -304,7 +337,9 @@ async def run_task(
     )
     watch = None
     if remaining > 0:  # the test files as the session finds them
-        watch = await asyncio.to_thread(SessionWatch, cwd, settings, session=task.id, iteration=iteration_of(task.id))
+        watch = await asyncio.to_thread(
+            SessionWatch, cwd, settings, session=task.id, iteration=iteration_of(task.id)
+        )
     if remaining <= 0:
         outcome = _Outcome(success=False, summary="Not started: the whole-run budget is used up.")
     elif settings.demo_mode:
@@ -330,8 +365,12 @@ async def run_task(
 
     commit = None
     if outcome.success and work_dir is not None:
-        commit = await asyncio.to_thread(merge.commit_worktree, workspace, work_dir, task.id, f"{task.id}: {task.title}")
-    elif outcome.success and await asyncio.to_thread(commit_workspace, workspace, f"{task.id}: {task.title}"):
+        commit = await asyncio.to_thread(
+            merge.commit_worktree, workspace, work_dir, task.id, f"{task.id}: {task.title}"
+        )
+    elif outcome.success and await asyncio.to_thread(
+        commit_workspace, workspace, f"{task.id}: {task.title}"
+    ):
         commit = head_commit(workspace)
     result: TaskResult = {
         "task_id": task.id,
@@ -357,7 +396,9 @@ class ResolverOutcome:
     success: bool
     summary: str
     cost_usd: float = 0.0
-    integrity: list[IntegrityFinding] = field(default_factory=list)  # what the resolver did to the tests
+    integrity: list[IntegrityFinding] = field(
+        default_factory=list
+    )  # what the resolver did to the tests
 
 
 async def run_merge_resolver(
@@ -398,7 +439,11 @@ async def run_merge_resolver(
         model=model_label(settings, "escalation"),
     )
     watch = await asyncio.to_thread(
-        SessionWatch, Path(workspace), settings, session=f"{task.id}-resolver", iteration=iteration_of(task.id)
+        SessionWatch,
+        Path(workspace),
+        settings,
+        session=f"{task.id}-resolver",
+        iteration=iteration_of(task.id),
     )
     outcome = await _run_session(
         Path(workspace),
@@ -413,7 +458,12 @@ async def run_merge_resolver(
     )
     _finish_log(log, outcome)
     findings = await asyncio.to_thread(watch.findings, session=log.label, exempt=set(files))
-    return ResolverOutcome(success=outcome.success, summary=outcome.summary, cost_usd=outcome.cost_usd, integrity=findings)
+    return ResolverOutcome(
+        success=outcome.success,
+        summary=outcome.summary,
+        cost_usd=outcome.cost_usd,
+        integrity=findings,
+    )
 
 
 @dataclass
@@ -425,10 +475,14 @@ class PilotRollout:
     cost_usd: float = 0.0
     turns: int = 0
     crashed: bool = False
-    commit: str | None = None  # the work, committed on the rollout's throwaway branch; None when nothing changed
+    commit: str | None = (
+        None  # the work, committed on the rollout's throwaway branch; None when nothing changed
+    )
     changed: str = ""  # `git diff --stat` of that commit
     trajectory: str = ""  # relative to the workspace
-    integrity: list[IntegrityFinding] = field(default_factory=list)  # what the session did to the tests
+    integrity: list[IntegrityFinding] = field(
+        default_factory=list
+    )  # what the session did to the tests
 
 
 async def run_pilot_rollout(
@@ -450,8 +504,17 @@ async def run_pilot_rollout(
     are watched as for a task session, since the build may be selected as the task's result."""
     workspace, work_dir = Path(workspace), Path(work_dir)
     name = f"pilot-{arm}"
-    log = SessionLog(workspace, kind="pilot", label=name, task_id=task.id, attempt=1, model=model_label(settings, "implementer"))
-    watch = await asyncio.to_thread(SessionWatch, work_dir, settings, session=name, iteration=iteration_of(task.id))
+    log = SessionLog(
+        workspace,
+        kind="pilot",
+        label=name,
+        task_id=task.id,
+        attempt=1,
+        model=model_label(settings, "implementer"),
+    )
+    watch = await asyncio.to_thread(
+        SessionWatch, work_dir, settings, session=name, iteration=iteration_of(task.id)
+    )
     if settings.demo_mode:
         outcome = await _run_demo_session(work_dir, task, log.tee(emit))
     else:
@@ -468,7 +531,9 @@ async def run_pilot_rollout(
     _finish_log(log, outcome)
     commit = None
     if outcome.success:
-        commit = await asyncio.to_thread(merge.commit_worktree, workspace, work_dir, name, f"pilot {task.id} ({arm} harness)")
+        commit = await asyncio.to_thread(
+            merge.commit_worktree, workspace, work_dir, name, f"pilot {task.id} ({arm} harness)"
+        )
     changed = await asyncio.to_thread(diff_stat, workspace, commit) if commit else ""
     trajectory = log.path.relative_to(workspace).as_posix() if log.path is not None else ""
     findings = await _session_findings(watch, name, keep=commit is not None)
@@ -490,7 +555,9 @@ def plan_is_runnable(plan: Plan | None) -> bool:
     if plan is None or not plan.tasks:
         return False
     ids = [task.id for task in plan.tasks]
-    if len(set(ids)) != len(ids) or any(dep not in ids for task in plan.tasks for dep in task.depends_on):
+    if len(set(ids)) != len(ids) or any(
+        dep not in ids for task in plan.tasks for dep in task.depends_on
+    ):
         return False
     try:
         execution_waves(plan)
@@ -522,11 +589,15 @@ async def run_plan(
         if iteration is None
         else spent_in_iteration(progress, iteration)
     )
-    tuning = tuning_spend(workspace, iteration or 1)  # harness tuning's pilot sessions came out of the same budget
+    tuning = tuning_spend(
+        workspace, iteration or 1
+    )  # harness tuning's pilot sessions came out of the same budget
     if budget is None:
         budget = BudgetTracker(max(0.0, settings.implementer_max_total_usd - spent - tuning))
     if spent > 0:
-        emit(make_event("cost", label="earlier runs", detail="spent before this run", cost_usd=spent))
+        emit(
+            make_event("cost", label="earlier runs", detail="spent before this run", cost_usd=spent)
+        )
     # No cost event for the tuning: its sessions emitted their own on this thread's stream (or the console replays
     # them from their ledger rows), so another would count them twice.
     tasks = {task.id: task for task in plan.tasks}
@@ -546,10 +617,24 @@ async def run_plan(
                 "commit": None,
             }
             save_result(workspace, result)
-            emit(make_event("task_end", task_id=task_id, label=task.title, detail=f"skipped: waiting on {', '.join(blocked)}"))
+            emit(
+                make_event(
+                    "task_end",
+                    task_id=task_id,
+                    label=task.title,
+                    detail=f"skipped: waiting on {', '.join(blocked)}",
+                )
+            )
         else:
             result = await run_task(
-                workspace, task, settings, budget=budget, emit=emit, plan=plan, position=(index, len(order)), query_fn=query_fn
+                workspace,
+                task,
+                settings,
+                budget=budget,
+                emit=emit,
+                plan=plan,
+                position=(index, len(order)),
+                query_fn=query_fn,
             )
         results[task_id] = result
     return list(results.values())

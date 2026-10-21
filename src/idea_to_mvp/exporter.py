@@ -18,7 +18,9 @@ from typing import Any
 from idea_to_mvp.ui.view import ViewEntry
 
 # Kinds that are a decision of the user's (not the idea or the answers, which have sections of their own).
-_DECISION_KINDS = frozenset({"arch_decision", "planner_decision", "implement_decision", "change_request"})
+_DECISION_KINDS = frozenset(
+    {"arch_decision", "planner_decision", "implement_decision", "change_request"}
+)
 
 
 def _slugify(text: str, *, max_length: int = 64) -> str:
@@ -69,12 +71,18 @@ class _Run:
     delivery_report: str = ""
     other: list[tuple[str, str]] = field(default_factory=list)
     thinking: list[str] = field(default_factory=list)
-    user_text: set[str] = field(default_factory=set)  # what the user already said (a draft repeating it is noise)
+    user_text: set[str] = field(
+        default_factory=set
+    )  # what the user already said (a draft repeating it is noise)
 
 
 def _verification_of(data: object) -> dict[str, Any] | None:
-    verification = data.get("verification") if isinstance(data, Mapping) and "verification" in data else data
-    if isinstance(verification, Mapping) and (verification.get("lanes") or verification.get("report")):
+    verification = (
+        data.get("verification") if isinstance(data, Mapping) and "verification" in data else data
+    )
+    if isinstance(verification, Mapping) and (
+        verification.get("lanes") or verification.get("report")
+    ):
         return dict(verification)
     return None
 
@@ -82,7 +90,11 @@ def _verification_of(data: object) -> dict[str, Any] | None:
 def _sort(entries: list[ViewEntry]) -> _Run:
     run = _Run()
     for entry in entries:
-        kind, speaker, content = entry.kind.strip(), entry.speaker.strip() or "Assistant", entry.content.strip()
+        kind, speaker, content = (
+            entry.kind.strip(),
+            entry.speaker.strip() or "Assistant",
+            entry.content.strip(),
+        )
         if kind == "thinking":
             run.thinking.append(speaker)
         elif not content:
@@ -137,11 +149,15 @@ def _verdict(verification: Mapping[str, Any]) -> str:
 
 
 def _lane_markdown(lane: Mapping[str, Any]) -> str:
-    rows = [f"### {lane.get('lane') or 'lane'} — {'passed ✅' if lane.get('passed') else 'failed ❌'}", ""]
+    rows = [
+        f"### {lane.get('lane') or 'lane'} — {'passed ✅' if lane.get('passed') else 'failed ❌'}",
+        "",
+    ]
     if summary := str(lane.get("summary") or "").strip():
         rows.extend([summary, ""])
     rows.extend(
-        f"- `{run.get('command')}` → exit {run.get('exit_code')}" for run in lane.get("commands_run") or []
+        f"- `{run.get('command')}` → exit {run.get('exit_code')}"
+        for run in lane.get("commands_run") or []
     )
     rows.extend(f"- ❌ {failure}" for failure in lane.get("failures") or [])
     return "\n".join(rows).rstrip()
@@ -200,12 +216,16 @@ def build_session_markdown(
 
     _append_section(lines, "## Execution Strategy", run.strategy)
     if run.blueprint_files:
-        _append_section(lines, "## Blueprint Pack", "\n".join(f"- `{name}`" for name in run.blueprint_files))
+        _append_section(
+            lines, "## Blueprint Pack", "\n".join(f"- `{name}`" for name in run.blueprint_files)
+        )
     _append_section(lines, "## Implementation", run.implementation)
     if run.verification:
         _append_section(lines, "## Verification", _verification_markdown(run.verification))
     _append_section(lines, "## Delivery Report", run.delivery_report)
-    _append_section(lines, "## Your Decisions", "\n".join(f"- {decision}" for decision in run.decisions))
+    _append_section(
+        lines, "## Your Decisions", "\n".join(f"- {decision}" for decision in run.decisions)
+    )
 
     for idx, (speaker, content) in enumerate(run.other, start=1):
         _append_section(lines, f"## {speaker}" if idx == 1 else f"## {speaker} {idx}", content)

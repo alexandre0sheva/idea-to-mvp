@@ -34,5 +34,9 @@ def test_blueprint_fields_start_empty() -> None:
 
 def test_preferences_start_as_no_constraints() -> None:
     assert make_initial_state("An idea", 2)["preferences"] == {
-        "platform": "any", "stack_hints": "", "deploy_target": "", "must_use": "", "must_avoid": "",
+        "platform": "any",
+        "stack_hints": "",
+        "deploy_target": "",
+        "must_use": "",
+        "must_avoid": "",
     }

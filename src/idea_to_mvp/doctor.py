@@ -89,12 +89,20 @@ def _catalog_checks(settings: Settings, catalog: ModelCatalog) -> list[Check]:
         name = f"catalog {model}"
         if item is None:
             checks.append(
-                Check(name, "warn", "not in the model catalog (models.toml): its price and capabilities are unknown")
+                Check(
+                    name,
+                    "warn",
+                    "not in the model catalog (models.toml): its price and capabilities are unknown",
+                )
             )
         elif not item.priced:
-            checks.append(Check(name, "warn", "no price in the model catalog: cost figures leave it out"))
+            checks.append(
+                Check(name, "warn", "no price in the model catalog: cost figures leave it out")
+            )
         elif item.status == "deprecated" or item.retired(date.today()):
-            checks.append(Check(name, "warn", "deprecated or retired according to the model catalog"))
+            checks.append(
+                Check(name, "warn", "deprecated or retired according to the model catalog")
+            )
     return checks
 
 
@@ -108,10 +116,19 @@ def _template_checks(which: Callable[[str], str | None]) -> list[Check]:
     checks: list[Check] = []
     for toolchain, names in by_toolchain.items():
         label = f"template {', '.join(names)}"
-        missing = [tool for template in load_templates().values() if template.toolchain == toolchain for tool in missing_tools(template, which)]
+        missing = [
+            tool
+            for template in load_templates().values()
+            if template.toolchain == toolchain
+            for tool in missing_tools(template, which)
+        ]
         if missing:
             checks.append(
-                Check(label, "warn", f"{', '.join(dict.fromkeys(missing))} not found on the PATH: a project from this template cannot be installed or tested here")
+                Check(
+                    label,
+                    "warn",
+                    f"{', '.join(dict.fromkeys(missing))} not found on the PATH: a project from this template cannot be installed or tested here",
+                )
             )
         else:
             checks.append(Check(label, "ok", f"{', '.join(toolchain)} found"))
@@ -126,7 +143,13 @@ def _prices_checks(settings: Settings) -> list[Check]:
         prices = settings_overrides(settings)
     except PricingError as exc:
         return [Check("model prices file", "warn", f"{exc}; catalog prices are used instead")]
-    return [Check("model prices file", "ok", f"{len(prices)} model price(s) from {settings.model_prices_file}")]
+    return [
+        Check(
+            "model prices file",
+            "ok",
+            f"{len(prices)} model price(s) from {settings.model_prices_file}",
+        )
+    ]
 
 
 def collect_checks(
@@ -140,7 +163,11 @@ def collect_checks(
 ) -> list[Check]:
     """Run every check; failures are reported, never raised."""
     if settings.demo_mode:
-        return [Check("demo mode", "ok", "DEMO_MODE is on: canned outputs, no keys or model calls needed")]
+        return [
+            Check(
+                "demo mode", "ok", "DEMO_MODE is on: canned outputs, no keys or model calls needed"
+            )
+        ]
 
     checks: list[Check] = []
     pinged: dict[tuple[str, str], tuple[Status, str]] = {}
@@ -160,7 +187,9 @@ def collect_checks(
         if key not in pinged:
             try:
                 reply = ping(runtime_for(role))
-                pinged[key] = ("ok", "reachable") if reply.strip() else ("fail", "model returned no text")
+                pinged[key] = (
+                    ("ok", "reachable") if reply.strip() else ("fail", "model returned no text")
+                )
             except Exception as exc:
                 pinged[key] = ("fail", f"{type(exc).__name__}: {exc}"[:240])
         status, detail = pinged[key]

@@ -30,7 +30,8 @@ from idea_to_mvp.ui.view import MODE_IMPL_GATE
 
 IDEA = "a habit tracker"
 QUESTIONS = [
-    {"question": f"Q{n}?", "why_it_matters": "it matters", "suggested_answer": f"suggestion {n}"} for n in range(1, 6)
+    {"question": f"Q{n}?", "why_it_matters": "it matters", "suggested_answer": f"suggestion {n}"}
+    for n in range(1, 6)
 ]
 
 
@@ -82,7 +83,10 @@ def test_number_answers_keeps_given_numbers_and_numbers_the_rest() -> None:
 def test_arch_flag_beats_the_autopilot_recommendation() -> None:
     payload = {"kind": "arch_choice", "proposal": {"recommendation": "A"}}
     assert decide(payload, HeadlessOptions(arch="B", autopilot=True)).resume["option"] == "B"
-    assert decide(payload, HeadlessOptions(autopilot=True)).resume == {"option": "A", "notes": AUTOPILOT_NOTE}
+    assert decide(payload, HeadlessOptions(autopilot=True)).resume == {
+        "option": "A",
+        "notes": AUTOPILOT_NOTE,
+    }
     assert decide(payload, HeadlessOptions()).resume is None
 
 
@@ -93,7 +97,15 @@ def test_the_pack_is_generated_with_autopilot_or_implement_only() -> None:
 
 
 def test_the_implement_gate_needs_the_explicit_flag_even_on_autopilot() -> None:
-    estimate = {"low": 1.5, "high": 6.0, "per_task": 0.5, "basis": "catalog", "samples": 0, "tasks": 3, "unpriced": []}
+    estimate = {
+        "low": 1.5,
+        "high": 6.0,
+        "per_task": 0.5,
+        "basis": "catalog",
+        "samples": 0,
+        "tasks": 3,
+        "unpriced": [],
+    }
     payload = {"kind": "implement_gate", "cost_estimate": estimate}
     stop = decide(payload, HeadlessOptions(autopilot=True))
     assert stop.resume is None and "$1.50–$6.00 for 3 task(s)" in stop.note
@@ -120,44 +132,87 @@ def test_a_new_version_needs_feedback_and_implement() -> None:
 @pytest.mark.parametrize(
     ("values", "gate", "next_nodes", "outcome", "code"),
     [
-        ({"user_idea": "x", "delivery_report": "r", "verification": {"passed": True}}, {"kind": "iterate_gate"}, (), "verified", EXIT_VERIFIED),
-        ({"user_idea": "x", "delivery_report": "r", "verification": {"passed": False}}, None, (), "failed", EXIT_FAILED),
+        (
+            {"user_idea": "x", "delivery_report": "r", "verification": {"passed": True}},
+            {"kind": "iterate_gate"},
+            (),
+            "verified",
+            EXIT_VERIFIED,
+        ),
+        (
+            {"user_idea": "x", "delivery_report": "r", "verification": {"passed": False}},
+            None,
+            (),
+            "failed",
+            EXIT_FAILED,
+        ),
         ({"user_idea": "x"}, {"kind": "implement_gate"}, ("implement_gate",), "gate", EXIT_GATE),
         ({"user_idea": "x"}, None, ("summarizer",), "interrupted", EXIT_ERROR),
         ({"user_idea": "x"}, None, (), "ended", EXIT_GATE),
         ({}, None, (), "error", EXIT_ERROR),
         # a later version that stopped mid-build is not delivered, whatever the previous version's report says
-        ({"user_idea": "x", "delivery_report": "r", "verification": {"passed": True}}, None, ("implementer",), "interrupted", EXIT_ERROR),
+        (
+            {"user_idea": "x", "delivery_report": "r", "verification": {"passed": True}},
+            None,
+            ("implementer",),
+            "interrupted",
+            EXIT_ERROR,
+        ),
     ],
 )
-def test_the_exit_code_says_how_the_run_ended(values: dict, gate: dict | None, next_nodes: tuple, outcome: str, code: int) -> None:
+def test_the_exit_code_says_how_the_run_ended(
+    values: dict, gate: dict | None, next_nodes: tuple, outcome: str, code: int
+) -> None:
     summary = summarize("t1", ThreadView(values, gate, next_nodes))
     assert (summary.outcome, summary.exit_code) == (outcome, code)
 
 
 def test_progress_names_committed_steps_and_agent_sessions() -> None:
-    assert progress_lines(("panel:abc",), "updates", {"speaker_turn": {}}) == ["done panel/speaker_turn"]
+    assert progress_lines(("panel:abc",), "updates", {"speaker_turn": {}}) == [
+        "done panel/speaker_turn"
+    ]
     assert progress_lines((), "updates", {"__interrupt__": ()}) == []
     start = {"kind": "task_start", "task_id": "T01", "label": "Core journey", "detail": ""}
     assert progress_lines((), "custom", start) == ["start T01 Core journey"]
-    assert progress_lines((), "custom", {**start, "kind": "task_end", "detail": "done"}) == ["end   T01 Core journey: done"]
+    assert progress_lines((), "custom", {**start, "kind": "task_end", "detail": "done"}) == [
+        "end   T01 Core journey: done"
+    ]
     assert progress_lines((), "custom", {**start, "kind": "tool"}) == []
 
 
 # ------------------------------------------------------------------ the CLI, end to end (demo mode)
 
 
-def test_run_with_autopilot_and_implement_delivers_offline(cwd: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_run_with_autopilot_and_implement_delivers_offline(
+    cwd: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     code, summary, err = run_cli(capsys, "run", IDEA, "--autopilot", "--implement")
-    assert code == EXIT_VERIFIED and summary["outcome"] == "verified" and summary["verification"] == "passed"
-    assert summary["gate"] == "iterate_gate"  # delivered; the session can still take a change request
-    assert Path(summary["workspace"]).is_relative_to(cwd / "projects") and Path(summary["delivery_zip"]).is_file()
+    assert (
+        code == EXIT_VERIFIED
+        and summary["outcome"] == "verified"
+        and summary["verification"] == "passed"
+    )
+    assert (
+        summary["gate"] == "iterate_gate"
+    )  # delivered; the session can still take a change request
+    assert (
+        Path(summary["workspace"]).is_relative_to(cwd / "projects")
+        and Path(summary["delivery_zip"]).is_file()
+    )
     assert summary["agent_cost_usd"] == 0.0 and summary["total_tokens"] > 0
-    assert "done summarizer" in err and "start T01" in err and "gate  implement_gate: implement=True" in err
+    assert (
+        "done summarizer" in err
+        and "start T01" in err
+        and "gate  implement_gate: implement=True" in err
+    )
 
     code = cli.main(["sessions", "--json"])
     rows = json.loads(capsys.readouterr().out)
-    assert code == 0 and rows[0]["thread_id"] == summary["thread_id"] and rows[0]["waiting_at"] == "iterate_gate"
+    assert (
+        code == 0
+        and rows[0]["thread_id"] == summary["thread_id"]
+        and rows[0]["waiting_at"] == "iterate_gate"
+    )
 
 
 def test_without_implement_the_run_stops_at_the_gate_with_the_estimate_then_resumes(
@@ -166,7 +221,9 @@ def test_without_implement_the_run_stops_at_the_gate_with_the_estimate_then_resu
     code = cli.main(["run", IDEA, "--autopilot"])
     out = capsys.readouterr().out
     assert code == EXIT_GATE
-    assert "stopped at a gate: implement_gate" in out and "Estimate:" in out and "--implement" in out
+    assert (
+        "stopped at a gate: implement_gate" in out and "Estimate:" in out and "--implement" in out
+    )
     assert not (cwd / "projects").exists()  # no agent session ran
     thread = next(line.split()[-1] for line in out.splitlines() if line.startswith("Session:"))
 
@@ -175,7 +232,9 @@ def test_without_implement_the_run_stops_at_the_gate_with_the_estimate_then_resu
     assert graph_values(cwd, thread)["implement_decision"]["parallel"] == 1
 
 
-def test_every_gate_is_answered_by_its_own_flag(cwd: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_every_gate_is_answered_by_its_own_flag(
+    cwd: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     code, summary, _err = run_cli(capsys, "run", IDEA)
     assert code == EXIT_GATE and summary["gate"] == "answers" and len(summary["questions"]) == 5
     assert all(item["suggested_answer"] for item in summary["questions"])
@@ -197,16 +256,26 @@ def test_every_gate_is_answered_by_its_own_flag(cwd: Path, capsys: pytest.Captur
     assert code == EXIT_VERIFIED
 
 
-def test_feedback_builds_the_next_version_only_with_implement(cwd: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_feedback_builds_the_next_version_only_with_implement(
+    cwd: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     _code, summary, _err = run_cli(capsys, "run", IDEA, "--autopilot", "--implement")
     thread = summary["thread_id"]
 
     code, summary, _err = run_cli(capsys, "resume", thread, "--feedback", "add a streak counter")
-    assert code == EXIT_VERIFIED and summary["iteration"] == 1 and "add --implement" in summary["message"]
+    assert (
+        code == EXIT_VERIFIED
+        and summary["iteration"] == 1
+        and "add --implement" in summary["message"]
+    )
 
-    code, summary, _err = run_cli(capsys, "resume", thread, "--feedback", "add a streak counter", "--implement")
+    code, summary, _err = run_cli(
+        capsys, "resume", thread, "--feedback", "add a streak counter", "--implement"
+    )
     assert code == EXIT_VERIFIED and summary["iteration"] == 2 and summary["gate"] == "iterate_gate"
-    assert graph_values(cwd, thread)["change_requests"] == ["add a streak counter"]  # used once, not per version
+    assert graph_values(cwd, thread)["change_requests"] == [
+        "add a streak counter"
+    ]  # used once, not per version
 
 
 def test_max_total_usd_overrides_the_budget_setting(
@@ -227,14 +296,20 @@ def test_a_failed_step_exits_1_and_resume_continues_from_the_checkpoint(
     with monkeypatch.context() as patch:
         patch.setattr(llm, "invoke_text", broken)
         code, summary, _err = run_cli(capsys, "run", IDEA)
-    assert code == EXIT_ERROR and summary["outcome"] == "error" and "provider exploded" in summary["message"]
+    assert (
+        code == EXIT_ERROR
+        and summary["outcome"] == "error"
+        and "provider exploded" in summary["message"]
+    )
     assert summary["next_command"] == f"idea-to-mvp resume {summary['thread_id']}"
 
     code, summary, _err = run_cli(capsys, "resume", summary["thread_id"])
     assert code == EXIT_GATE and summary["gate"] == "answers"
 
 
-def test_resume_of_an_unknown_session_is_an_error(cwd: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_resume_of_an_unknown_session_is_an_error(
+    cwd: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     code, summary, _err = run_cli(capsys, "resume", "no-such-thread")
     assert code == EXIT_ERROR and "idea-to-mvp sessions" in summary["message"]
 
@@ -243,7 +318,9 @@ def test_sessions_lists_nothing_yet(cwd: Path, capsys: pytest.CaptureFixture[str
     assert cli.main(["sessions"]) == 0 and capsys.readouterr().out.strip() == "No saved sessions."
 
 
-@pytest.mark.parametrize("argv", [["run"], ["run", IDEA, "--arch", "3"], ["run", IDEA, "--max-total-usd", "0"]])
+@pytest.mark.parametrize(
+    "argv", [["run"], ["run", IDEA, "--arch", "3"], ["run", IDEA, "--max-total-usd", "0"]]
+)
 def test_usage_errors_exit_1_not_2(argv: list[str], capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as raised:
         cli.main(argv)
@@ -258,7 +335,14 @@ def test_an_empty_answers_file_is_refused(cwd: Path, capsys: pytest.CaptureFixtu
 
 
 def test_the_text_summary_lists_the_questions_and_the_next_command() -> None:
-    summary = summarize("t1", ThreadView({"user_idea": "x"}, {"kind": "answers", "question_items": QUESTIONS}, ("collect_answers",)))
+    summary = summarize(
+        "t1",
+        ThreadView(
+            {"user_idea": "x"},
+            {"kind": "answers", "question_items": QUESTIONS},
+            ("collect_answers",),
+        ),
+    )
     text = render_summary(summary)
     assert "1. Q1?" in text and "suggested: suggestion 1" in text
     assert "Next:      idea-to-mvp resume t1 --answers FILE" in text
@@ -273,10 +357,17 @@ async def test_a_headless_session_is_the_same_thread_the_ui_shows(demo_service) 
     registry = SessionRegistry(settings.checkpoint_path)
     lines: list[str] = []
     summary = await run_idea(
-        await graphs.get(), registry, IDEA, HeadlessOptions(autopilot=True), settings=settings, progress=lines.append,
+        await graphs.get(),
+        registry,
+        IDEA,
+        HeadlessOptions(autopilot=True),
+        settings=settings,
+        progress=lines.append,
         thread_id="shared",
     )
     assert summary.exit_code == EXIT_GATE and summary.gate == "implement_gate"
     assert await mode_of(service, "shared") == MODE_IMPL_GATE
-    assert [s.interrupted_at for s in registry.list() if s.thread_id == "shared"] == ["implement_gate"]
+    assert [s.interrupted_at for s in registry.list() if s.thread_id == "shared"] == [
+        "implement_gate"
+    ]
     assert lines[0] == "session shared"

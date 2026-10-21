@@ -9,8 +9,18 @@ from idea_to_mvp.implementation.progress import TaskResult
 from idea_to_mvp.ui.console import render_console, render_cost_meter, render_task_board
 
 
-def result(task_id: str, status: str = "done", cost: float = 0.5, **overrides: object) -> TaskResult:
-    fields: dict = {"task_id": task_id, "status": status, "summary": f"Built {task_id}.", "cost_usd": cost, "turns": 4, "session_id": None, "commit": None}
+def result(
+    task_id: str, status: str = "done", cost: float = 0.5, **overrides: object
+) -> TaskResult:
+    fields: dict = {
+        "task_id": task_id,
+        "status": status,
+        "summary": f"Built {task_id}.",
+        "cost_usd": cost,
+        "turns": 4,
+        "session_id": None,
+        "commit": None,
+    }
     fields.update(overrides)
     return fields  # type: ignore[return-value]
 
@@ -30,7 +40,9 @@ def plan_dict() -> dict:
 def columns(html: str) -> dict[str, list[str]]:
     """column name -> ids of the task cards in it."""
     found: dict[str, list[str]] = {}
-    for name, body in re.findall(r"<section class='board-col' data-col='(\w+)'>(.*?)</section>", html, flags=re.DOTALL):
+    for name, body in re.findall(
+        r"<section class='board-col' data-col='(\w+)'>(.*?)</section>", html, flags=re.DOTALL
+    ):
         found[name] = re.findall(r"data-task='([^']+)'", body)
     return found
 
@@ -41,7 +53,12 @@ def columns(html: str) -> dict[str, list[str]]:
 def test_tasks_sit_in_the_column_of_their_state() -> None:
     results = {"T01": result("T01"), "T02": result("T02", "failed", summary="Stopped early.")}
     html = render_task_board(plan_dict(), results, running={"T03"})
-    assert columns(html) == {"pending": ["T04"], "running": ["T03"], "done": ["T01"], "failed": ["T02"]}
+    assert columns(html) == {
+        "pending": ["T04"],
+        "running": ["T03"],
+        "done": ["T01"],
+        "failed": ["T02"],
+    }
 
 
 def test_a_task_moves_across_the_board_as_it_runs_and_finishes() -> None:
@@ -64,39 +81,70 @@ def test_a_task_that_is_being_retried_counts_as_running_even_with_an_old_failure
 
 
 def test_skipped_tasks_are_listed_as_failed_and_say_so() -> None:
-    html = render_task_board(plan_dict(), {"T04": result("T04", "skipped", summary="Skipped: depends on T02.")}, set())
+    html = render_task_board(
+        plan_dict(), {"T04": result("T04", "skipped", summary="Skipped: depends on T02.")}, set()
+    )
     assert columns(html)["failed"] == ["T04"] and "skipped" in html.lower()
 
 
 def test_cards_show_title_workstream_cost_and_the_branch() -> None:
-    html = render_task_board(plan_dict(), {"T02": result("T02", cost=1.25, commit="abc1234")}, set(), parallel=True)
+    html = render_task_board(
+        plan_dict(), {"T02": result("T02", cost=1.25, commit="abc1234")}, set(), parallel=True
+    )
     card = html.split("data-task='T02'")[1].split("</article>")[0]
-    assert "Left" in card and "backend-api" in card and "$1.25" in card and "task/T02" in card and "abc1234" in card
+    assert (
+        "Left" in card
+        and "backend-api" in card
+        and "$1.25" in card
+        and "task/T02" in card
+        and "abc1234" in card
+    )
     sequential = render_task_board(plan_dict(), {"T02": result("T02")}, set(), parallel=False)
     assert "task/T02" not in sequential and "main" in sequential
 
 
 def test_each_card_expands_to_the_agents_summary_and_the_diff_stat() -> None:
-    results = {"T01": result("T01", summary="Set up the repo.\nNext tasks: use the CLI.", commit="abc1234")}
-    html = render_task_board(plan_dict(), results, set(), diffs={"abc1234": " src/app.py | 12 ++++\n 1 file changed, 12 insertions(+)"})
+    results = {
+        "T01": result("T01", summary="Set up the repo.\nNext tasks: use the CLI.", commit="abc1234")
+    }
+    html = render_task_board(
+        plan_dict(),
+        results,
+        set(),
+        diffs={"abc1234": " src/app.py | 12 ++++\n 1 file changed, 12 insertions(+)"},
+    )
     card = html.split("data-task='T01'")[1].split("</article>")[0]
-    assert "<details" in card and "Set up the repo." in card and "src/app.py | 12" in card and "1 file changed" in card
+    assert (
+        "<details" in card
+        and "Set up the repo." in card
+        and "src/app.py | 12" in card
+        and "1 file changed" in card
+    )
 
 
 def test_everything_from_the_agents_is_escaped() -> None:
     evil = "<script>alert(1)</script>"
     plan = make_plan([make_task("T01", title=evil, workstream="<b>x</b>")]).model_dump()
-    html = render_task_board(plan, {"T01": result("T01", summary=evil, commit="abc1234")}, set(), diffs={"abc1234": evil})
+    html = render_task_board(
+        plan, {"T01": result("T01", summary=evil, commit="abc1234")}, set(), diffs={"abc1234": evil}
+    )
     assert "<script>" not in html and "<b>x</b>" not in html and "&lt;script&gt;" in html
 
 
 def test_a_board_without_a_plan_explains_itself() -> None:
-    assert "plan" in render_task_board({}, {}, set()).lower() and "data-task" not in render_task_board({"tasks": []}, {}, set())
+    assert "plan" in render_task_board(
+        {}, {}, set()
+    ).lower() and "data-task" not in render_task_board({"tasks": []}, {}, set())
 
 
 def test_column_headers_count_their_tasks() -> None:
     html = render_task_board(plan_dict(), {"T01": result("T01")}, {"T02", "T03"})
-    assert "Running (2)" in html and "Done (1)" in html and "Pending (1)" in html and "Failed (0)" in html
+    assert (
+        "Running (2)" in html
+        and "Done (1)" in html
+        and "Pending (1)" in html
+        and "Failed (0)" in html
+    )
 
 
 # ------------------------------------------------------------------- console
@@ -124,7 +172,9 @@ def test_the_console_is_collapsible_and_scrolls_to_the_newest_line() -> None:
 
 
 def test_only_the_latest_events_up_to_the_limit_are_shown_and_the_cut_is_announced() -> None:
-    events = [make_event("tool", task_id="T01", label="Write", detail=f"file{i}.py") for i in range(30)]
+    events = [
+        make_event("tool", task_id="T01", label="Write", detail=f"file{i}.py") for i in range(30)
+    ]
     html = render_console(events, limit=10)
     assert "file29.py" in html and "file20.py" in html and "file19.py" not in html
     assert "last 10 of 30" in html
@@ -132,7 +182,9 @@ def test_only_the_latest_events_up_to_the_limit_are_shown_and_the_cut_is_announc
 
 
 def test_event_text_is_escaped() -> None:
-    html = render_console([make_event("tool", task_id="<i>", label="<b>Bash</b>", detail="<script>alert(1)</script>")])
+    html = render_console(
+        [make_event("tool", task_id="<i>", label="<b>Bash</b>", detail="<script>alert(1)</script>")]
+    )
     assert "<script>" not in html and "<b>Bash</b>" not in html and "&lt;script&gt;" in html
 
 
@@ -152,7 +204,9 @@ def test_the_meter_warns_as_the_budget_runs_out_and_never_overflows() -> None:
     assert "cost-meter warn" in render_cost_meter(21.0, 25.0)
     over = render_cost_meter(30.0, 25.0)
     assert "cost-meter over" in over and "width: 100%" in over
-    assert "cost-meter warn" not in render_cost_meter(5.0, 25.0) and "cost-meter over" not in render_cost_meter(5.0, 25.0)
+    assert "cost-meter warn" not in render_cost_meter(
+        5.0, 25.0
+    ) and "cost-meter over" not in render_cost_meter(5.0, 25.0)
 
 
 def test_a_meter_without_a_budget_shows_only_the_spend() -> None:
@@ -176,7 +230,10 @@ def test_running_tasks_are_those_started_and_not_yet_ended() -> None:
     ]
     assert running_tasks(events) == {"T02"}
     assert running_tasks(events + [make_event("task_end", task_id="T02")]) == set()
-    assert running_tasks(events + [make_event("task_start", task_id="T01")]) == {"T01", "T02"}  # started again
+    assert running_tasks(events + [make_event("task_start", task_id="T01")]) == {
+        "T01",
+        "T02",
+    }  # started again
 
 
 # ------------------------------------------------------------ trajectory links
@@ -184,18 +241,32 @@ def test_running_tasks_are_those_started_and_not_yet_ended() -> None:
 
 def test_a_card_names_the_trajectory_file_to_open_in_the_file_viewer() -> None:
     html = render_task_board(
-        plan_dict(), {"T01": result("T01")}, set(), trajectories={"T01": ".idea-to-mvp/trajectories/T01.md"}
+        plan_dict(),
+        {"T01": result("T01")},
+        set(),
+        trajectories={"T01": ".idea-to-mvp/trajectories/T01.md"},
     )
-    card = re.search(r"<article class='task-card done' data-task='T01'>.*?</article>", html, flags=re.DOTALL)
-    assert card and "<code class='task-trajectory'>.idea-to-mvp/trajectories/T01.md</code>" in card.group(0)
-    assert "task-trajectory" not in render_task_board(plan_dict(), {"T01": result("T01")}, set())  # no ledger, no link
+    card = re.search(
+        r"<article class='task-card done' data-task='T01'>.*?</article>", html, flags=re.DOTALL
+    )
+    assert (
+        card
+        and "<code class='task-trajectory'>.idea-to-mvp/trajectories/T01.md</code>" in card.group(0)
+    )
+    assert "task-trajectory" not in render_task_board(
+        plan_dict(), {"T01": result("T01")}, set()
+    )  # no ledger, no link
 
 
 def test_a_running_task_links_its_trajectory_while_it_is_written() -> None:
-    html = render_task_board(plan_dict(), {}, {"T01"}, trajectories={"T01": ".idea-to-mvp/trajectories/T01.md"})
+    html = render_task_board(
+        plan_dict(), {}, {"T01"}, trajectories={"T01": ".idea-to-mvp/trajectories/T01.md"}
+    )
     assert "task-trajectory" in html
 
 
 def test_the_trajectory_path_is_escaped() -> None:
-    html = render_task_board(plan_dict(), {"T01": result("T01")}, set(), trajectories={"T01": "<img src=x>"})
+    html = render_task_board(
+        plan_dict(), {"T01": result("T01")}, set(), trajectories={"T01": "<img src=x>"}
+    )
     assert "<img src=x>" not in html and "&lt;img src=x&gt;" in html

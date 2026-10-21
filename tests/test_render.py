@@ -4,7 +4,11 @@ from idea_to_mvp.ui.render import moderator_banner, openings_row, questions_bloc
 def test_questions_block_shows_typed_details_when_available() -> None:
     questions = [f"{i}. Question {i}?" for i in range(1, 6)]
     items = [
-        {"question": f"Question {i}?", "why_it_matters": f"Reason {i}", "suggested_answer": f"Suggestion {i}"}
+        {
+            "question": f"Question {i}?",
+            "why_it_matters": f"Reason {i}",
+            "suggested_answer": f"Suggestion {i}",
+        }
         for i in range(1, 6)
     ]
     html = questions_block(questions, items)
@@ -17,7 +21,9 @@ def test_questions_block_ignores_mismatched_item_counts() -> None:
 
 
 def test_opening_statements_are_one_row_of_three_cards() -> None:
-    html = openings_row([("PM", "Scope small."), ("Tech Lead", "Monolith."), ("Skeptic", "Why build it?")])
+    html = openings_row(
+        [("PM", "Scope small."), ("Tech Lead", "Monolith."), ("Skeptic", "Why build it?")]
+    )
     assert html.count("class='opening-row'") == 1 and html.count("speaker-card") == 3
     assert html.index("Scope small.") < html.index("Monolith.") < html.index("Why build it?")
     assert "speaker-pm" in html and "speaker-tech-lead" in html and "speaker-skeptic" in html

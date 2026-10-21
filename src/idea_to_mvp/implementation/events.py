@@ -35,7 +35,14 @@ def make_event(
     detail: str = "",
     cost_usd: float | None = None,
 ) -> ImplEvent:
-    return {"kind": kind, "task_id": task_id, "label": label, "detail": detail, "cost_usd": cost_usd, "ts": time.time()}
+    return {
+        "kind": kind,
+        "task_id": task_id,
+        "label": label,
+        "detail": detail,
+        "cost_usd": cost_usd,
+        "ts": time.time(),
+    }
 
 
 def shorten(text: str, limit: int = _DETAIL_LIMIT) -> str:
@@ -61,11 +68,27 @@ def events_from_sdk_message(message: Any, task_id: str | None) -> list[ImplEvent
         events: list[ImplEvent] = []
         for block in message.content:
             if isinstance(block, ToolUseBlock):
-                events.append(make_event("tool", task_id=task_id, label=block.name, detail=tool_detail(block.input)))
+                events.append(
+                    make_event(
+                        "tool", task_id=task_id, label=block.name, detail=tool_detail(block.input)
+                    )
+                )
             elif isinstance(block, TextBlock) and block.text.strip():
-                events.append(make_event("text", task_id=task_id, label="agent", detail=shorten(block.text, 240)))
+                events.append(
+                    make_event(
+                        "text", task_id=task_id, label="agent", detail=shorten(block.text, 240)
+                    )
+                )
         return events
     if isinstance(message, ResultMessage) and message.total_cost_usd is not None:
         detail = f"{message.num_turns} turns"
-        return [make_event("cost", task_id=task_id, label="session", detail=detail, cost_usd=float(message.total_cost_usd))]
+        return [
+            make_event(
+                "cost",
+                task_id=task_id,
+                label="session",
+                detail=detail,
+                cost_usd=float(message.total_cost_usd),
+            )
+        ]
     return []

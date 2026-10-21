@@ -62,7 +62,9 @@ class DocInput(TypedDict):
     upstream: dict[str, str]  # the documents this one `needs`, already generated
     issues: str  # reviewer issues to fix, formatted ('' on the first pass)
     previous: str  # the previous version of this document ('' on the first pass)
-    reference: NotRequired[str]  # reference data for this document: the experience library's index for the plan and the harness
+    reference: NotRequired[
+        str
+    ]  # reference data for this document: the experience library's index for the plan and the harness
 
 
 def blueprint_context(state: IdeaDiscussionState) -> str:
@@ -70,7 +72,9 @@ def blueprint_context(state: IdeaDiscussionState) -> str:
     chosen_details = ""
     if state.get("architecture_proposal"):
         proposal = ArchitectureProposal.model_validate(state["architecture_proposal"])
-        chosen_details = render_option_markdown(proposal, state.get("arch_choice", {}).get("option") or "A")
+        chosen_details = render_option_markdown(
+            proposal, state.get("arch_choice", {}).get("option") or "A"
+        )
     return build_bundle_context(
         user_idea=state["user_idea"],
         summary=state.get("summary", ""),
@@ -92,7 +96,11 @@ def read_library_node(state: IdeaDiscussionState) -> dict[str, Any]:
     settings = get_settings()
     if not settings.library_enabled:
         return {"library": {}}
-    domain = domain_for(state.get("execution_strategy"), state.get("architecture_proposal"), state.get("arch_choice"))
+    domain = domain_for(
+        state.get("execution_strategy"),
+        state.get("architecture_proposal"),
+        state.get("arch_choice"),
+    )
     return {"library": snapshot(settings.library_dir, domain)}
 
 
@@ -112,7 +120,11 @@ def generate_doc_node(state: DocInput) -> dict[str, Any]:
             SystemMessage(content=spec.system_prompt),
             HumanMessage(
                 content=prompt_for(
-                    spec, state["context_block"], state["upstream"], issues=state["issues"], previous=state["previous"]
+                    spec,
+                    state["context_block"],
+                    state["upstream"],
+                    issues=state["issues"],
+                    previous=state["previous"],
                 )
             ),
         ],
@@ -144,7 +156,9 @@ def generate_plan_node(state: DocInput) -> dict[str, Any]:
             )
         ),
     ]
-    plan = llm.invoke_structured(runtime, messages, Plan, fallback=lambda: fallback_plan(strategy, prd))
+    plan = llm.invoke_structured(
+        runtime, messages, Plan, fallback=lambda: fallback_plan(strategy, prd)
+    )
     problems = validate_plan(plan, prd_markdown=prd, workstreams=workstreams)
     if problems:
         repaired = llm.invoke_structured(
@@ -235,7 +249,9 @@ def _plan_problems(docs: dict[str, str], strategy: dict[str, Any] | None) -> lis
     plan = load_plan(docs.get(PLAN_JSON_PATH))
     if plan is None:
         return ["plan.json is missing or is not a valid plan"]
-    return validate_plan(plan, prd_markdown=docs.get("PRD.md", ""), workstreams=workstream_names(strategy))
+    return validate_plan(
+        plan, prd_markdown=docs.get("PRD.md", ""), workstreams=workstream_names(strategy)
+    )
 
 
 def review_issues_of(review: dict[str, Any] | None) -> list[Issue]:
@@ -247,19 +263,31 @@ def will_revise(state: IdeaDiscussionState) -> bool:
     review = state.get("blueprint_review") or {}
     if int(review.get("revisions") or 0) >= get_settings().max_blueprint_revisions:
         return False
-    return bool(revision_targets(review_issues_of(review), _known_paths(state.get("execution_strategy") or None)))
+    return bool(
+        revision_targets(
+            review_issues_of(review), _known_paths(state.get("execution_strategy") or None)
+        )
+    )
 
 
 def _unreviewed() -> CritiqueReport:
     return CritiqueReport(
-        approved=True, issues=[Issue(severity="warning", file="pack", description=CRITIC_NOT_AVAILABLE)]
+        approved=True,
+        issues=[Issue(severity="warning", file="pack", description=CRITIC_NOT_AVAILABLE)],
     )
 
 
 def _critic_prompt(state: IdeaDiscussionState, docs: dict[str, str], paths: list[str]) -> str:
-    reviewed = ["PRD.md", "ARCHITECTURE.md", PLAN_PATH, *[p for p in paths if p.startswith(".claude/agents/")]]
+    reviewed = [
+        "PRD.md",
+        "ARCHITECTURE.md",
+        PLAN_PATH,
+        *[p for p in paths if p.startswith(".claude/agents/")],
+    ]
     sections = [
-        f"## File: {path}\n\n{truncate_document(docs[path], MAX_UPSTREAM_CHARS)}" for path in reviewed if docs.get(path)
+        f"## File: {path}\n\n{truncate_document(docs[path], MAX_UPSTREAM_CHARS)}"
+        for path in reviewed
+        if docs.get(path)
     ]
     return (
         f"Original idea:\n{state['user_idea'].strip()}\n\n"

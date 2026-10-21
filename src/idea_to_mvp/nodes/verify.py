@@ -51,13 +51,17 @@ class LaneInput(TypedDict):
     budget_usd: float
     iteration: int  # the version being verified
     attempt: int  # the verification round: 1 before any fix
-    acceptance_dir: str  # the version's held-out suite (the acceptance lane only; '' for the others)
+    acceptance_dir: (
+        str  # the version's held-out suite (the acceptance lane only; '' for the others)
+    )
 
 
 def remaining_budget(state: IdeaDiscussionState, settings: Settings) -> float:
     """What is left of the whole-run cap after everything this version has spent (implementation, lanes,
     fixes). Earlier versions of an iterated project are not counted: each has its own budget."""
-    spent = summarize_usage(state.get("usage") or [])["agent_cost_usd"] - float(state.get("spent_before_iteration") or 0.0)
+    spent = summarize_usage(state.get("usage") or [])["agent_cost_usd"] - float(
+        state.get("spent_before_iteration") or 0.0
+    )
     return max(0.0, settings.implementer_max_total_usd - spent)
 
 
@@ -95,7 +99,9 @@ def verify_node(state: IdeaDiscussionState) -> dict[str, Any]:
     )
     if previous.get("report"):
         report += f"\n\nThe last verification round found:\n\n{previous['report']}"
-    if block := integrity.report_block(state.get("integrity_findings") or {}, settings.test_integrity):
+    if block := integrity.report_block(
+        state.get("integrity_findings") or {}, settings.test_integrity
+    ):
         report += f"\n\n{block}"  # what sessions did to the tests is reported even when nothing was verified
     skipped: VerificationResult = {
         "passed": False,
@@ -159,7 +165,9 @@ async def verify_lane_node(state: LaneInput) -> dict[str, Any]:
 # ------------------------------------------------------------------------ verdict
 
 
-def next_step(state: IdeaDiscussionState, settings: Settings) -> Literal["pass", "retry", "exhausted"]:
+def next_step(
+    state: IdeaDiscussionState, settings: Settings
+) -> Literal["pass", "retry", "exhausted"]:
     verification = _previous(state)
     if verification.get("passed"):
         return "pass"
@@ -189,15 +197,23 @@ def _check_integrity(
     findings = dict(state.get("integrity_findings") or {})
     count = _reported_test_count(reports)
     iteration = int(state.get("iteration") or 1)
-    workspace_dir = str(state.get("workspace_dir") or "")  # never '' (that would read the current directory)
+    workspace_dir = str(
+        state.get("workspace_dir") or ""
+    )  # never '' (that would read the current directory)
     workspace = Path(workspace_dir) if workspace_dir and Path(workspace_dir).is_dir() else None
     changed: dict[str, IntegrityFinding] = {}
     if count is not None:
         # What TEST_CHANGES.md says about the count before this round cannot justify a drop seen in it.
-        stale = integrity.read_justifications(workspace).get(integrity.COUNT_KEY, "") if workspace else ""
+        stale = (
+            integrity.read_justifications(workspace).get(integrity.COUNT_KEY, "")
+            if workspace
+            else ""
+        )
         session = lanes.log_name(iteration, f"lane-tests-{attempts + 1}")
         previous = state.get("integrity_test_count")
-        if dropped := integrity.count_finding(previous, count, session=session, iteration=iteration, stale=stale):
+        if dropped := integrity.count_finding(
+            previous, count, session=session, iteration=iteration, stale=stale
+        ):
             changed[dropped["id"]] = dropped
     findings.update(changed)
     reviewed = integrity.review(findings, workspace, test_count=count) if workspace else {}
@@ -209,23 +225,39 @@ def _check_integrity(
     return update, findings
 
 
-def current_failures(verification: Any, findings: dict[str, IntegrityFinding], mode: str) -> list[str]:
+def current_failures(
+    verification: Any, findings: dict[str, IntegrityFinding], mode: str
+) -> list[str]:
     """What the next fix session is given: the failed lanes' failures plus the blocking integrity findings."""
     blocked = integrity.blocking(findings, mode)
-    failures = lanes.failure_list(verification.get("lanes") or []) + integrity.failure_lines(blocked)
+    failures = lanes.failure_list(verification.get("lanes") or []) + integrity.failure_lines(
+        blocked
+    )
     return failures or [str(verification.get("report") or "unknown failure")]
 
 
-def _close_history(history: list[dict[str, Any]], attempts: int, passed: bool, remaining: int) -> list[dict[str, Any]]:
+def _close_history(
+    history: list[dict[str, Any]], attempts: int, passed: bool, remaining: int
+) -> list[dict[str, Any]]:
     """The attempt history with the latest attempt judged by the round that has just ended."""
-    if attempts and history and history[-1].get("attempt") == attempts and not history[-1].get("result"):
-        return [*history[:-1], dict(fixes.close_entry(history[-1], passed=passed, remaining=remaining))]
+    if (
+        attempts
+        and history
+        and history[-1].get("attempt") == attempts
+        and not history[-1].get("result")
+    ):
+        return [
+            *history[:-1],
+            dict(fixes.close_entry(history[-1], passed=passed, remaining=remaining)),
+        ]
     return history
 
 
 def verdict_node(state: IdeaDiscussionState) -> dict[str, Any]:
     settings = get_settings()
-    reports = [LaneReport.model_validate(report) for report in (state.get("lane_reports") or {}).values()]
+    reports = [
+        LaneReport.model_validate(report) for report in (state.get("lane_reports") or {}).values()
+    ]
     combined = lanes.combine_lanes(reports, lanes_for(state))
     previous = _previous(state)
     attempts = int(previous.get("attempts") or 0)
@@ -237,12 +269,18 @@ def verdict_node(state: IdeaDiscussionState) -> dict[str, Any]:
     if block := integrity.report_block(findings, mode):
         verification["report"] += f"\n\n{block}"
     failures = [] if verification["passed"] else current_failures(verification, findings, mode)
-    history = _close_history(list(previous.get("history") or []), attempts, verification["passed"], len(failures))
+    history = _close_history(
+        list(previous.get("history") or []), attempts, verification["passed"], len(failures)
+    )
     verification["history"] = history
     workspace = str(state.get("workspace_dir") or "")
     if attempts and workspace and Path(workspace).is_dir():
         fixes.write_after(
-            Path(workspace), iteration=int(state.get("iteration") or 1), attempt=attempts, passed=verification["passed"], report=verification["report"]
+            Path(workspace),
+            iteration=int(state.get("iteration") or 1),
+            attempt=attempts,
+            passed=verification["passed"],
+            report=verification["report"],
         )
     classified = fixes.classify_failures(failures)
     if classified.only_environment:
@@ -259,7 +297,11 @@ def verdict_node(state: IdeaDiscussionState) -> dict[str, Any]:
         else:
             why = "Stopped: the whole-run budget cannot pay for another fix attempt."
         verification["report"] += f"\n\n{why}"
-    return {**update, "verification": verification, "stage": "verification" if step == "retry" else "report"}
+    return {
+        **update,
+        "verification": verification,
+        "stage": "verification" if step == "retry" else "report",
+    }
 
 
 def route_after_verdict(state: IdeaDiscussionState) -> Literal["pass", "retry", "exhausted"]:
@@ -280,7 +322,9 @@ async def fix_node(state: IdeaDiscussionState) -> dict[str, Any]:
     verification = _previous(state)
     attempt = int(verification.get("attempts") or 0) + 1
     iteration = int(state.get("iteration") or 1)
-    failures = current_failures(verification, state.get("integrity_findings") or {}, settings.test_integrity)
+    failures = current_failures(
+        verification, state.get("integrity_findings") or {}, settings.test_integrity
+    )
     LOGGER.info("Verification failed; fix attempt %d/%d", attempt, settings.max_fix_attempts)
     budget = min(settings.implementer_max_task_usd, remaining_budget(state, settings))
     before = await asyncio.to_thread(head_commit, workspace)
@@ -297,11 +341,21 @@ async def fix_node(state: IdeaDiscussionState) -> dict[str, Any]:
     diff = await asyncio.to_thread(diff_since, workspace, before) if before else ""
     trajectory = workspace / outcome.trajectory if outcome.trajectory else None
     await asyncio.to_thread(
-        fixes.write_attempt, workspace, iteration=iteration, attempt=attempt, failures=failures, diff=diff, trajectory=trajectory
+        fixes.write_attempt,
+        workspace,
+        iteration=iteration,
+        attempt=attempt,
+        failures=failures,
+        diff=diff,
+        trajectory=trajectory,
     )
     history = list(verification.get("history") or [])
     earlier = [fixes.Note(**note) for note in (history[-1].get("notes") or [])] if history else []
-    problem = "" if outcome.kind == "environment" else fixes.notes_problem(outcome.notes, attempt=attempt, earlier=earlier)
+    problem = (
+        ""
+        if outcome.kind == "environment"
+        else fixes.notes_problem(outcome.notes, attempt=attempt, earlier=earlier)
+    )
     entry = fixes.history_entry(
         attempt,
         failures=failures,

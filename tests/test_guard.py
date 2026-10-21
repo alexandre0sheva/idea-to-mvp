@@ -33,7 +33,13 @@ def test_paths_inside_the_workspace_are_allowed(tool: str, workspace: Path) -> N
 
 @pytest.mark.parametrize("tool", ["Read", "Write", "Edit", "MultiEdit"])
 def test_paths_outside_the_workspace_are_denied(tool: str, workspace: Path, tmp_path: Path) -> None:
-    for path in (str(tmp_path / "secret.txt"), "/etc/passwd", "~/.ssh/id_rsa", "../other/file.py", "src/../../x"):
+    for path in (
+        str(tmp_path / "secret.txt"),
+        "/etc/passwd",
+        "~/.ssh/id_rsa",
+        "../other/file.py",
+        "src/../../x",
+    ):
         ok, reason = check_tool_use(tool, {"file_path": path}, workspace)
         assert not ok and "outside the workspace" in reason, path
 
@@ -51,11 +57,15 @@ def test_a_symlink_escaping_the_workspace_is_denied(workspace: Path, tmp_path: P
     (workspace / "link").symlink_to(outside, target_is_directory=True)
     (workspace / "file-link").symlink_to(outside / "secret.txt")
     assert not allowed("Read", {"file_path": str(workspace / "link" / "secret.txt")}, workspace)
-    assert not allowed("Write", {"file_path": str(workspace / "link" / "new.txt")}, workspace)  # new file, linked dir
+    assert not allowed(
+        "Write", {"file_path": str(workspace / "link" / "new.txt")}, workspace
+    )  # new file, linked dir
     assert not allowed("Read", {"file_path": "file-link"}, workspace)
 
 
-def test_a_symlinked_workspace_root_still_allows_its_own_files(tmp_path: Path, workspace: Path) -> None:
+def test_a_symlinked_workspace_root_still_allows_its_own_files(
+    tmp_path: Path, workspace: Path
+) -> None:
     alias = tmp_path / "alias"
     alias.symlink_to(workspace, target_is_directory=True)
     assert allowed("Read", {"file_path": str(alias / "src" / "app.py")}, workspace)
@@ -84,9 +94,18 @@ def test_the_orchestrators_progress_file_cannot_be_written_by_agents(workspace: 
 
 
 @pytest.mark.parametrize(
-    "path", [".claude/settings.json", ".claude/settings.local.json", "sub/.claude/settings.json", ".mcp.json", "app/.mcp.json"]
+    "path",
+    [
+        ".claude/settings.json",
+        ".claude/settings.local.json",
+        "sub/.claude/settings.json",
+        ".mcp.json",
+        "app/.mcp.json",
+    ],
 )
-def test_agents_cannot_write_the_claude_code_settings_a_later_session_loads(path: str, workspace: Path) -> None:
+def test_agents_cannot_write_the_claude_code_settings_a_later_session_loads(
+    path: str, workspace: Path
+) -> None:
     for tool in ("Write", "Edit", "MultiEdit"):
         ok, reason = check_tool_use(tool, {"file_path": path}, workspace)
         assert not ok and "settings" in reason, (tool, path)
@@ -94,15 +113,28 @@ def test_agents_cannot_write_the_claude_code_settings_a_later_session_loads(path
 
 
 def test_the_rest_of_the_project_harness_stays_writable(workspace: Path) -> None:
-    for path in (".claude/skills/add-endpoint/SKILL.md", ".claude/agents/core.md", "CLAUDE.md", "scripts/check.sh", "docs/settings.json"):
+    for path in (
+        ".claude/skills/add-endpoint/SKILL.md",
+        ".claude/agents/core.md",
+        "CLAUDE.md",
+        "scripts/check.sh",
+        "docs/settings.json",
+    ):
         assert allowed("Write", {"file_path": path}, workspace), path
 
 
 @pytest.mark.parametrize(
     "command",
-    ["echo '{}' > .claude/settings.json", "cp evil.json .claude/settings.local.json", "tee .mcp.json < x", "sed -i '' s/a/b/ ./.claude/settings.json"],
+    [
+        "echo '{}' > .claude/settings.json",
+        "cp evil.json .claude/settings.local.json",
+        "tee .mcp.json < x",
+        "sed -i '' s/a/b/ ./.claude/settings.json",
+    ],
 )
-def test_shell_commands_that_name_the_claude_code_settings_are_denied(command: str, workspace: Path) -> None:
+def test_shell_commands_that_name_the_claude_code_settings_are_denied(
+    command: str, workspace: Path
+) -> None:
     ok, reason = check_tool_use("Bash", {"command": command}, workspace)
     assert not ok and "settings" in reason, command
 
@@ -119,7 +151,9 @@ def test_notebook_glob_and_grep_paths_are_checked_too(workspace: Path, tmp_path:
     assert allowed("Glob", {"pattern": "**/*.py"}, workspace)
 
 
-def test_tools_the_guard_does_not_know_are_left_to_the_normal_permission_system(workspace: Path) -> None:
+def test_tools_the_guard_does_not_know_are_left_to_the_normal_permission_system(
+    workspace: Path,
+) -> None:
     assert allowed("TodoWrite", {"todos": []}, workspace)
     assert allowed("Task", {"prompt": "x"}, workspace)
 
@@ -223,7 +257,9 @@ def test_ordinary_development_commands_are_allowed(command: str, workspace: Path
 
 
 def test_disabling_the_sandbox_from_inside_a_command_is_denied(workspace: Path) -> None:
-    ok, reason = check_tool_use("Bash", {"command": "ls", "dangerouslyDisableSandbox": True}, workspace)
+    ok, reason = check_tool_use(
+        "Bash", {"command": "ls", "dangerouslyDisableSandbox": True}, workspace
+    )
     assert not ok and "sandbox" in reason
     assert allowed("Bash", {"command": "ls", "dangerouslyDisableSandbox": False}, workspace)
 
@@ -240,7 +276,9 @@ def test_a_command_that_cds_into_the_workspace_by_absolute_path_is_fine(workspac
 def test_the_home_directory_outside_the_workspace_is_off_limits_but_the_workspace_inside_it_is_not(
     workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("HOME", str(workspace.parent.parent))  # the workspace lives under the user's home
+    monkeypatch.setenv(
+        "HOME", str(workspace.parent.parent)
+    )  # the workspace lives under the user's home
     assert allowed("Bash", {"command": f"cat {workspace}/src/app.py"}, workspace)
     assert not allowed("Bash", {"command": f"cat {workspace.parent}/other/src/app.py"}, workspace)
     assert not allowed("Bash", {"command": "cat ~/notes.txt"}, workspace)
@@ -250,29 +288,47 @@ def test_the_home_directory_outside_the_workspace_is_off_limits_but_the_workspac
 # ------------------------------------------------------------------- the hook
 
 
-async def test_the_hook_denies_with_the_reason_and_allows_with_an_empty_answer(workspace: Path) -> None:
+async def test_the_hook_denies_with_the_reason_and_allows_with_an_empty_answer(
+    workspace: Path,
+) -> None:
     deny = await pre_tool_use_hook(
-        {"tool_name": "Bash", "tool_input": {"command": "sudo rm -rf /"}, "cwd": str(workspace)}, "id-1", {"signal": None}
+        {"tool_name": "Bash", "tool_input": {"command": "sudo rm -rf /"}, "cwd": str(workspace)},
+        "id-1",
+        {"signal": None},
     )
     decision = deny["hookSpecificOutput"]
     assert decision["hookEventName"] == "PreToolUse" and decision["permissionDecision"] == "deny"
     assert decision["permissionDecisionReason"]
     allow = await pre_tool_use_hook(
-        {"tool_name": "Bash", "tool_input": {"command": "pytest"}, "cwd": str(workspace)}, "id-2", {"signal": None}
+        {"tool_name": "Bash", "tool_input": {"command": "pytest"}, "cwd": str(workspace)},
+        "id-2",
+        {"signal": None},
     )
     assert allow == {}
 
 
-async def test_the_hook_uses_the_bound_workspace_not_the_shells_current_directory(workspace: Path, tmp_path: Path) -> None:
-    payload = {"tool_name": "Write", "tool_input": {"file_path": "x.py"}, "cwd": str(tmp_path)}  # agent cd'ed away
+async def test_the_hook_uses_the_bound_workspace_not_the_shells_current_directory(
+    workspace: Path, tmp_path: Path
+) -> None:
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {"file_path": "x.py"},
+        "cwd": str(tmp_path),
+    }  # agent cd'ed away
     assert await pre_tool_use_hook(payload, "id", {"signal": None}, workspace=workspace) == {}
 
 
 async def test_the_hook_fails_closed_on_malformed_input(workspace: Path) -> None:
-    out = await pre_tool_use_hook({"tool_name": "Write", "tool_input": "not a dict", "cwd": str(workspace)}, "i", {"signal": None})
+    out = await pre_tool_use_hook(
+        {"tool_name": "Write", "tool_input": "not a dict", "cwd": str(workspace)},
+        "i",
+        {"signal": None},
+    )
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
     out = await pre_tool_use_hook({}, "i", {"signal": None})
-    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"  # no workspace can be determined
+    assert (
+        out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    )  # no workspace can be determined
 
 
 def test_the_guard_really_uses_realpath_on_this_platform(workspace: Path) -> None:

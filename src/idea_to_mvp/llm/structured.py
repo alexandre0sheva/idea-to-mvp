@@ -50,7 +50,9 @@ def invoke_structured(
     last_error: Exception | None = None
     for _attempt in range(_MAX_ATTEMPTS):
         try:
-            result = structured.invoke(attempt_messages, **invoke_kwargs(runtime, runtime.max_tokens))
+            result = structured.invoke(
+                attempt_messages, **invoke_kwargs(runtime, runtime.max_tokens)
+            )
             if result is None:
                 raise ValueError("the model returned no structured output")
             return result if isinstance(result, schema) else schema.model_validate(result)
@@ -67,6 +69,10 @@ def invoke_structured(
                 ),
             ]
     if fallback is not None:
-        LOGGER.warning("Using the deterministic fallback for %s after invalid model output.", schema.__name__)
+        LOGGER.warning(
+            "Using the deterministic fallback for %s after invalid model output.", schema.__name__
+        )
         return fallback()
-    raise StructuredOutputError(f"{schema.__name__}: model output stayed invalid: {last_error}") from last_error
+    raise StructuredOutputError(
+        f"{schema.__name__}: model output stayed invalid: {last_error}"
+    ) from last_error

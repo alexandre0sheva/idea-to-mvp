@@ -50,8 +50,12 @@ class ImplementDecision(TypedDict):
 
     implement: bool
     notes: str
-    parallel: NotRequired[int]  # tasks to run at once, chosen at the gate; 0 or absent = IMPLEMENTER_MAX_PARALLEL
-    harness_tuning: NotRequired[bool]  # tune the harness on a pilot task first; absent = the HARNESS_TUNING setting
+    parallel: NotRequired[
+        int
+    ]  # tasks to run at once, chosen at the gate; 0 or absent = IMPLEMENTER_MAX_PARALLEL
+    harness_tuning: NotRequired[
+        bool
+    ]  # tune the harness on a pilot task first; absent = the HARNESS_TUNING setting
 
 
 class IterateDecision(TypedDict):
@@ -83,10 +87,14 @@ class VerificationResult(TypedDict):
     attempts: int  # fix attempts made so far
     report: str
     lanes: list[dict[str, Any]]  # one LaneReport dump per lane (tests, quality, requirements)
-    integrity: NotRequired[str]  # the TEST_INTEGRITY mode the verdict was given under (block / warn / off)
+    integrity: NotRequired[
+        str
+    ]  # the TEST_INTEGRITY mode the verdict was given under (block / warn / off)
     # Why the loop stopped for a cause no change to the project can fix (a blocked domain, a missing credential).
     environment: NotRequired[str]
-    history: NotRequired[list[dict[str, Any]]]  # one `fixes.FixAttempt` per fix attempt of this version
+    history: NotRequired[
+        list[dict[str, Any]]
+    ]  # one `fixes.FixAttempt` per fix attempt of this version
 
 
 class IdeaDiscussionState(TypedDict):
@@ -113,9 +121,15 @@ class IdeaDiscussionState(TypedDict):
     project_bundle_summary: str
     workspace_dir: str
     implementation_log: str
-    finished_tasks: Annotated[dict[str, TaskResult], merge_dicts]  # sessions awaiting their merge (parallel engine)
-    task_results: Annotated[dict[str, TaskResult], merge_dicts]  # plan task id -> its implementation result
-    lane_reports: Annotated[dict[str, dict[str, Any]], merge_dicts]  # lane -> LaneReport dump, filled in parallel
+    finished_tasks: Annotated[
+        dict[str, TaskResult], merge_dicts
+    ]  # sessions awaiting their merge (parallel engine)
+    task_results: Annotated[
+        dict[str, TaskResult], merge_dicts
+    ]  # plan task id -> its implementation result
+    lane_reports: Annotated[
+        dict[str, dict[str, Any]], merge_dicts
+    ]  # lane -> LaneReport dump, filled in parallel
     verification: VerificationResult
     # What sessions did to the tests (`implementation/integrity.py`), by finding id, across every version.
     integrity_findings: Annotated[dict[str, IntegrityFinding], merge_dicts]
@@ -139,9 +153,15 @@ class IdeaDiscussionState(TypedDict):
     iteration: int  # the version being built: 1 = the first delivery (v0.1), 2 = v0.2, ...
     change_requests: list[str]  # the user's feedback, one entry per iteration after the first
     iterate_decision: IterateDecision
-    no_change: dict[str, str]  # {request, reason} when the change planner found nothing to build, else {}
-    cost_estimate: dict[str, Any]  # the implement gate's dollar range for the first version (a `CostRange` dump)
-    spent_before_iteration: float  # cost of earlier versions: each iteration has its own whole-run budget
+    no_change: dict[
+        str, str
+    ]  # {request, reason} when the change planner found nothing to build, else {}
+    cost_estimate: dict[
+        str, Any
+    ]  # the implement gate's dollar range for the first version (a `CostRange` dump)
+    spent_before_iteration: (
+        float  # cost of earlier versions: each iteration has its own whole-run budget
+    )
     usage: Annotated[list[UsageRecord], operator.add]  # model calls, accumulated over the run
     stage: Stage
     next_speaker: SpeakerName
@@ -149,7 +169,9 @@ class IdeaDiscussionState(TypedDict):
     turn_count: int
     panel_mode: PanelMode
     autopilot: bool  # the answers, architecture, and plan gates decide for themselves; implement never does
-    opening_turns: Annotated[dict[str, str], merge_dicts]  # speaker -> opening statement, filled in parallel
+    opening_turns: Annotated[
+        dict[str, str], merge_dicts
+    ]  # speaker -> opening statement, filled in parallel
     convergence: Convergence
 
 

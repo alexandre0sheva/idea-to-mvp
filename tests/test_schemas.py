@@ -17,7 +17,9 @@ from idea_to_mvp.schemas import (
 
 
 def _question(n: int = 1) -> MvpQuestion:
-    return MvpQuestion(question=f"Question {n}?", why_it_matters="It changes scope.", suggested_answer="Do X.")
+    return MvpQuestion(
+        question=f"Question {n}?", why_it_matters="It changes scope.", suggested_answer="Do X."
+    )
 
 
 def _option(key: str = "A", name: str = "Monolith") -> ArchitectureOption:
@@ -80,8 +82,13 @@ def test_strategy_drops_nameless_workstreams_and_caps_at_five() -> None:
 
 def test_strategy_rejects_unknown_mode_and_empty_workstreams() -> None:
     with pytest.raises(ValidationError):
-        ExecutionStrategy.model_validate({"mode": "swarm", "reasoning": "r", "workstreams": [
-            {"name": "a", "focus": "f", "deliverables": "d"}]})
+        ExecutionStrategy.model_validate(
+            {
+                "mode": "swarm",
+                "reasoning": "r",
+                "workstreams": [{"name": "a", "focus": "f", "deliverables": "d"}],
+            }
+        )
     with pytest.raises(ValidationError):
         ExecutionStrategy.model_validate({"mode": "subagents", "reasoning": "r", "workstreams": []})
 
@@ -108,7 +115,10 @@ def test_render_architecture_markdown_names_both_options_and_the_recommendation(
     text = render_architecture_markdown(_proposal("B"))
     assert "## Option A" in text and "Fast Monolith" in text
     assert "## Option B" in text and "Scalable Services" in text
-    assert "Architect recommendation" in text and "Option B" in text.split("Architect recommendation")[1]
+    assert (
+        "Architect recommendation" in text
+        and "Option B" in text.split("Architect recommendation")[1]
+    )
     assert "Solo founder" in text
 
 

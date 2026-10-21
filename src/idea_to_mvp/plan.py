@@ -145,7 +145,9 @@ def validate_plan(plan: Plan, *, prd_markdown: str, workstreams: list[str]) -> l
             issues.append(f"duplicate task id {task.id}")
         seen.add(task.id)
         if not TASK_ID_RE.match(task.id):
-            issues.append(f"malformed task id {task.id!r} (expected T01, T02, ..., or I2-01, ... for iteration tasks)")
+            issues.append(
+                f"malformed task id {task.id!r} (expected T01, T02, ..., or I2-01, ... for iteration tasks)"
+            )
 
     contract_ids = {contract.id for contract in plan.contracts}
     requirements = parse_requirements(prd_markdown)
@@ -158,12 +160,18 @@ def validate_plan(plan: Plan, *, prd_markdown: str, workstreams: list[str]) -> l
         graph[task.id] = [dep for dep in task.depends_on if dep in seen]
         if task.workstream not in workstreams:
             issues.append(f"task {task.id} uses unknown workstream {task.workstream!r}")
-        unknown_contracts = [c for c in [*task.contracts_in, *task.contracts_out] if c not in contract_ids]
+        unknown_contracts = [
+            c for c in [*task.contracts_in, *task.contracts_out] if c not in contract_ids
+        ]
         if unknown_contracts:
-            issues.append(f"task {task.id} references unknown contract(s): {', '.join(unknown_contracts)}")
+            issues.append(
+                f"task {task.id} references unknown contract(s): {', '.join(unknown_contracts)}"
+            )
         missing = [r for r in task.requirement_ids if r not in requirements]
         if missing:
-            issues.append(f"task {task.id} cites requirement(s) not in the PRD: {', '.join(missing)}")
+            issues.append(
+                f"task {task.id} cites requirement(s) not in the PRD: {', '.join(missing)}"
+            )
         covered.update(task.requirement_ids)
 
     try:
@@ -226,7 +234,10 @@ def fallback_change_tasks(plan: Plan, iteration: int, feedback: str) -> list[Pla
             contracts_in=[],
             contracts_out=[],
             scope="Whatever the change needs, in the existing code base; keep everything already delivered working.",
-            acceptance=[f"The requested change works: {request}", "Everything delivered before still works."],
+            acceptance=[
+                f"The requested change works: {request}",
+                "Everything delivered before still works.",
+            ],
             tests=["A test for the requested behaviour; the existing test suite stays green."],
             coverage_target=80,
             handoff="Updated README and notes if the change affects how the project is run.",
@@ -322,21 +333,29 @@ _TASK_FIELDS = {
 }
 _LIST_FIELDS = {"acceptance", "tests"}
 _ID_LIST_FIELDS = {"depends_on", "requirement_ids", "contracts_in", "contracts_out"}
-_FIELD_LINE = re.compile(r"^- (" + "|".join(re.escape(label) for label in _TASK_FIELDS) + r"):\s*(.*)$")
+_FIELD_LINE = re.compile(
+    r"^- (" + "|".join(re.escape(label) for label in _TASK_FIELDS) + r"):\s*(.*)$"
+)
 _TASK_HEADING = re.compile(r"^###\s+(\S+?)\.\s+(.*\S)\s*$")
 _COMMAND_LINE = re.compile(r"^- (Install|Test report|Test|Lint|Run):\s*(.*)$")
 
 
 def _split_ids(value: str) -> list[str]:
     value = value.strip().rstrip(".").strip()
-    return [] if value.lower() in ("", "none") else [part.strip() for part in value.split(",") if part.strip()]
+    return (
+        []
+        if value.lower() in ("", "none")
+        else [part.strip() for part in value.split(",") if part.strip()]
+    )
 
 
 def _parse_command(value: str) -> str | None:
     value = value.strip()
     if value.lower() == "none" or not value:
         return None
-    return value[1:-1] if value.startswith("`") and value.endswith("`") and len(value) >= 2 else value
+    return (
+        value[1:-1] if value.startswith("`") and value.endswith("`") and len(value) >= 2 else value
+    )
 
 
 def parse_plan_markdown(text: str) -> Plan:
@@ -357,13 +376,19 @@ def parse_plan_markdown(text: str) -> Plan:
     def finish_task() -> None:
         if not task_id:
             return
-        missing = [label for label, key in _TASK_FIELDS.items() if key not in fields and key not in ("handoff",)]
+        missing = [
+            label
+            for label, key in _TASK_FIELDS.items()
+            if key not in fields and key not in ("handoff",)
+        ]
         if missing:
             issues.append(f"task {task_id} is missing: {', '.join(missing)}")
             return
         coverage = re.search(r"(\d+)\s*%", str(fields["coverage"]))
         if coverage is None:
-            issues.append(f"task {task_id}: 'Coverage target' needs a percentage (for example 'at least 80%')")
+            issues.append(
+                f"task {task_id}: 'Coverage target' needs a percentage (for example 'at least 80%')"
+            )
             return
         handoff = str(fields.get("handoff", "")).strip()
         tasks.append(
@@ -394,7 +419,13 @@ def parse_plan_markdown(text: str) -> Plan:
         if section == "contract registry":
             match = re.match(r"^- (\S+?):\s*(.*?)(?:\s+—\s+(.*))?$", line)
             if match and line.strip() != "- none":
-                contracts.append(Contract(id=match.group(1), name=match.group(2).strip(), description=(match.group(3) or "").strip()))
+                contracts.append(
+                    Contract(
+                        id=match.group(1),
+                        name=match.group(2).strip(),
+                        description=(match.group(3) or "").strip(),
+                    )
+                )
         elif section == "tasks":
             heading = _TASK_HEADING.match(line)
             if heading:
@@ -406,13 +437,17 @@ def parse_plan_markdown(text: str) -> Plan:
             elif task_id and field in _LIST_FIELDS and (item := re.match(r"^\s+- (.*)$", line)):
                 fields[field].append(item.group(1).strip())
             elif task_id and field and field not in _LIST_FIELDS and line.strip():
-                fields[field] = f"{fields[field]}\n{line.strip()}"  # a field that runs over several lines
+                fields[field] = (
+                    f"{fields[field]}\n{line.strip()}"  # a field that runs over several lines
+                )
         elif section == "project commands" and (match := _COMMAND_LINE.match(line)):
             commands[match.group(1).lower()] = _parse_command(match.group(2))
     finish_task()
 
     if not tasks and not issues:
-        issues.append("no tasks were found (each task needs a '### T01. Title' heading under '## Tasks')")
+        issues.append(
+            "no tasks were found (each task needs a '### T01. Title' heading under '## Tasks')"
+        )
     if issues:
         raise PlanParseError(issues)
     return Plan(
@@ -464,7 +499,15 @@ def fallback_plan(strategy: Mapping[str, Any] | None, prd_markdown: str) -> Plan
             )
         )
     return Plan(
-        contracts=[Contract(id="C1", name="Core contract", description="The interface shared between workstreams.")],
+        contracts=[
+            Contract(
+                id="C1",
+                name="Core contract",
+                description="The interface shared between workstreams.",
+            )
+        ],
         tasks=tasks,
-        commands=ProjectCommands(install=None, test=UNSET_TEST_COMMAND, test_report=None, lint=None, run=None),
+        commands=ProjectCommands(
+            install=None, test=UNSET_TEST_COMMAND, test_report=None, lint=None, run=None
+        ),
     )

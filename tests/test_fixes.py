@@ -46,7 +46,12 @@ def test_a_failure_a_code_change_can_fix_stays_a_code_failure(failure: str) -> N
 
 
 def test_a_test_failure_counts_as_environmental_only_with_the_explicit_mark() -> None:
-    assert fixes.classify_failures(["[acceptance] ENVIRONMENT: the suite needs docker"]).only_environment is True
+    assert (
+        fixes.classify_failures(
+            ["[acceptance] ENVIRONMENT: the suite needs docker"]
+        ).only_environment
+        is True
+    )
 
 
 def test_the_loop_stops_early_only_when_every_failure_is_an_environment_failure() -> None:
@@ -55,11 +60,15 @@ def test_the_loop_stops_early_only_when_every_failure_is_an_environment_failure(
     assert fixes.classify_failures([env]).only_environment is True
     mixed = fixes.classify_failures([env, code])
     assert mixed.only_environment is False and mixed.environment == [env] and mixed.code == [code]
-    assert fixes.classify_failures([]).only_environment is False  # nothing listed is not an environment problem
+    assert (
+        fixes.classify_failures([]).only_environment is False
+    )  # nothing listed is not an environment problem
 
 
 def test_the_reason_names_the_environment_failures_without_their_lane_tags() -> None:
-    reason = fixes.classify_failures(["[tests] ENVIRONMENT: pypi.org is blocked", "[quality] ENVIRONMENT: no docker"]).reason
+    reason = fixes.classify_failures(
+        ["[tests] ENVIRONMENT: pypi.org is blocked", "[quality] ENVIRONMENT: no docker"]
+    ).reason
     assert "pypi.org is blocked" in reason and "no docker" in reason and "[tests]" not in reason
 
 
@@ -75,30 +84,59 @@ def test_notes_are_read_from_the_notes_block_one_line_per_hypothesis() -> None:
         "</notes>"
     )
     assert fixes.parse_notes(text) == [
-        Note("kept", "the date parser drops the year", "trajectory: the second pytest run still fails on 2024-02-29"),
-        Note("dropped", "the fixture is stale", "fix-1 trajectory, ACTION 4: the fixture was regenerated"),
-        Note("new", "leap days are rejected by the validator", "report: test_leap fails in validate()"),
+        Note(
+            "kept",
+            "the date parser drops the year",
+            "trajectory: the second pytest run still fails on 2024-02-29",
+        ),
+        Note(
+            "dropped",
+            "the fixture is stale",
+            "fix-1 trajectory, ACTION 4: the fixture was regenerated",
+        ),
+        Note(
+            "new",
+            "leap days are rejected by the validator",
+            "report: test_leap fails in validate()",
+        ),
     ]
 
 
 def test_lines_that_are_not_in_the_shape_are_ignored_and_no_block_means_no_notes() -> None:
-    assert fixes.parse_notes("<notes>\nI think it is the parser\nmaybe -> x -> y\nrevised -> only a hypothesis\n</notes>") == []
+    assert (
+        fixes.parse_notes(
+            "<notes>\nI think it is the parser\nmaybe -> x -> y\nrevised -> only a hypothesis\n</notes>"
+        )
+        == []
+    )
     assert fixes.parse_notes("no block here") == []
     assert fixes.parse_notes("") == []
 
 
 def test_an_environment_answer_is_read_from_its_tag() -> None:
-    assert fixes.parse_environment("Nothing to change.\n<environment>\nThe sandbox has no docker.\n</environment>") == "The sandbox has no docker."
+    assert (
+        fixes.parse_environment(
+            "Nothing to change.\n<environment>\nThe sandbox has no docker.\n</environment>"
+        )
+        == "The sandbox has no docker."
+    )
     assert fixes.parse_environment("I fixed it.") == ""
 
 
 def test_a_later_attempt_must_judge_what_came_before_and_bring_a_hypothesis() -> None:
     earlier = [Note("new", "the parser drops the year", "report")]
-    good = [Note("dropped", "the parser drops the year", "fix-1 run"), Note("new", "the validator rejects leap days", "report")]
+    good = [
+        Note("dropped", "the parser drops the year", "fix-1 run"),
+        Note("new", "the validator rejects leap days", "report"),
+    ]
     assert fixes.notes_problem(good, attempt=2, earlier=earlier) == ""
     assert "no <notes>" in fixes.notes_problem([], attempt=2, earlier=earlier)
-    assert "earlier hypothesis" in fixes.notes_problem([Note("new", "x", "y")], attempt=2, earlier=earlier)
-    assert "new hypothesis" in fixes.notes_problem([Note("kept", "the parser drops the year", "r")], attempt=2, earlier=earlier)
+    assert "earlier hypothesis" in fixes.notes_problem(
+        [Note("new", "x", "y")], attempt=2, earlier=earlier
+    )
+    assert "new hypothesis" in fixes.notes_problem(
+        [Note("kept", "the parser drops the year", "r")], attempt=2, earlier=earlier
+    )
     assert fixes.notes_problem([Note("new", "x", "y")], attempt=1, earlier=[]) == ""
     assert "no <notes>" in fixes.notes_problem([], attempt=1, earlier=[])
     # nothing earlier to judge when the previous attempt left no notes
@@ -112,7 +150,12 @@ def test_an_attempt_folder_holds_the_failures_the_diff_and_the_trajectory(tmp_pa
     trajectory = tmp_path / "t.md"
     trajectory.write_text("[ACTION] Bash {}\n")
     folder = fixes.write_attempt(
-        tmp_path, iteration=1, attempt=1, failures=["[tests] a failed"], diff="diff --git a/x b/x\n", trajectory=trajectory
+        tmp_path,
+        iteration=1,
+        attempt=1,
+        failures=["[tests] a failed"],
+        diff="diff --git a/x b/x\n",
+        trajectory=trajectory,
     )
     assert folder == tmp_path / ".idea-to-mvp" / "fix" / "attempt-1"
     assert "- [tests] a failed" in (folder / "failures.md").read_text()
@@ -125,35 +168,58 @@ def test_a_later_version_keeps_its_attempts_apart() -> None:
 
 
 def test_an_attempt_without_changes_or_a_trajectory_still_gets_a_folder(tmp_path: Path) -> None:
-    folder = fixes.write_attempt(tmp_path, iteration=1, attempt=2, failures=["x"], diff="", trajectory=None)
+    folder = fixes.write_attempt(
+        tmp_path, iteration=1, attempt=2, failures=["x"], diff="", trajectory=None
+    )
     assert "no changes" in (folder / "diff.patch").read_text().lower()
     assert not (folder / "trajectory.md").exists()
 
 
-def test_the_lane_reports_that_followed_an_attempt_are_added_when_the_next_round_is_judged(tmp_path: Path) -> None:
+def test_the_lane_reports_that_followed_an_attempt_are_added_when_the_next_round_is_judged(
+    tmp_path: Path,
+) -> None:
     fixes.write_attempt(tmp_path, iteration=1, attempt=1, failures=["x"], diff="", trajectory=None)
-    fixes.write_after(tmp_path, iteration=1, attempt=1, passed=False, report="### Tests lane: FAILED")
+    fixes.write_after(
+        tmp_path, iteration=1, attempt=1, passed=False, report="### Tests lane: FAILED"
+    )
     after = (tmp_path / ".idea-to-mvp" / "fix" / "attempt-1" / "after.md").read_text()
     assert "still failing" in after.lower() and "### Tests lane: FAILED" in after
 
 
-def test_the_evidence_block_names_every_earlier_attempt_folder_and_asks_for_notes(tmp_path: Path) -> None:
+def test_the_evidence_block_names_every_earlier_attempt_folder_and_asks_for_notes(
+    tmp_path: Path,
+) -> None:
     for attempt in (1, 2):
-        fixes.write_attempt(tmp_path, iteration=1, attempt=attempt, failures=["x"], diff="", trajectory=None)
+        fixes.write_attempt(
+            tmp_path, iteration=1, attempt=attempt, failures=["x"], diff="", trajectory=None
+        )
     block = fixes.evidence_block(tmp_path, iteration=1, attempt=3)
     assert ".idea-to-mvp/fix/attempt-1/" in block and ".idea-to-mvp/fix/attempt-2/" in block
     assert "attempt-3" not in block
     assert "kept | revised | dropped" in block and "<notes>" in block
     assert fixes.evidence_block(tmp_path, iteration=1, attempt=1) == ""  # nothing earlier to read
-    assert fixes.evidence_block(tmp_path, iteration=2, attempt=2) == ""  # another version's attempts are not this one's
+    assert (
+        fixes.evidence_block(tmp_path, iteration=2, attempt=2) == ""
+    )  # another version's attempts are not this one's
 
 
 # --------------------------------------------------------------------- history
 
 
 def test_the_history_entry_of_an_attempt_is_closed_by_the_next_verdict() -> None:
-    entry = fixes.history_entry(2, failures=["a", "b"], summary="Changed x.", files=["x.py"], notes=[Note("new", "h", "e")], model="m")
-    assert entry["result"] == "" and entry["files"] == ["x.py"] and entry["notes"] == [{"verdict": "new", "hypothesis": "h", "evidence": "e"}]
+    entry = fixes.history_entry(
+        2,
+        failures=["a", "b"],
+        summary="Changed x.",
+        files=["x.py"],
+        notes=[Note("new", "h", "e")],
+        model="m",
+    )
+    assert (
+        entry["result"] == ""
+        and entry["files"] == ["x.py"]
+        and entry["notes"] == [{"verdict": "new", "hypothesis": "h", "evidence": "e"}]
+    )
     closed = fixes.close_entry(entry, passed=False, remaining=1)
     assert closed["result"] == "failed" and closed["remaining"] == 1 and entry["result"] == ""
     assert fixes.close_entry(entry, passed=True, remaining=0)["result"] == "passed"

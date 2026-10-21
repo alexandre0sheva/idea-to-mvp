@@ -86,7 +86,11 @@ def invoke_text(
     response = runtime.llm.invoke(messages, **invoke_kwargs(runtime, requested))
     text = extract_text(response)
 
-    if runtime.provider == "google" and _finish_reason(response) == "MAX_TOKENS" and not _looks_complete(text):
+    if (
+        runtime.provider == "google"
+        and _finish_reason(response) == "MAX_TOKENS"
+        and not _looks_complete(text)
+    ):
         bigger = min(max(requested * 2, requested + 512), 8192)
         if bigger > requested:
             LOGGER.warning(
@@ -98,7 +102,11 @@ def invoke_text(
             text = extract_text(response)
 
     if not text:
-        LOGGER.warning("[%s] model=%s returned no visible text; retrying once.", runtime.provider, runtime.model)
+        LOGGER.warning(
+            "[%s] model=%s returned no visible text; retrying once.",
+            runtime.provider,
+            runtime.model,
+        )
         response = runtime.llm.invoke(
             [*messages, HumanMessage(content=EMPTY_OUTPUT_RETRY_INSTRUCTION)],
             **invoke_kwargs(runtime, requested),
@@ -106,7 +114,9 @@ def invoke_text(
         text = extract_text(response)
 
     usage = getattr(response, "usage_metadata", None)
-    LOGGER.debug("[%s] model=%s chars=%d usage=%s", runtime.provider, runtime.model, len(text), usage)
+    LOGGER.debug(
+        "[%s] model=%s chars=%d usage=%s", runtime.provider, runtime.model, len(text), usage
+    )
     return text
 
 

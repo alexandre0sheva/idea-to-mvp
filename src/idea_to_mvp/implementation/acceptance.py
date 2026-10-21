@@ -39,7 +39,9 @@ from idea_to_mvp.plan import REPORTS_DIR
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from idea_to_mvp.config import Settings
 
-ACCEPTANCE_DIR = "acceptance"  # the suite's folder, in its stored copy and in the scratch copy of the project
+ACCEPTANCE_DIR = (
+    "acceptance"  # the suite's folder, in its stored copy and in the scratch copy of the project
+)
 ACCEPTANCE_REPORT = f"{REPORTS_DIR}/acceptance.xml"  # what the suite's command must write
 SUITE_FILE = "suite.json"
 TRAJECTORY_DIR = "trajectories"
@@ -48,10 +50,29 @@ MAX_FILE_CHARS = 60_000
 _MAX_COMMAND = 500
 _LISTED_FAILURES = 10
 _SUFFIXES = frozenset(
-    {".py", ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".go", ".rb", ".rs", ".java", ".kt", ".json", ".toml", ".ini", ".cfg"}
+    {
+        ".py",
+        ".js",
+        ".mjs",
+        ".cjs",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".go",
+        ".rb",
+        ".rs",
+        ".java",
+        ".kt",
+        ".json",
+        ".toml",
+        ".ini",
+        ".cfg",
+    }
 )
 _REQUIREMENT = re.compile(r"(?<![A-Za-z0-9])[Rr](\d+)(?![0-9])")
-_PARAMETERS = re.compile(r"\[.*\]$")  # pytest's `test_x[case-id]`: the ids name cases, not requirements
+_PARAMETERS = re.compile(
+    r"\[.*\]$"
+)  # pytest's `test_x[case-id]`: the ids name cases, not requirements
 _UNCOPIED_DIRS = frozenset({*IGNORED_DIRS, *GENERATED_DIRS})
 
 FIX_NOTE = """\
@@ -86,7 +107,9 @@ class AcceptanceFile(BaseModel):
         if any(part in ("..", "") or part.startswith(".") for part in path.parts):
             raise ValueError("the path may not leave the acceptance folder or name a hidden file")
         if path.suffix not in _SUFFIXES:
-            raise ValueError(f"a test or config file is required (one of {', '.join(sorted(_SUFFIXES))})")
+            raise ValueError(
+                f"a test or config file is required (one of {', '.join(sorted(_SUFFIXES))})"
+            )
         return path.as_posix()
 
     @field_validator("content")
@@ -115,9 +138,13 @@ class AcceptanceSuite(BaseModel):
         command = self.command.strip()
         if self.files:
             if not command or "\n" in command or len(command) > _MAX_COMMAND:
-                raise ValueError(f"the command must be one line of at most {_MAX_COMMAND} characters")
+                raise ValueError(
+                    f"the command must be one line of at most {_MAX_COMMAND} characters"
+                )
             if ACCEPTANCE_REPORT not in command or not _runs_the_suite(command):
-                raise ValueError(f"the command must run the `{ACCEPTANCE_DIR}/` folder and write JUnit XML to {ACCEPTANCE_REPORT}")
+                raise ValueError(
+                    f"the command must run the `{ACCEPTANCE_DIR}/` folder and write JUnit XML to {ACCEPTANCE_REPORT}"
+                )
         self.command = command
         return self
 
@@ -162,7 +189,9 @@ def load_suite(folder: Path | None) -> AcceptanceSuite | None:
     if folder is None:
         return None
     try:
-        return AcceptanceSuite.model_validate_json((Path(folder) / SUITE_FILE).read_text(encoding="utf-8"))
+        return AcceptanceSuite.model_validate_json(
+            (Path(folder) / SUITE_FILE).read_text(encoding="utf-8")
+        )
     except (OSError, ValidationError, ValueError):
         return None
 
@@ -229,7 +258,8 @@ def requirement_status(cases: Sequence[CaseResult]) -> dict[str, str]:
             seen.setdefault(f"R{int(number)}", set()).add(case.status)
     order = sorted(seen, key=lambda rid: int(rid[1:]))
     return {
-        rid: "failed" if "failed" in seen[rid] else "passed" if "passed" in seen[rid] else "skipped" for rid in order
+        rid: "failed" if "failed" in seen[rid] else "passed" if "passed" in seen[rid] else "skipped"
+        for rid in order
     }
 
 
@@ -241,7 +271,9 @@ def acceptance_failures(evidence: ReportedTests, cases: Sequence[CaseResult]) ->
     if failing:
         lines = [f"{case.name}: {case.message}" for case in failing[:_LISTED_FAILURES]]
         if len(failing) > _LISTED_FAILURES:
-            lines.append(f"... and {len(failing) - _LISTED_FAILURES} more failing acceptance test(s).")
+            lines.append(
+                f"... and {len(failing) - _LISTED_FAILURES} more failing acceptance test(s)."
+            )
         return lines
     if evidence.failed + evidence.errors:
         return [f"{evidence.failed + evidence.errors} acceptance test(s) failed."]

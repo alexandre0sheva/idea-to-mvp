@@ -29,12 +29,16 @@ from idea_to_mvp.usage import UsageRecord
 
 LOGGER = logging.getLogger(__name__)
 
-STRATEGY_TASK_MODE = "agent_team"  # one fresh session per plan task; "subagents" keeps the lead session
+STRATEGY_TASK_MODE = (
+    "agent_team"  # one fresh session per plan task; "subagents" keeps the lead session
+)
 
 
 def prepare_workspace_node(state: IdeaDiscussionState) -> dict[str, Any]:
     settings = get_settings()
-    workspace = implementer.prepare_workspace(Path(state["project_bundle_dir"]), settings.projects_dir)
+    workspace = implementer.prepare_workspace(
+        Path(state["project_bundle_dir"]), settings.projects_dir
+    )
     LOGGER.info("Implementation workspace prepared at %s", workspace)
     return {"workspace_dir": str(workspace), "stage": "implementation"}
 
@@ -71,7 +75,10 @@ def agent_record(role: str, model: str, cost_usd: float) -> UsageRecord:
 
 
 def usage_records(
-    results: list[TaskResult], settings: Settings, iteration: int | None = None, workspace: Path | None = None
+    results: list[TaskResult],
+    settings: Settings,
+    iteration: int | None = None,
+    workspace: Path | None = None,
 ) -> list[UsageRecord]:
     """Usage records for task results. With `iteration`, only that version's tasks: earlier versions are
     already in the run's usage, and the engine returns every task's result (finished ones included).
@@ -87,13 +94,20 @@ def usage_records(
     task_model = resolve_agent_model(settings, "implementer")
     records: list[UsageRecord] = []
     for result in results:
-        if not (result["cost_usd"] > 0 and (iteration is None or iteration_of(result["task_id"]) == iteration)):
+        if not (
+            result["cost_usd"] > 0
+            and (iteration is None or iteration_of(result["task_id"]) == iteration)
+        ):
             continue
         spent = result["cost_usd"]
         resolver = min(sum(cost for cost, _ in resolvers.get(result["task_id"], [])), spent)
         records.append(agent_record("implementer", task_model, spent - resolver))
         if resolver > 0:
-            records.append(agent_record("resolver", resolvers[result["task_id"]][-1][1] or task_model, resolver))
+            records.append(
+                agent_record(
+                    "resolver", resolvers[result["task_id"]][-1][1] or task_model, resolver
+                )
+            )
     return records
 
 
@@ -118,7 +132,9 @@ def builds_task_by_task(state: IdeaDiscussionState) -> bool:
     """One fresh session per plan task: strategy `agent_team`, and always for an iteration (its new tasks
     are the only thing to build; a lead session would rebuild the whole plan)."""
     strategy = state.get("execution_strategy") or {}
-    return (strategy.get("mode") or "subagents") == STRATEGY_TASK_MODE or int(state.get("iteration") or 1) > 1
+    return (strategy.get("mode") or "subagents") == STRATEGY_TASK_MODE or int(
+        state.get("iteration") or 1
+    ) > 1
 
 
 def route_after_workspace(state: IdeaDiscussionState) -> Literal["implementer", "implement_plan"]:
@@ -144,7 +160,9 @@ async def implementer_node(state: IdeaDiscussionState) -> dict[str, Any]:
     plan = runnable_plan(workspace) if builds_task_by_task(state) else None
 
     if plan is not None:
-        results = await executor.run_plan(workspace, plan, settings, emit=emitter(), iteration=iteration)
+        results = await executor.run_plan(
+            workspace, plan, settings, emit=emitter(), iteration=iteration
+        )
         await asyncio.to_thread(implementer.commit_workspace, workspace, "implementation")
         return {
             "implementation_log": executor.render_task_log(plan, results),
@@ -155,20 +173,36 @@ async def implementer_node(state: IdeaDiscussionState) -> dict[str, Any]:
         }
 
     if builds_task_by_task(state):
-        LOGGER.warning("No usable plan.json in %s; building with workstream sessions instead.", workspace)
+        LOGGER.warning(
+            "No usable plan.json in %s; building with workstream sessions instead.", workspace
+        )
     # Harness tuning's pilot runs came out of this version's budget, as they do for the task engines.
     left = settings.implementer_max_total_usd - tuning_spend(workspace, iteration)
     if left <= 0:
-        LOGGER.warning("Harness tuning used up the whole-run budget; the lead session is not started.")
+        LOGGER.warning(
+            "Harness tuning used up the whole-run budget; the lead session is not started."
+        )
         return {
             "implementation_log": "Not started: harness tuning used up the whole-run budget (IMPLEMENTER_MAX_TOTAL_USD).",
             "stage": "verification",
         }
-    lead_settings = settings if left >= settings.implementer_max_total_usd else settings.model_copy(update={"implementer_max_total_usd": left})
+    lead_settings = (
+        settings
+        if left >= settings.implementer_max_total_usd
+        else settings.model_copy(update={"implementer_max_total_usd": left})
+    )
     before = len(load_ledger(workspace))
-    log = await asyncio.to_thread(implementer.run_implementation, workspace, strategy, lead_settings)
-    await asyncio.to_thread(implementer.commit_workspace, workspace, "implementation")  # commits are the orchestrator's
+    log = await asyncio.to_thread(
+        implementer.run_implementation, workspace, strategy, lead_settings
+    )
+    await asyncio.to_thread(
+        implementer.commit_workspace, workspace, "implementation"
+    )  # commits are the orchestrator's
     # The lead / workstream sessions just recorded in the ledger are this node's spend: count it in usage,
     # and so against the whole-run budget.
-    sessions = [agent_record("implementer", row["model"], row["cost_usd"]) for row in load_ledger(workspace)[before:] if row["cost_usd"] > 0]
+    sessions = [
+        agent_record("implementer", row["model"], row["cost_usd"])
+        for row in load_ledger(workspace)[before:]
+        if row["cost_usd"] > 0
+    ]
     return {"implementation_log": log, "usage": sessions, "stage": "verification"}

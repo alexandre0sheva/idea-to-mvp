@@ -45,15 +45,17 @@ class Recorder:
         self.moderator_calls = 0
         self.fail_on_speaker_call: int | None = None
         # None = simulate a model that cannot produce a valid decision (the fallback is used)
-        self.decide: Callable[[list[BaseMessage]], ModeratorDecision] | None = lambda _m: ModeratorDecision(
-            converged=True, next_speaker=None, reason="aligned"
+        self.decide: Callable[[list[BaseMessage]], ModeratorDecision] | None = lambda _m: (
+            ModeratorDecision(converged=True, next_speaker=None, reason="aligned")
         )
 
     @property
     def speaker_calls(self) -> int:
         return len([role for role in self.started if role in PANELISTS])
 
-    def invoke_text(self, runtime: FakeRuntime, messages: list[BaseMessage], *, max_tokens: int | None = None) -> str:
+    def invoke_text(
+        self, runtime: FakeRuntime, messages: list[BaseMessage], *, max_tokens: int | None = None
+    ) -> str:
         role = runtime.role
         with self.lock:
             self.started.append(role)
@@ -71,12 +73,16 @@ class Recorder:
                 self.active -= 1
                 self.finished.append(role)
 
-    def invoke_structured(self, runtime: Any, messages: list[BaseMessage], schema: Any, *, fallback: Any = None) -> Any:
+    def invoke_structured(
+        self, runtime: Any, messages: list[BaseMessage], schema: Any, *, fallback: Any = None
+    ) -> Any:
         if schema is ModeratorDecision:
             with self.lock:
                 self.moderator_calls += 1
             if self.decide is None:
-                assert fallback is not None, "the moderator call must provide a deterministic fallback"
+                assert fallback is not None, (
+                    "the moderator call must provide a deterministic fallback"
+                )
                 return fallback()
             return self.decide(messages)
         return respond_structured(schema, messages)
@@ -98,7 +104,11 @@ def run_panel(rounds: int, mode: str = "moderated", config: Any = None) -> dict[
 
 
 def speakers(result: dict[str, Any]) -> list[str]:
-    return [TOKEN_TO_SPEAKER[str(m.name)] for m in result["discussion_history"] if isinstance(m, AIMessage)]
+    return [
+        TOKEN_TO_SPEAKER[str(m.name)]
+        for m in result["discussion_history"]
+        if isinstance(m, AIMessage)
+    ]
 
 
 # ------------------------------------------------------------------ openings
@@ -107,7 +117,11 @@ def speakers(result: dict[str, Any]) -> list[str]:
 def test_openings_run_in_parallel_and_land_in_canonical_order(rec: Recorder) -> None:
     rec.delays = {"pm": 0.30, "tech_lead": 0.15, "skeptic": 0.0}
     result = run_panel(rounds=1)
-    assert rec.finished == ["skeptic", "tech_lead", "pm"]  # they overlapped: completion order is reversed
+    assert rec.finished == [
+        "skeptic",
+        "tech_lead",
+        "pm",
+    ]  # they overlapped: completion order is reversed
     assert speakers(result) == SPEAKER_ORDER  # ...yet the history is PM, Tech Lead, Skeptic
     assert result["turn_count"] == 3
     assert rec.moderator_calls == 0  # one round is the openings only
@@ -127,18 +141,24 @@ def test_moderator_cannot_end_the_debate_before_everyone_spoke_twice(rec: Record
     assert result["turn_count"] == 6
     assert Counter(speakers(result)) == dict.fromkeys(SPEAKER_ORDER, 2)
     assert result["convergence"] == {"converged": True, "reason": "aligned"}
-    assert rec.moderator_calls == 4  # after turns 3, 4 and 5 it was overruled; after turn 6 it stopped the panel
+    assert (
+        rec.moderator_calls == 4
+    )  # after turns 3, 4 and 5 it was overruled; after turn 6 it stopped the panel
 
 
 def test_moderator_picks_the_next_speaker(rec: Recorder) -> None:
     picks = iter(["Tech Lead", "PM", "Skeptic"])
-    rec.decide = lambda _m: ModeratorDecision(converged=False, next_speaker=next(picks), reason="go on")  # type: ignore[arg-type]
+    rec.decide = lambda _m: ModeratorDecision(
+        converged=False, next_speaker=next(picks), reason="go on"
+    )  # type: ignore[arg-type]
     result = run_panel(rounds=2)
     assert speakers(result) == ["PM", "Tech Lead", "Skeptic", "Tech Lead", "PM", "Skeptic"]
 
 
 def test_the_same_speaker_never_speaks_twice_in_a_row(rec: Recorder) -> None:
-    rec.decide = lambda _m: ModeratorDecision(converged=False, next_speaker="Skeptic", reason="again")
+    rec.decide = lambda _m: ModeratorDecision(
+        converged=False, next_speaker="Skeptic", reason="again"
+    )
     result = run_panel(rounds=3)
     names = speakers(result)
     assert len(names) == 9
@@ -146,7 +166,9 @@ def test_the_same_speaker_never_speaks_twice_in_a_row(rec: Recorder) -> None:
 
 
 def test_the_turn_cap_ends_a_panel_that_never_converges(rec: Recorder) -> None:
-    rec.decide = lambda _m: ModeratorDecision(converged=False, next_speaker=None, reason="keep going")
+    rec.decide = lambda _m: ModeratorDecision(
+        converged=False, next_speaker=None, reason="keep going"
+    )
     result = run_panel(rounds=2)
     assert result["turn_count"] == len(speakers(result)) == 6
     assert rec.moderator_calls == 3  # after turns 3, 4 and 5; the capped turn 6 needs no decision
@@ -179,7 +201,9 @@ def test_round_robin_reproduces_the_sequential_turn_order(rec: Recorder) -> None
 
 def _state(mode: str, turns: int, cap: int = 6, converged: bool = False) -> dict[str, Any]:
     state: dict[str, Any] = dict(make_initial_state("idea", 2, panel_mode=mode))  # type: ignore[arg-type]
-    state.update(turn_count=turns, max_rounds=cap, convergence={"converged": converged, "reason": "r"})
+    state.update(
+        turn_count=turns, max_rounds=cap, convergence={"converged": converged, "reason": "r"}
+    )
     return state
 
 
@@ -204,14 +228,18 @@ def test_route_after_moderator() -> None:
 def test_the_panel_is_one_node_whose_llm_nodes_carry_the_retry_policy() -> None:
     parent = build_graph().builder.nodes
     assert "panel" in parent and "discussion" not in parent
-    assert not parent["panel"].retry_policy  # a retry would redo every turn; the inner nodes retry instead
+    assert not parent[
+        "panel"
+    ].retry_policy  # a retry would redo every turn; the inner nodes retry instead
     inner = build_panel_subgraph().builder.nodes
     for name in ("opening_turn", "speaker_turn", "moderator"):
         assert inner[name].retry_policy, name
 
 
 @pytest.mark.parametrize(("limit", "expected_peak"), [(1, 1), (4, 3)])
-def test_run_config_caps_parallel_model_calls(rec: Recorder, limit: int, expected_peak: int) -> None:
+def test_run_config_caps_parallel_model_calls(
+    rec: Recorder, limit: int, expected_peak: int
+) -> None:
     rec.delays = dict.fromkeys(PANELISTS, 0.05)
     run_panel(rounds=1, config=run_config("cap", max_concurrency=limit))
     assert rec.max_active == expected_peak
@@ -227,25 +255,38 @@ def test_a_crash_mid_panel_resumes_without_redoing_the_openings(rec: Recorder) -
         graph.invoke(state, config)
     snapshot = graph.get_state(config, subgraphs=True)
     assert snapshot.next == ("panel",)
-    assert merged_values(snapshot)["turn_count"] == 3  # the openings survived in the subgraph checkpoint
+    assert (
+        merged_values(snapshot)["turn_count"] == 3
+    )  # the openings survived in the subgraph checkpoint
 
     rec.fail_on_speaker_call = None
     graph.invoke(None, config)
-    assert rec.speaker_calls == 3 + 1 + 3  # openings, the failed turn, then turns 4-6 (never the openings again)
+    assert (
+        rec.speaker_calls == 3 + 1 + 3
+    )  # openings, the failed turn, then turns 4-6 (never the openings again)
     values = graph.get_state(config).values
     assert values["turn_count"] == 6 and values["convergence"]["converged"] is True
     assert len([m for m in values["discussion_history"] if isinstance(m, AIMessage)]) == 6
 
 
 def test_panel_usage_is_recorded_once_in_the_parent_state(demo_env) -> None:
-    sentinel = {"role": "earlier", "provider": "", "model": "m", "input_tokens": 1, "output_tokens": 1, "cost_usd": None}
+    sentinel = {
+        "role": "earlier",
+        "provider": "",
+        "model": "m",
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cost_usd": None,
+    }
     state = make_initial_state("A climbing app", 1)
     state["usage"] = [sentinel]
     graph = build_graph(MemorySaver())
     config = run_config("usage")
     graph.invoke(state, config)
     usage = graph.get_state(config).values["usage"]
-    assert usage.count(sentinel) == 1  # a shared reducer channel would have doubled what was already there
+    assert (
+        usage.count(sentinel) == 1
+    )  # a shared reducer channel would have doubled what was already there
     assert sorted(r["role"] for r in usage if r["role"] in PANELISTS) == sorted(PANELISTS)
 
 
@@ -261,7 +302,9 @@ async def test_demo_panel_stops_early_and_its_progress_is_visible_while_it_runs(
         seen_turns.append(int(values["turn_count"]))
         usage_sizes.append(len(values["usage"]))
     assert seen_turns == sorted(seen_turns)
-    assert {0, 3} <= set(seen_turns)  # seen before the openings merged and right after them, not only at the end
+    assert {0, 3} <= set(
+        seen_turns
+    )  # seen before the openings merged and right after them, not only at the end
     assert usage_sizes == sorted(usage_sizes)
     final = (await graph.aget_state(config)).values
     assert final["turn_count"] == 6 < final["max_rounds"] == 9  # the demo moderator converges early
@@ -275,7 +318,10 @@ async def test_demo_panel_turns_stream_token_by_token_with_their_speaker(demo_en
     config = run_config("tokens")
     pieces: dict[str, list[str]] = {}
     async for _namespace, mode, data in graph.astream(
-        make_initial_state("A climbing app", 1), config, stream_mode=["messages", "updates"], subgraphs=True
+        make_initial_state("A climbing app", 1),
+        config,
+        stream_mode=["messages", "updates"],
+        subgraphs=True,
     ):
         token = panel_token(data) if mode == "messages" else None
         if token:
@@ -283,7 +329,9 @@ async def test_demo_panel_turns_stream_token_by_token_with_their_speaker(demo_en
             pieces.setdefault(token[1], []).append(token[3])
     final = (await graph.aget_state(config)).values
     committed = {
-        TOKEN_TO_SPEAKER[m.name]: str(m.content) for m in final["discussion_history"] if isinstance(m, AIMessage)
+        TOKEN_TO_SPEAKER[m.name]: str(m.content)
+        for m in final["discussion_history"]
+        if isinstance(m, AIMessage)
     }
     assert set(pieces) == set(SPEAKER_ORDER)
     for speaker, parts in pieces.items():

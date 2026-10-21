@@ -92,7 +92,7 @@ def demo_implement(workspace: Path, strategy: dict[str, Any]) -> str:
 
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "core.py").write_text(
-        f'''IDEA = {json.dumps(idea)}
+        f"""IDEA = {json.dumps(idea)}
 
 
 def describe() -> str:
@@ -104,7 +104,7 @@ def add_entry(entries: list[str], entry: str) -> list[str]:
     if not cleaned:
         raise ValueError("entry must not be empty")
     return [*entries, cleaned]
-''',
+""",
         encoding="utf-8",
     )
     (package / "__main__.py").write_text(
@@ -113,7 +113,7 @@ def add_entry(entries: list[str], entry: str) -> list[str]:
     (tests / "__init__.py").write_text("", encoding="utf-8")
     (tests / "run_with_report.py").write_text(REPORT_RUNNER, encoding="utf-8")
     (tests / "test_core.py").write_text(
-        '''import unittest
+        """import unittest
 
 from demo_app.core import IDEA, add_entry, describe
 
@@ -132,7 +132,7 @@ class CoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-''',
+""",
         encoding="utf-8",
     )
     (workspace / "README.md").write_text(
@@ -144,7 +144,9 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
 
-    workstreams = [str(w.get("name") or "workstream") for w in (strategy or {}).get("workstreams") or []]
+    workstreams = [
+        str(w.get("name") or "workstream") for w in (strategy or {}).get("workstreams") or []
+    ]
     lines = [f"Demo mode: built a stand-in project for “{idea}” in `{workspace.name}`."]
     lines += [f"- Workstream `{name}`: completed (simulated)." for name in workstreams]
     lines.append("- Files: `demo_app/`, `tests/test_core.py`, `README.md`.")
@@ -161,7 +163,14 @@ def demo_task(workspace: Path, task: Any, emit: Callable[[ImplEvent], None]) -> 
         demo_implement(workspace, {})
         for created in ("demo_app/core.py", "tests/test_core.py", "README.md"):
             emit(make_event("tool", task_id=task.id, label="Write", detail=created))
-    emit(make_event("text", task_id=task.id, label="agent", detail=f"Implementing “{task.title}” (simulated)."))
+    emit(
+        make_event(
+            "text",
+            task_id=task.id,
+            label="agent",
+            detail=f"Implementing “{task.title}” (simulated).",
+        )
+    )
     notes = workspace / "notes"
     notes.mkdir(exist_ok=True)
     (notes / f"{task.id}.md").write_text(
@@ -177,7 +186,9 @@ def demo_task(workspace: Path, task: Any, emit: Callable[[ImplEvent], None]) -> 
 def _run(command: list[str], workspace: Path) -> tuple[int, str]:
     """(exit code, output) of a command in the workspace; a timeout is exit code 124."""
     try:
-        run = subprocess.run(command, cwd=workspace, capture_output=True, text=True, timeout=VERIFY_TIMEOUT_SECONDS)
+        run = subprocess.run(
+            command, cwd=workspace, capture_output=True, text=True, timeout=VERIFY_TIMEOUT_SECONDS
+        )
     except subprocess.TimeoutExpired:
         return 124, f"timed out after {VERIFY_TIMEOUT_SECONDS}s"
     return run.returncode, (run.stderr or run.stdout).strip()
@@ -199,8 +210,14 @@ def demo_verify_lane(workspace: Path, lane: str) -> LaneReport:
         )
     if lane == "quality":
         checks = [
-            ("python -m compileall -q demo_app tests", [sys.executable, "-m", "compileall", "-q", "demo_app", "tests"]),
-            ("python -m demo_app", [sys.executable, "-m", "demo_app"]),  # the smoke probe: it starts and answers
+            (
+                "python -m compileall -q demo_app tests",
+                [sys.executable, "-m", "compileall", "-q", "demo_app", "tests"],
+            ),
+            (
+                "python -m demo_app",
+                [sys.executable, "-m", "demo_app"],
+            ),  # the smoke probe: it starts and answers
         ]
         runs, failures = [], []
         for label, command in checks:
@@ -215,10 +232,22 @@ def demo_verify_lane(workspace: Path, lane: str) -> LaneReport:
             failures=failures,
             summary="Byte-compiled the demo project and probed `python -m demo_app`.",
         )
-    required = priority_requirements((workspace / "PRD.md").read_text(encoding="utf-8") if (workspace / "PRD.md").exists() else "")
-    plan = load_plan((workspace / "plan.json").read_text(encoding="utf-8") if (workspace / "plan.json").exists() else None)
+    required = priority_requirements(
+        (workspace / "PRD.md").read_text(encoding="utf-8")
+        if (workspace / "PRD.md").exists()
+        else ""
+    )
+    plan = load_plan(
+        (workspace / "plan.json").read_text(encoding="utf-8")
+        if (workspace / "plan.json").exists()
+        else None
+    )
     covered = {rid for task in plan.tasks for rid in task.requirement_ids} if plan else set()
-    uncovered = [f"{rid} ({priority or 'unprioritised'}): no plan task (and so no test) covers it" for rid, priority in required.items() if rid not in covered]
+    uncovered = [
+        f"{rid} ({priority or 'unprioritised'}): no plan task (and so no test) covers it"
+        for rid, priority in required.items()
+        if rid not in covered
+    ]
     return LaneReport(
         lane="requirements",
         passed=not uncovered,

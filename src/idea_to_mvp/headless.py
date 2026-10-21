@@ -109,7 +109,9 @@ def number_answers(text: str) -> str:
     """An answers file as the numbered lines the answers gate takes: blank lines are dropped, a line that is
     already numbered (`3. ...`) keeps its number, any other line is numbered by its position."""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return "\n".join(line if _NUMBERED.match(line) else f"{index}. {line}" for index, line in enumerate(lines, 1))
+    return "\n".join(
+        line if _NUMBERED.match(line) else f"{index}. {line}" for index, line in enumerate(lines, 1)
+    )
 
 
 def decide(payload: Mapping[str, Any], options: HeadlessOptions) -> GateAnswer:
@@ -118,41 +120,68 @@ def decide(payload: Mapping[str, Any], options: HeadlessOptions) -> GateAnswer:
     if kind == "answers":
         if options.answers and (answers := number_answers(options.answers)):
             return GateAnswer(answers, "answers from --answers")
-        if options.autopilot and (suggested := suggested_answers(payload.get("question_items") or [])):
+        if options.autopilot and (
+            suggested := suggested_answers(payload.get("question_items") or [])
+        ):
             return GateAnswer(suggested, "Autopilot: the suggested answers.")
         return GateAnswer(
-            None, "The panel's questions need answers: pass --answers FILE (one answer per line) or --autopilot."
+            None,
+            "The panel's questions need answers: pass --answers FILE (one answer per line) or --autopilot.",
         )
     if kind == "arch_choice":
         if options.arch:
-            return GateAnswer({"option": options.arch, "notes": "--arch"}, f"Option {options.arch} (--arch)")
+            return GateAnswer(
+                {"option": options.arch, "notes": "--arch"}, f"Option {options.arch} (--arch)"
+            )
         if options.autopilot:
             option = recommended_option(payload.get("proposal") or {})
-            return GateAnswer({"option": option, "notes": AUTOPILOT_NOTE}, f"Option {option}: {AUTOPILOT_NOTE}")
-        return GateAnswer(None, "Pick an architecture: --arch 1 (option A) or --arch 2 (option B), or --autopilot.")
+            return GateAnswer(
+                {"option": option, "notes": AUTOPILOT_NOTE}, f"Option {option}: {AUTOPILOT_NOTE}"
+            )
+        return GateAnswer(
+            None,
+            "Pick an architecture: --arch 1 (option A) or --arch 2 (option B), or --autopilot.",
+        )
     if kind == "plan_gate":
         if options.autopilot or options.implement:
-            return GateAnswer({"generate": True, "notes": "Headless run: generating the pack."}, "generating the pack")
+            return GateAnswer(
+                {"generate": True, "notes": "Headless run: generating the pack."},
+                "generating the pack",
+            )
         return GateAnswer(None, "Generate the blueprint pack with --autopilot or --implement.")
     if kind == "implement_gate":
         if options.implement:
-            resume = {"implement": True, "notes": "Headless run: --implement.", "parallel": max(0, options.parallel)}
+            resume = {
+                "implement": True,
+                "notes": "Headless run: --implement.",
+                "parallel": max(0, options.parallel),
+            }
             return GateAnswer(resume, "building (--implement)")
         return GateAnswer(
-            None, f"Stopped before any agent session. Estimated cost: {estimate_text(payload.get('cost_estimate') or {})}."
+            None,
+            f"Stopped before any agent session. Estimated cost: {estimate_text(payload.get('cost_estimate') or {})}.",
         )
     if kind == "iterate_gate":
         if options.feedback and options.implement:
-            return GateAnswer({"iterate": True, "feedback": options.feedback}, "building the next version (--feedback)")
+            return GateAnswer(
+                {"iterate": True, "feedback": options.feedback},
+                "building the next version (--feedback)",
+            )
         if options.feedback:
-            return GateAnswer(None, "Building another version spends money: add --implement to --feedback.")
+            return GateAnswer(
+                None, "Building another version spends money: add --implement to --feedback."
+            )
         return GateAnswer(None, "")
     return GateAnswer(None, f"Unknown gate `{kind}`.")
 
 
 def estimate_text(estimate: Mapping[str, Any]) -> str:
     """The implement gate's `CostRange` in one phrase."""
-    if estimate.get("basis") == "unpriced" or estimate.get("low") is None or estimate.get("high") is None:
+    if (
+        estimate.get("basis") == "unpriced"
+        or estimate.get("low") is None
+        or estimate.get("high") is None
+    ):
         roles = ", ".join(str(role) for role in estimate.get("unpriced") or []) or "a model"
         return f"unpriced (no price for the {roles} model)"
     basis = "earlier tasks on this model" if estimate.get("basis") == "history" else "catalog guess"
@@ -162,12 +191,16 @@ def estimate_text(estimate: Mapping[str, Any]) -> str:
 # ---------------------------------------------------------------- summary
 
 
-def summarize(thread_id: str, view: ThreadView, *, note: str = "", error: str | None = None) -> RunSummary:
+def summarize(
+    thread_id: str, view: ThreadView, *, note: str = "", error: str | None = None
+) -> RunSummary:
     """The outcome of a thread as it stands, with the exit code that says it."""
     values, gate = view.values, view.interrupt
     usage = summarize_usage(values.get("usage") or [])
     kind = str(gate.get("kind")) if gate else None
-    delivered = bool(values.get("delivery_report")) and (kind == "iterate_gate" or (gate is None and not view.next_nodes))
+    delivered = bool(values.get("delivery_report")) and (
+        kind == "iterate_gate" or (gate is None and not view.next_nodes)
+    )
     passed = bool((values.get("verification") or {}).get("passed"))
     summary = RunSummary(
         thread_id=thread_id,
@@ -192,23 +225,34 @@ def summarize(thread_id: str, view: ThreadView, *, note: str = "", error: str | 
         summary.message = error
         summary.next_command = f"idea-to-mvp resume {thread_id}"
     elif delivered:
-        summary.outcome, summary.exit_code = ("verified", EXIT_VERIFIED) if passed else ("failed", EXIT_FAILED)
-        summary.message = note or f"v0.{summary.iteration} delivered; verification {'passed' if passed else 'did not pass'}."
+        summary.outcome, summary.exit_code = (
+            ("verified", EXIT_VERIFIED) if passed else ("failed", EXIT_FAILED)
+        )
+        summary.message = (
+            note
+            or f"v0.{summary.iteration} delivered; verification {'passed' if passed else 'did not pass'}."
+        )
         if kind == "iterate_gate":
-            summary.next_command = f'idea-to-mvp resume {thread_id} --implement --feedback "<changes>"'
+            summary.next_command = (
+                f'idea-to-mvp resume {thread_id} --implement --feedback "<changes>"'
+            )
     elif gate is not None:
         summary.outcome, summary.exit_code = "gate", EXIT_GATE
         summary.message = f"Waiting at {_GATE_NAMES.get(kind or '', kind)}. {note}".strip()
         summary.next_command = f"idea-to-mvp resume {thread_id} {_resume_hint(kind or '')}".strip()
         if kind == "answers":
             summary.questions = [
-                {key: str(item.get(key) or "") for key in ("question", "why_it_matters", "suggested_answer")}
+                {
+                    key: str(item.get(key) or "")
+                    for key in ("question", "why_it_matters", "suggested_answer")
+                }
                 for item in gate.get("question_items") or []
             ]
         if kind == "arch_choice":
             proposal = gate.get("proposal") or {}
             summary.architecture_options = {
-                key: str((proposal.get(f"option_{key.lower()}") or {}).get("name") or "") for key in ("A", "B")
+                key: str((proposal.get(f"option_{key.lower()}") or {}).get("name") or "")
+                for key in ("A", "B")
             }
             summary.architecture_options["recommended"] = recommended_option(proposal)
     elif view.next_nodes:
@@ -242,17 +286,27 @@ def render_summary(summary: RunSummary) -> str:
         "interrupted": "interrupted",
         "error": "error",
     }[summary.outcome]
-    planning = "unpriced" if summary.planning_cost_usd is None else f"${summary.planning_cost_usd:.2f}"
+    planning = (
+        "unpriced" if summary.planning_cost_usd is None else f"${summary.planning_cost_usd:.2f}"
+    )
     unpriced = f" ({summary.unpriced_calls} call(s) unpriced)" if summary.unpriced_calls else ""
     rows = [
         ("Session", summary.thread_id),
         ("Idea", summary.title),
-        ("Outcome", outcome if not summary.gate or summary.outcome != "gate" else f"{outcome}: {summary.gate}"),
+        (
+            "Outcome",
+            outcome
+            if not summary.gate or summary.outcome != "gate"
+            else f"{outcome}: {summary.gate}",
+        ),
         ("", summary.message),
         ("Workspace", summary.workspace),
         ("Delivery", summary.delivery_zip),
         ("Blueprint", summary.blueprint_dir),
-        ("Cost", f"planning {planning}{unpriced}, agents ${summary.agent_cost_usd:.2f}, {summary.total_tokens:,} tokens"),
+        (
+            "Cost",
+            f"planning {planning}{unpriced}, agents ${summary.agent_cost_usd:.2f}, {summary.total_tokens:,} tokens",
+        ),
         ("Estimate", estimate_text(summary.cost_estimate) if summary.cost_estimate else ""),
     ]
     lines = [f"{label + ':' if label else '':<11}{value}" for label, value in rows if value]
@@ -288,7 +342,9 @@ def progress_lines(namespace: Sequence[str], mode: str, data: Any) -> list[str]:
     return []
 
 
-def _next_step(view: ThreadView, options: HeadlessOptions) -> tuple[Any, HeadlessOptions, str | None]:
+def _next_step(
+    view: ThreadView, options: HeadlessOptions
+) -> tuple[Any, HeadlessOptions, str | None]:
     """(payload for the next `astream`, the options after it, None) or (None, options, the reason to stop)."""
     if view.interrupt is None:
         if view.next_nodes:
@@ -335,7 +391,9 @@ async def drive(
         if stop is not None:
             return summarize(thread_id, view, note=stop)
         if view.interrupt is not None:
-            progress(f"[{time.monotonic() - started:6.0f}s] gate  {view.interrupt.get('kind')}: {_echo(payload)}")
+            progress(
+                f"[{time.monotonic() - started:6.0f}s] gate  {view.interrupt.get('kind')}: {_echo(payload)}"
+            )
 
 
 def _echo(command: Any) -> str:
@@ -343,7 +401,9 @@ def _echo(command: Any) -> str:
     if isinstance(resume, str):
         return f"{len(resume.splitlines())} answer(s)"
     if isinstance(resume, dict):
-        return ", ".join(f"{key}={value}" for key, value in resume.items() if key != "notes" and value != "")
+        return ", ".join(
+            f"{key}={value}" for key, value in resume.items() if key != "notes" and value != ""
+        )
     return ""
 
 
@@ -361,10 +421,14 @@ async def run_idea(
     """A new session for `idea` (with the project `preferences` the user stated up front), run as far as the flags
     allow."""
     thread_id = thread_id or str(uuid.uuid4())
-    state = make_initial_state(idea, settings.default_rounds, panel_mode=settings.panel_mode, preferences=preferences)
+    state = make_initial_state(
+        idea, settings.default_rounds, panel_mode=settings.panel_mode, preferences=preferences
+    )
     registry.record(thread_id, {}, None, title=idea)
     progress(f"session {thread_id}")
-    return await drive(graph, registry, thread_id, state, options, settings=settings, progress=progress, title=idea)
+    return await drive(
+        graph, registry, thread_id, state, options, settings=settings, progress=progress, title=idea
+    )
 
 
 async def resume_thread(
@@ -386,11 +450,18 @@ async def resume_thread(
     if view.interrupt is None and view.values.get("autopilot"):
         # a UI run with autopilot on: the flags decide the gates from here
         await graph.aupdate_state({"configurable": {"thread_id": thread_id}}, {"autopilot": False})
-    return await drive(graph, registry, thread_id, payload, options, settings=settings, progress=progress)
+    return await drive(
+        graph, registry, thread_id, payload, options, settings=settings, progress=progress
+    )
 
 
 async def publish_and_record(
-    graph: CompiledStateGraph, thread_id: str, plan: PublishPlan, client: GitHubClient, *, confirm: str
+    graph: CompiledStateGraph,
+    thread_id: str,
+    plan: PublishPlan,
+    client: GitHubClient,
+    *,
+    confirm: str,
 ) -> tuple[dict[str, Any], str]:
     """Publish a confirmed plan and note it in the thread's state (the UI and `idea-to-mvp publish` share this).
 
@@ -401,7 +472,12 @@ async def publish_and_record(
     try:
         await update_thread(graph, thread_id, {"publication": record})
     except Exception as error:
-        LOGGER.warning("Published %s but could not record it in session %s: %s", record["repo"], thread_id, error)
+        LOGGER.warning(
+            "Published %s but could not record it in session %s: %s",
+            record["repo"],
+            thread_id,
+            error,
+        )
         return record, str(error)
     return record, ""
 
@@ -426,5 +502,7 @@ def render_sessions(rows: Sequence[Mapping[str, str]]) -> str:
     lines = []
     for row in rows:
         where = f"waiting: {row['waiting_at']}" if row["waiting_at"] else row["stage"]
-        lines.append(f"{row['thread_id']}  {row['updated_at'][:16].replace('T', ' ')}  {where:<24}  {row['title']}")
+        lines.append(
+            f"{row['thread_id']}  {row['updated_at'][:16].replace('T', ' ')}  {where:<24}  {row['title']}"
+        )
     return "\n".join(lines)

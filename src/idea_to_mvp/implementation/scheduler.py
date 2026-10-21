@@ -18,7 +18,9 @@ def next_ready(plan: Plan, done: Collection[str], running: Collection[str]) -> l
     ]
 
 
-def blocked_tasks(plan: Plan, dead: Collection[str], finished: Collection[str]) -> dict[str, list[str]]:
+def blocked_tasks(
+    plan: Plan, dead: Collection[str], finished: Collection[str]
+) -> dict[str, list[str]]:
     """Unfinished tasks that can never run because a dependency failed or was skipped (transitively).
 
     Maps each such task to the dead dependencies it is waiting on directly.

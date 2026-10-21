@@ -115,7 +115,9 @@ class PublishPlan:
     commit_count: int
     files: tuple[str, ...]  # every file tracked at the tip: what the repository will contain
     problems: tuple[str, ...]
-    removed: tuple[str, ...] = ()  # files in the pushed history that the tip no longer has: sent all the same
+    removed: tuple[
+        str, ...
+    ] = ()  # files in the pushed history that the tip no longer has: sent all the same
 
     @property
     def ok(self) -> bool:
@@ -128,16 +130,26 @@ class PublishPlan:
     @property
     def refspecs(self) -> tuple[str, ...]:
         """The exact refs pushed: the planned commit as the branch, and each version tag as it is."""
-        return (f"{self.commit}:refs/heads/{self.branch}", *(f"refs/tags/{tag}:refs/tags/{tag}" for tag in self.tags))
+        return (
+            f"{self.commit}:refs/heads/{self.branch}",
+            *(f"refs/tags/{tag}:refs/tags/{tag}" for tag in self.tags),
+        )
 
     @property
     def fingerprint(self) -> str:
         """What a confirmation must quote: the repository, visibility, branch, commit, and tags."""
-        text = "\n".join([self.full_name, self.visibility, self.backend, self.branch, self.commit, *self.tags])
+        text = "\n".join(
+            [self.full_name, self.visibility, self.backend, self.branch, self.commit, *self.tags]
+        )
         return hashlib.sha256(text.encode()).hexdigest()[:16]
 
     def to_dict(self) -> dict[str, Any]:
-        return {**asdict(self), "full_name": self.full_name, "fingerprint": self.fingerprint, "ok": self.ok}
+        return {
+            **asdict(self),
+            "full_name": self.full_name,
+            "fingerprint": self.fingerprint,
+            "ok": self.ok,
+        }
 
 
 def default_repo_name(workspace: Path) -> str:
@@ -154,12 +166,12 @@ def _parse_repo(text: str | None, fallback: str, default_owner: str) -> tuple[st
     if text:
         owner_part, slash, name_part = text.rpartition("/")
         owner, name = (owner_part, name_part) if slash else (default_owner, name_part)
-    if (
-        not _NAME.match(name)
-        or name.endswith(".git")
-        or (owner and not _OWNER.match(owner))
-    ):
-        return "", "", f"{text!r} is not a usable repository name (letters, digits, '.', '-', '_'; optionally owner/name)"
+    if not _NAME.match(name) or name.endswith(".git") or (owner and not _OWNER.match(owner)):
+        return (
+            "",
+            "",
+            f"{text!r} is not a usable repository name (letters, digits, '.', '-', '_'; optionally owner/name)",
+        )
     return owner, name, ""
 
 
@@ -185,11 +197,25 @@ def _git_facts(workspace: Path) -> tuple[dict[str, Any], list[str]]:
     if not branch or not commit:
         return {}, ["the project has no commits on a branch yet"]
     listed = (_git(workspace, "tag", "--merged", "HEAD", "--list", "v0.*") or "").split()
-    tags = tuple(sorted((tag for tag in listed if _VERSION_TAG.match(tag)), key=lambda tag: int(tag[3:])))
+    tags = tuple(
+        sorted((tag for tag in listed if _VERSION_TAG.match(tag)), key=lambda tag: int(tag[3:]))
+    )
     subjects = (_git(workspace, "log", f"-n{HISTORY_LIMIT}", "--format=%h %s") or "").splitlines()
     count = int((_git(workspace, "rev-list", "--count", "HEAD") or "0").strip() or 0)
-    files = tuple(path for path in (_git(workspace, "ls-tree", "-r", "-z", "--name-only", "HEAD") or "").split("\0") if path)
-    ever = {path for path in (_git(workspace, "log", "-z", "--name-only", "--format=", "HEAD", *tags) or "").split("\0") if path}
+    files = tuple(
+        path
+        for path in (_git(workspace, "ls-tree", "-r", "-z", "--name-only", "HEAD") or "").split(
+            "\0"
+        )
+        if path
+    )
+    ever = {
+        path
+        for path in (
+            _git(workspace, "log", "-z", "--name-only", "--format=", "HEAD", *tags) or ""
+        ).split("\0")
+        if path
+    }
     removed = tuple(sorted(ever - set(files)))
     problems = []
     if held := sorted(path for path in ever if _withheld(path)):
@@ -222,7 +248,9 @@ def plan_publish(
     problems: list[str] = []
     published = state.get("publication") or {}
     if published:
-        problems.append(f"this delivery is already published at {published.get('url') or published.get('repo')}")
+        problems.append(
+            f"this delivery is already published at {published.get('url') or published.get('repo')}"
+        )
     if not state.get("workspace_dir") or not workspace.is_dir() or not state.get("delivery_report"):
         problems.append("there is no delivered project in this session yet")
     visibility = (visibility or settings.publish_visibility or "private").strip().lower()
@@ -284,7 +312,11 @@ def render_plan(plan: PublishPlan) -> str:
             [
                 f"  Also in the history, removed from the latest version ({len(plan.removed)}); they are pushed with it:",
                 *(f"    {path}" for path in plan.removed[:FILE_LIST_LIMIT]),
-                *([f"    ... and {len(plan.removed) - FILE_LIST_LIMIT} more"] if len(plan.removed) > FILE_LIST_LIMIT else []),
+                *(
+                    [f"    ... and {len(plan.removed) - FILE_LIST_LIMIT} more"]
+                    if len(plan.removed) > FILE_LIST_LIMIT
+                    else []
+                ),
             ]
             if plan.removed
             else []
@@ -327,7 +359,9 @@ def _push(workspace: Path, remote: str, refspecs: tuple[str, ...], token: str) -
         raise PublishError("git is not available")
     if done.returncode != 0:
         detail = _redact((done.stderr or done.stdout).strip(), token)
-        raise PublishError(detail.splitlines()[-1] if detail else f"git push exited {done.returncode}")
+        raise PublishError(
+            detail.splitlines()[-1] if detail else f"git push exited {done.returncode}"
+        )
 
 
 def publish_plan(
@@ -348,10 +382,14 @@ def publish_plan(
         raise NotConfirmed("what would be published changed since it was reviewed: review it again")
     workspace = Path(plan.workspace)
     git_dir = workspace / ".git"
-    if git_dir.is_symlink() or not git_dir.is_dir():  # the plan checked this; an agent could have swapped it since
+    if (
+        git_dir.is_symlink() or not git_dir.is_dir()
+    ):  # the plan checked this; an agent could have swapped it since
         raise PublishError("the project's .git is not a plain directory, so nothing is published")
     harden_git_dir(git_dir)
-    repo = client.create_repo(plan.owner, plan.name, private=plan.visibility == "private", description=plan.description)
+    repo = client.create_repo(
+        plan.owner, plan.name, private=plan.visibility == "private", description=plan.description
+    )
     token = client.push_token()
     try:
         _push(workspace, repo.clone_url, plan.refspecs, token)
@@ -378,9 +416,13 @@ def publish_plan(
 Send = Callable[[str, str, dict[str, str], dict[str, Any] | None], tuple[int, dict[str, Any]]]
 
 
-def _send(method: str, url: str, headers: dict[str, str], body: dict[str, Any] | None) -> tuple[int, dict[str, Any]]:
+def _send(
+    method: str, url: str, headers: dict[str, str], body: dict[str, Any] | None
+) -> tuple[int, dict[str, Any]]:
     data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(url, data=data, headers=headers, method=method)  # fixed https endpoint
+    request = urllib.request.Request(
+        url, data=data, headers=headers, method=method
+    )  # fixed https endpoint
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             status, raw = response.status, response.read()
@@ -399,7 +441,10 @@ def _send(method: str, url: str, headers: dict[str, str], body: dict[str, Any] |
 
 def _api_error(status: int, body: Mapping[str, Any]) -> str:
     detail = "; ".join(
-        [str(body.get("message") or ""), *(str(e.get("message") or e) for e in body.get("errors") or [] if e)]
+        [
+            str(body.get("message") or ""),
+            *(str(e.get("message") or e) for e in body.get("errors") or [] if e),
+        ]
     ).strip("; ")
     if status == 401:
         return "GitHub rejected the token (401): check GITHUB_TOKEN or sign in again with `gh auth login`"
@@ -434,7 +479,9 @@ class _Api:
         made = self.request("POST", "/user/repos" if mine else f"/orgs/{owner}/repos", body)
         clone_url, url = str(made.get("clone_url") or ""), str(made.get("html_url") or "")
         if not clone_url.startswith("https://") or not url.startswith("https://"):
-            raise PublishError("GitHub did not return an https clone address for the new repository")
+            raise PublishError(
+                "GitHub did not return an https clone address for the new repository"
+            )
         return Repo(str(made.get("full_name") or f"{owner}/{name}"), url, clone_url)
 
 
@@ -470,7 +517,12 @@ class GhClient(_Api):
 
     backend = "gh"
 
-    def __init__(self, *, run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run, gh: str = "gh") -> None:
+    def __init__(
+        self,
+        *,
+        run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+        gh: str = "gh",
+    ) -> None:
         super().__init__()
         self._run = run
         self._gh = gh
@@ -488,11 +540,15 @@ class GhClient(_Api):
         except (OSError, subprocess.TimeoutExpired) as error:
             raise PublishError(f"the gh CLI did not run: {error}") from None
         if done.returncode != 0:
-            raise PublishError((done.stderr or done.stdout or "gh failed").strip().splitlines()[-1][:300])
+            raise PublishError(
+                (done.stderr or done.stdout or "gh failed").strip().splitlines()[-1][:300]
+            )
         return done.stdout
 
     def request(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        args = ["api", path] if method == "GET" else ["api", "--method", method, path, "--input", "-"]
+        args = (
+            ["api", path] if method == "GET" else ["api", "--method", method, path, "--input", "-"]
+        )
         try:
             payload = json.loads(self._call(*args, body=body))
         except ValueError:
@@ -506,7 +562,9 @@ class GhClient(_Api):
         return token
 
 
-def make_client(settings: Settings, *, which: Callable[[str], str | None] | None = None) -> GitHubClient | None:
+def make_client(
+    settings: Settings, *, which: Callable[[str], str | None] | None = None
+) -> GitHubClient | None:
     """The way to reach GitHub: the configured token, else the gh CLI; None when there is neither."""
     if token := (settings.github_token or "").strip():
         return RestClient(token)
@@ -516,11 +574,20 @@ def make_client(settings: Settings, *, which: Callable[[str], str | None] | None
 
 
 def publish_options(
-    state: Mapping[str, Any], settings: Settings, *, which: Callable[[str], str | None] | None = None
+    state: Mapping[str, Any],
+    settings: Settings,
+    *,
+    which: Callable[[str], str | None] | None = None,
 ) -> dict[str, Any]:
     """What the iterate gate tells the UI about publishing: whether it is possible, the defaults, and what has been
     published already. No network or subprocess: whether `gh` is signed in is found out when a plan is made."""
-    backend = "token" if (settings.github_token or "").strip() else "gh" if (which or shutil.which)("gh") else ""
+    backend = (
+        "token"
+        if (settings.github_token or "").strip()
+        else "gh"
+        if (which or shutil.which)("gh")
+        else ""
+    )
     workspace = str(state.get("workspace_dir") or "")
     delivered = bool(workspace) and Path(workspace).is_dir() and bool(state.get("delivery_report"))
     return {

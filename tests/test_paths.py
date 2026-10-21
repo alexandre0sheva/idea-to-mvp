@@ -37,7 +37,9 @@ def test_export_is_written_under_exports_dir(tmp_path: Path) -> None:
     assert path.read_text(encoding="utf-8").startswith("# Idea-to-MVP Session Export")
 
 
-def test_cached_settings_pick_up_output_dir_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_cached_settings_pick_up_output_dir_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("OUTPUT_DIR", str(tmp_path))
     clear_settings_cache()
     try:

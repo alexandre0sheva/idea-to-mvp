@@ -124,7 +124,15 @@ def test_llm_nodes_carry_the_retry_policy_and_gates_do_not() -> None:
     nodes = build_graph().builder.nodes
     for name in ("summarizer", "architect", "strategy"):
         assert nodes[name].retry_policy, name
-    for name in ("panel", "plan_bundle", "collect_answers", "arch_choice", "plan_gate", "implement_gate", "delivery_report"):
+    for name in (
+        "panel",
+        "plan_bundle",
+        "collect_answers",
+        "arch_choice",
+        "plan_gate",
+        "implement_gate",
+        "delivery_report",
+    ):
         assert not nodes[name].retry_policy, name
 
 

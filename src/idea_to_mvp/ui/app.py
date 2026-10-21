@@ -74,8 +74,12 @@ def make_ui(
                     platform_dd = gr.Dropdown(choices=PLATFORMS, value="any", label="Platform")
                     stack_tb = gr.Textbox(label="Stack hints", placeholder="TypeScript + Postgres")
                     deploy_tb = gr.Textbox(label="Deploy target", placeholder="Fly.io")
-                    must_use_tb = gr.Textbox(label="Must use (hard constraint)", placeholder="Stripe for payments")
-                    must_avoid_tb = gr.Textbox(label="Must avoid (hard constraint)", placeholder="MongoDB")
+                    must_use_tb = gr.Textbox(
+                        label="Must use (hard constraint)", placeholder="Stripe for payments"
+                    )
+                    must_avoid_tb = gr.Textbox(
+                        label="Must avoid (hard constraint)", placeholder="MongoDB"
+                    )
         if resolved_settings.demo_mode:
             gr.Markdown(
                 "> **Demo mode** — model outputs are canned and the implementation stage builds a tiny "
@@ -91,23 +95,37 @@ def make_ui(
         with gr.Tabs(selected="conversation") as tabs:
             with gr.Tab("Conversation", id="conversation"):
                 chatbot = gr.Chatbot(label="Discussion chat", height="70vh")
-                input_tb = gr.Textbox(label="Describe your idea", lines=4, placeholder="Describe your product idea...")
+                input_tb = gr.Textbox(
+                    label="Describe your idea", lines=4, placeholder="Describe your product idea..."
+                )
                 with gr.Column(visible=True) as examples_box:
-                    gr.Examples(examples=[[idea] for idea in EXAMPLE_IDEAS], inputs=[input_tb], label="Try an example idea")
+                    gr.Examples(
+                        examples=[[idea] for idea in EXAMPLE_IDEAS],
+                        inputs=[input_tb],
+                        label="Try an example idea",
+                    )
                 run_btn = gr.Button("Run discussion", variant="primary")
                 # One form per gate, shown only while the graph waits at that gate (see ui/gates.py).
                 for kind, spec in GATES.items():
                     with gr.Column(visible=False, elem_classes=["gate-form"]) as panels[kind]:
                         gate_widgets[kind] = spec.build()
             with gr.Tab("Implementation", id="implementation"):
-                meter_html = gr.HTML(render_cost_meter(0.0, resolved_settings.implementer_max_total_usd))
+                meter_html = gr.HTML(
+                    render_cost_meter(0.0, resolved_settings.implementer_max_total_usd)
+                )
                 board_html = gr.HTML(render_task_board({}, {}, set()))
                 console_html = gr.HTML(render_console([]))
                 with gr.Accordion("Project files and downloads", open=False):
-                    path_tb = gr.Textbox(label="Workspace folder", interactive=False, buttons=["copy"])
+                    path_tb = gr.Textbox(
+                        label="Workspace folder", interactive=False, buttons=["copy"]
+                    )
                     with gr.Row():
-                        delivery_btn = gr.DownloadButton("Download the project (zip)", visible=False)
-                        blueprint_btn = gr.DownloadButton("Download the blueprint (zip)", visible=False)
+                        delivery_btn = gr.DownloadButton(
+                            "Download the project (zip)", visible=False
+                        )
+                        blueprint_btn = gr.DownloadButton(
+                            "Download the blueprint (zip)", visible=False
+                        )
                     workspace_state = gr.State("")
 
                     # A FileExplorer's root cannot change once it is built, so it is rebuilt whenever the workspace
@@ -119,20 +137,32 @@ def make_ui(
                             gr.Markdown("The project's files appear here once it is built.")
                             return
                         explorer = gr.FileExplorer(
-                            root_dir=workspace, glob="**/*", ignore_glob="**/.git/**", file_count="single",
-                            label="Files (read-only)", height=320,
+                            root_dir=workspace,
+                            glob="**/*",
+                            ignore_glob="**/.git/**",
+                            file_count="single",
+                            label="Files (read-only)",
+                            height=320,
                         )
-                        explorer.change(service.view_file, inputs=[thread_id_state, explorer], outputs=[file_view])
-                
+                        explorer.change(
+                            service.view_file,
+                            inputs=[thread_id_state, explorer],
+                            outputs=[file_view],
+                        )
+
                     file_view = gr.Code(label="Selected file", interactive=False, lines=14)
         field_components = [gate_widgets[kind][name] for kind, name in gate_layout()]
         with gr.Row():
             stop_btn = gr.Button("Stop", variant="stop")
             save_btn = gr.Button("Save session")
             clear_btn = gr.Button("Clear")
-        export_file = gr.File(label="Saved session (Markdown and JSON)", file_count="multiple", visible=False)
+        export_file = gr.File(
+            label="Saved session (Markdown and JSON)", file_count="multiple", visible=False
+        )
         with gr.Accordion("Saved sessions", open=False):
-            sessions_dd = gr.Dropdown(label="Sessions (resume after a restart)", choices=[], value=None)
+            sessions_dd = gr.Dropdown(
+                label="Sessions (resume after a restart)", choices=[], value=None
+            )
             with gr.Row():
                 resume_btn = gr.Button("Resume selected")
                 delete_btn = gr.Button("Delete selected", variant="stop")
@@ -174,18 +204,32 @@ def make_ui(
         async def submit_idea(*values: Any) -> AsyncGenerator[tuple[Any, ...], None]:
             text, rounds, thread, panel_mode, autopilot, *preference_values = values
             preferences = dict(
-                zip(("platform", "stack_hints", "deploy_target", "must_use", "must_avoid"), preference_values, strict=True)
+                zip(
+                    ("platform", "stack_hints", "deploy_target", "must_use", "must_avoid"),
+                    preference_values,
+                    strict=True,
+                )
             )
-            async for update in service.handle_submit(text, rounds, thread, panel_mode, autopilot, preferences=preferences):
+            async for update in service.handle_submit(
+                text, rounds, thread, panel_mode, autopilot, preferences=preferences
+            ):
                 yield update
 
-        run_events = [run_btn.click(submit_idea, inputs=[*shared_inputs, *preference_inputs], outputs=view_outputs)]
+        run_events = [
+            run_btn.click(
+                submit_idea, inputs=[*shared_inputs, *preference_inputs], outputs=view_outputs
+            )
+        ]
 
-        def submit_for(kind: str, action: str) -> Callable[..., AsyncGenerator[tuple[Any, ...], None]]:
+        def submit_for(
+            kind: str, action: str
+        ) -> Callable[..., AsyncGenerator[tuple[Any, ...], None]]:
             async def submit(*values: Any) -> AsyncGenerator[tuple[Any, ...], None]:
                 text, rounds, thread, panel_mode, autopilot, *gate_values = values
                 inputs = pack_inputs(kind, action, gate_values)
-                async for update in service.handle_submit(text, rounds, thread, panel_mode, autopilot, gate_inputs=inputs):
+                async for update in service.handle_submit(
+                    text, rounds, thread, panel_mode, autopilot, gate_inputs=inputs
+                ):
                     yield update
 
             return submit
@@ -194,7 +238,11 @@ def make_ui(
             for gate_action in spec.actions:
                 button = gate_widgets[kind][f"action:{gate_action.name}"]
                 run_events.append(
-                    button.click(submit_for(kind, gate_action.name), inputs=[*shared_inputs, *field_components], outputs=view_outputs)
+                    button.click(
+                        submit_for(kind, gate_action.name),
+                        inputs=[*shared_inputs, *field_components],
+                        outputs=view_outputs,
+                    )
                 )
             spec.wire(
                 gate_widgets[kind],
@@ -207,7 +255,12 @@ def make_ui(
             )
         # Cancelling a run event cancels the graph run cooperatively (the checkpoint keeps its state);
         # the handler then shows where the run stands and offers to continue.
-        stop_btn.click(service.stop_run, inputs=[thread_id_state], outputs=view_outputs, cancels=cast(Any, run_events))
+        stop_btn.click(
+            service.stop_run,
+            inputs=[thread_id_state],
+            outputs=view_outputs,
+            cancels=cast(Any, run_events),
+        )
         save_btn.click(
             service.save_conversation,
             inputs=[input_tb, thread_id_state],
@@ -223,9 +276,17 @@ def make_ui(
         )
         demo.load(service.initial_view, inputs=[thread_id_state], outputs=view_outputs)
         library_outputs = [library_domain_dd, library_md, library_entry_dd]
-        library_domain_dd.input(service.library_panel, inputs=[library_domain_dd], outputs=library_outputs)
-        library_refresh_btn.click(service.library_panel, inputs=[library_domain_dd], outputs=library_outputs)
-        library_forget_btn.click(service.forget_library_entry, inputs=[library_domain_dd, library_entry_dd], outputs=library_outputs)
+        library_domain_dd.input(
+            service.library_panel, inputs=[library_domain_dd], outputs=library_outputs
+        )
+        library_refresh_btn.click(
+            service.library_panel, inputs=[library_domain_dd], outputs=library_outputs
+        )
+        library_forget_btn.click(
+            service.forget_library_entry,
+            inputs=[library_domain_dd, library_entry_dd],
+            outputs=library_outputs,
+        )
         demo.load(service.library_panel, inputs=[library_domain_dd], outputs=library_outputs)
     return demo
 
@@ -233,12 +294,16 @@ def make_ui(
 def main() -> None:
     apply_tracing_env()
     if not logging.getLogger().handlers:
-        logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+        logging.basicConfig(
+            level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+        )
     # Gradio 6 takes css/theme in launch(), not in Blocks().
     settings = get_settings()
     settings.deliveries_dir.mkdir(parents=True, exist_ok=True)
     # Downloads are served from the deliveries folder only (zips of the project and of the blueprint).
-    make_ui().launch(inbrowser=True, css=CSS, theme=build_theme(), allowed_paths=[str(settings.deliveries_dir)])
+    make_ui().launch(
+        inbrowser=True, css=CSS, theme=build_theme(), allowed_paths=[str(settings.deliveries_dir)]
+    )
 
 
 if __name__ == "__main__":

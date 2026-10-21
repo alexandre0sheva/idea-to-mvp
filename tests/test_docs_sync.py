@@ -121,8 +121,8 @@ def test_every_setting_the_docs_name_is_a_real_one() -> None:
 
 def test_the_readme_embeds_three_or_four_screenshots_that_exist() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    images = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", readme)
-    assert 3 <= len(images) <= 4
+    images = [image for image in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", readme) if not image.startswith("https://")]
+    assert 3 <= len(images) <= 4  # the badges at the top are hosted images, not screenshots
     assert all((ROOT / image).is_file() for image in images), images
 
 

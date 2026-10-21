@@ -114,17 +114,33 @@ def test_with_usage_preserves_the_node_signature_for_langgraph() -> None:
 
 
 def _record(role: str, model: str, i: int, o: int, cost: float | None = None) -> UsageRecord:
-    return {"role": role, "provider": "p", "model": model, "input_tokens": i, "output_tokens": o, "cost_usd": cost}
+    return {
+        "role": role,
+        "provider": "p",
+        "model": model,
+        "input_tokens": i,
+        "output_tokens": o,
+        "cost_usd": cost,
+    }
 
 
 def test_summarize_usage_totals_and_groups_by_role() -> None:
     summary = summarize_usage(
-        [_record("pm", "a", 100, 50), _record("pm", "a", 10, 5), _record("architect", "b", 200, 100, 0.5)]
+        [
+            _record("pm", "a", 100, 50),
+            _record("pm", "a", 10, 5),
+            _record("architect", "b", 200, 100, 0.5),
+        ]
     )
     assert summary["input_tokens"] == 310 and summary["output_tokens"] == 155
     assert summary["total_tokens"] == 465 and summary["calls"] == 3
     assert summary["cost_usd"] == 0.5
-    assert summary["by_role"]["pm"] == {"input_tokens": 110, "output_tokens": 55, "calls": 2, "cost_usd": None}
+    assert summary["by_role"]["pm"] == {
+        "input_tokens": 110,
+        "output_tokens": 55,
+        "calls": 2,
+        "cost_usd": None,
+    }
     assert summary["by_role"]["architect"]["cost_usd"] == 0.5
 
 
@@ -198,7 +214,9 @@ def test_demo_calls_cost_nothing(fake_runtime, monkeypatch: pytest.MonkeyPatch) 
     assert record["cost_usd"] == 0.0
 
 
-def test_a_prices_file_sets_the_price_of_a_call(fake_runtime, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_a_prices_file_sets_the_price_of_a_call(
+    fake_runtime, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     path = tmp_path / "prices.toml"
     path.write_text('[prices."mystery-model"]\ninput_per_mtok = 1.0\noutput_per_mtok = 2.0\n')
     monkeypatch.setenv("MODEL_PRICES_FILE", str(path))
@@ -210,7 +228,9 @@ def test_a_prices_file_sets_the_price_of_a_call(fake_runtime, monkeypatch: pytes
     assert record["cost_usd"] == pytest.approx((1_000_000 * 1.0 + 100_000 * 2.0) / 1_000_000)
 
 
-def test_an_unreadable_prices_file_never_fails_a_finished_node(fake_runtime, monkeypatch: pytest.MonkeyPatch, tmp_path, caplog) -> None:
+def test_an_unreadable_prices_file_never_fails_a_finished_node(
+    fake_runtime, monkeypatch: pytest.MonkeyPatch, tmp_path, caplog
+) -> None:
     monkeypatch.setenv("MODEL_PRICES_FILE", str(tmp_path / "missing.toml"))
     clear_settings_cache()
     try:
@@ -242,4 +262,7 @@ def test_summarize_usage_tells_nothing_priced_from_nothing_spent() -> None:
     summary = summarize_usage([_record("pm", "a", 100, 50)])
     assert summary["planning_cost_usd"] is None and summary["unpriced_calls"] == 1
     assert summary["agent_cost_usd"] == 0.0 and summary["agent_calls"] == 0
-    assert summarize_usage([])["planning_cost_usd"] is None and summarize_usage([])["unpriced_calls"] == 0
+    assert (
+        summarize_usage([])["planning_cost_usd"] is None
+        and summarize_usage([])["unpriced_calls"] == 0
+    )

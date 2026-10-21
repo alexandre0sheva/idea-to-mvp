@@ -62,7 +62,10 @@ async def test_the_demo_plan_is_implemented_task_by_task(demo_env: Path) -> None
     assert [r["status"] for r in values["task_results"].values()] == ["done"] * 3
     assert list(values["task_results"]) == ["T01", "T02", "T03"]
     log = git_log(workspace)
-    assert log[:3] == ["T03: Progress view", "T02: Core journey", "T01: Project setup"] and log[-1] == "blueprint"
+    assert (
+        log[:3] == ["T03: Progress view", "T02: Core journey", "T01: Project setup"]
+        and log[-1] == "blueprint"
+    )
     assert load_progress(workspace).keys() == values["task_results"].keys()
     assert "## T01 — Project setup: done" in values["implementation_log"]
     assert values["verification"]["passed"] is True and values["stage"] == "done"
@@ -81,9 +84,17 @@ async def test_custom_events_stream_while_the_node_runs(demo_env: Path) -> None:
     implementation = [e for e in custom if not str(e["task_id"]).startswith("verify:")]
     kinds = [e["kind"] for e in implementation]
     assert kinds.count("task_start") == 3 and kinds.count("task_end") == 3 and "tool" in kinds
-    assert [e["task_id"] for e in implementation if e["kind"] == "task_start"] == ["T01", "T02", "T03"]
+    assert [e["task_id"] for e in implementation if e["kind"] == "task_start"] == [
+        "T01",
+        "T02",
+        "T03",
+    ]
     # The verification lanes stream their progress too.
-    lanes = {e["task_id"] for e in custom if e["kind"] == "task_end" and str(e["task_id"]).startswith("verify:")}
+    lanes = {
+        e["task_id"]
+        for e in custom
+        if e["kind"] == "task_end" and str(e["task_id"]).startswith("verify:")
+    }
     assert lanes == {"verify:tests", "verify:quality", "verify:requirements"}
 
 
@@ -107,12 +118,17 @@ async def test_a_killed_run_resumes_at_the_first_unfinished_task_in_the_same_wor
     with pytest.raises(RuntimeError, match="killed"):
         await implement(graph, config)
     crashed = await graph.aget_state(config)
-    workspace = Path(crashed.values["workspace_dir"])  # already known: the workspace step finished and was checkpointed
+    workspace = Path(
+        crashed.values["workspace_dir"]
+    )  # already known: the workspace step finished and was checkpointed
     assert crashed.next == ("implementer",) and list(load_progress(workspace)) == ["T01"]
 
     await graph.ainvoke(None, config)  # restart and continue
     values = (await graph.aget_state(config)).values
-    assert Path(values["workspace_dir"]) == workspace and len(list((demo_env / "projects").iterdir())) == 1
+    assert (
+        Path(values["workspace_dir"]) == workspace
+        and len(list((demo_env / "projects").iterdir())) == 1
+    )
     assert [r["status"] for r in values["task_results"].values()] == ["done"] * 3
     log = git_log(workspace)
     assert log.count("T01: Project setup") == 1  # T01 was not implemented a second time
@@ -136,18 +152,31 @@ async def test_the_lead_session_mode_still_runs_the_whole_plan_in_one_session(
     graph = build_graph(MemorySaver())
     config = run_config("engine-lead")
     await to_implement_gate(graph, config)
-    await graph.aupdate_state(config, {"execution_strategy": {"mode": "subagents", "reasoning": "x", "workstreams": [{"name": "core-app", "focus": "f", "deliverables": "d"}]}})
+    await graph.aupdate_state(
+        config,
+        {
+            "execution_strategy": {
+                "mode": "subagents",
+                "reasoning": "x",
+                "workstreams": [{"name": "core-app", "focus": "f", "deliverables": "d"}],
+            }
+        },
+    )
     await implement(graph, config)
     values = (await graph.aget_state(config)).values
     assert calls == ["subagents"] and values["implementation_log"] == "Lead built everything."
     assert values["task_results"] == {}
-    assert git_log(Path(values["workspace_dir"]))[0] == "implementation"  # the orchestrator committed it
+    assert (
+        git_log(Path(values["workspace_dir"]))[0] == "implementation"
+    )  # the orchestrator committed it
 
 
 async def test_a_workspace_without_a_usable_plan_falls_back_to_the_lead_session(
     demo_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(implementer, "run_implementation", lambda ws, strategy, settings: "Lead fallback.")
+    monkeypatch.setattr(
+        implementer, "run_implementation", lambda ws, strategy, settings: "Lead fallback."
+    )
     graph = build_graph(MemorySaver())
     config = run_config("engine-noplan")
     await to_implement_gate(graph, config)
@@ -158,8 +187,12 @@ async def test_a_workspace_without_a_usable_plan_falls_back_to_the_lead_session(
     assert final["implementation_log"] == "Lead fallback." and final["task_results"] == {}
 
 
-async def test_a_plan_with_a_cycle_falls_back_to_the_lead_session(demo_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(implementer, "run_implementation", lambda ws, strategy, settings: "Lead fallback.")
+async def test_a_plan_with_a_cycle_falls_back_to_the_lead_session(
+    demo_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        implementer, "run_implementation", lambda ws, strategy, settings: "Lead fallback."
+    )
     graph = build_graph(MemorySaver())
     config = run_config("engine-cycle")
     await to_implement_gate(graph, config)
@@ -176,8 +209,12 @@ async def test_a_plan_with_a_cycle_falls_back_to_the_lead_session(demo_env: Path
 # --------------------------------------------------------------- usage and cost
 
 
-async def test_session_costs_are_added_to_the_usage_records(demo_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    async def costly(workspace: Path, task: Any, settings: Any, *, budget: Any, emit: Any, **kwargs: Any) -> TaskResult:
+async def test_session_costs_are_added_to_the_usage_records(
+    demo_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def costly(
+        workspace: Path, task: Any, settings: Any, *, budget: Any, emit: Any, **kwargs: Any
+    ) -> TaskResult:
         result: TaskResult = {
             "task_id": task.id, "status": "done", "summary": f"Built {task.id}.", "cost_usd": 0.7,
             "turns": 4, "session_id": None, "commit": None,
@@ -193,18 +230,26 @@ async def test_session_costs_are_added_to_the_usage_records(demo_env: Path, monk
     await implement(graph, config)
     usage = (await graph.aget_state(config)).values["usage"]
     agents = [r for r in usage if r["role"] == "implementer"]
-    assert len(agents) == 3 and all(r["provider"] == "anthropic" and r["cost_usd"] == 0.7 for r in agents)
+    assert len(agents) == 3 and all(
+        r["provider"] == "anthropic" and r["cost_usd"] == 0.7 for r in agents
+    )
     assert summarize_usage(usage)["cost_usd"] == pytest.approx(2.1)
 
 
 # ----------------------------------------------------------- the workspace step
 
 
-def test_the_workspace_is_prepared_by_its_own_checkpointed_step(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_workspace_is_prepared_by_its_own_checkpointed_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     workspace = tmp_path / "ws"
     workspace.mkdir()
     seen: list[tuple[Path, Path]] = []
-    monkeypatch.setattr(implementer, "prepare_workspace", lambda bundle, root: seen.append((bundle, root)) or workspace)
+    monkeypatch.setattr(
+        implementer,
+        "prepare_workspace",
+        lambda bundle, root: seen.append((bundle, root)) or workspace,
+    )
     state = dict(make_initial_state(IDEA, 1))
     state["project_bundle_dir"] = str(tmp_path / "bundle")
     update = implement_nodes.prepare_workspace_node(state)  # type: ignore[arg-type]
@@ -225,7 +270,15 @@ def test_the_decline_path_never_creates_a_workspace(demo_env: Path) -> None:
 
 
 def _result(task_id: str, cost: float) -> TaskResult:
-    return {"task_id": task_id, "status": "done", "summary": "s", "cost_usd": cost, "turns": 3, "session_id": None, "commit": None}
+    return {
+        "task_id": task_id,
+        "status": "done",
+        "summary": "s",
+        "cost_usd": cost,
+        "turns": 3,
+        "session_id": None,
+        "commit": None,
+    }
 
 
 def _resolver_row(task_id: str, cost: float, model: str) -> Any:
@@ -242,13 +295,17 @@ def test_resolver_spend_is_its_own_usage_record_on_its_own_model(tmp_path: Path)
 
     settings = Settings(_env_file=None, implementer_model="m-task")
     append_row(tmp_path, _resolver_row("T02", 0.4, "m-hard"))
-    records = implement_nodes.usage_records([_result("T01", 0.5), _result("T02", 1.0)], settings, workspace=tmp_path)
+    records = implement_nodes.usage_records(
+        [_result("T01", 0.5), _result("T02", 1.0)], settings, workspace=tmp_path
+    )
     assert [(r["role"], r["model"], r["cost_usd"]) for r in records] == [
         ("implementer", "m-task", 0.5),
         ("implementer", "m-task", 0.6),
         ("resolver", "m-hard", 0.4),
     ]
-    assert sum(r["cost_usd"] or 0 for r in records) == pytest.approx(1.5)  # nothing counted twice or lost
+    assert sum(r["cost_usd"] or 0 for r in records) == pytest.approx(
+        1.5
+    )  # nothing counted twice or lost
 
 
 def test_without_a_workspace_the_resolver_stays_folded_into_its_task() -> None:
@@ -258,16 +315,26 @@ def test_without_a_workspace_the_resolver_stays_folded_into_its_task() -> None:
     assert [(r["role"], r["cost_usd"]) for r in records] == [("implementer", 1.0)]
 
 
-def test_a_resolver_row_larger_than_the_task_cost_cannot_make_a_negative_record(tmp_path: Path) -> None:
+def test_a_resolver_row_larger_than_the_task_cost_cannot_make_a_negative_record(
+    tmp_path: Path,
+) -> None:
     from idea_to_mvp.config import Settings
     from idea_to_mvp.implementation.ledger import append_row
 
-    append_row(tmp_path, _resolver_row("T02", 5.0, "m-hard"))  # a cost the progress file never recorded
-    records = implement_nodes.usage_records([_result("T02", 1.0)], Settings(_env_file=None), workspace=tmp_path)
-    assert all((r["cost_usd"] or 0) >= 0 for r in records) and sum(r["cost_usd"] or 0 for r in records) == pytest.approx(1.0)
+    append_row(
+        tmp_path, _resolver_row("T02", 5.0, "m-hard")
+    )  # a cost the progress file never recorded
+    records = implement_nodes.usage_records(
+        [_result("T02", 1.0)], Settings(_env_file=None), workspace=tmp_path
+    )
+    assert all((r["cost_usd"] or 0) >= 0 for r in records) and sum(
+        r["cost_usd"] or 0 for r in records
+    ) == pytest.approx(1.0)
 
 
-async def test_the_lead_session_is_counted_in_usage_and_so_in_the_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_lead_session_is_counted_in_usage_and_so_in_the_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from idea_to_mvp.implementation.ledger import append_row, check_ledger
 
     monkeypatch.chdir(tmp_path)
@@ -280,9 +347,15 @@ async def test_the_lead_session_is_counted_in_usage_and_so_in_the_budget(tmp_pat
 
     monkeypatch.setattr(implementer, "run_implementation", fake_run)
     state = dict(make_initial_state(IDEA, 1))
-    state.update(workspace_dir=str(tmp_path), execution_strategy={"mode": "subagents", "workstreams": []})
-    append_row(tmp_path, {**row, "label": "earlier", "cost_usd": 7.0})  # a session from before: not this node's
+    state.update(
+        workspace_dir=str(tmp_path), execution_strategy={"mode": "subagents", "workstreams": []}
+    )
+    append_row(
+        tmp_path, {**row, "label": "earlier", "cost_usd": 7.0}
+    )  # a session from before: not this node's
     update = await implement_nodes.implementer_node(state)  # type: ignore[arg-type]
     clear_settings_cache()
-    assert [(r["role"], r["model"], r["cost_usd"]) for r in update["usage"]] == [("implementer", "m-lead", 0.9)]
+    assert [(r["role"], r["model"], r["cost_usd"]) for r in update["usage"]] == [
+        ("implementer", "m-lead", 0.9)
+    ]
     assert check_ledger(tmp_path, update["usage"]).ledger_usd == pytest.approx(7.9)

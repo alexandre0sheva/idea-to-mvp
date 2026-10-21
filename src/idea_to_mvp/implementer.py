@@ -66,6 +66,7 @@ TEAM_SESSION_PROMPT = (
     "required tests and the full test suite must stay green. Finish with a short summary of what you built."
 )
 
+
 def _subagent_prompt(workspace: Path | None, name: str, fallback: str) -> str:
     if workspace is not None:
         path = Path(workspace) / ".claude" / "agents" / f"{name}.md"
@@ -161,9 +162,15 @@ async def _run_agent_async(
             if isinstance(message, ResultMessage):
                 result_text = (message.result or "").strip()
                 if message.is_error:
-                    result_text = f"Agent run ended with an error ({message.subtype}). {result_text}".strip()
+                    result_text = (
+                        f"Agent run ended with an error ({message.subtype}). {result_text}".strip()
+                    )
                     failed = True
-                cost, turns, session_id = message.total_cost_usd, message.num_turns, message.session_id
+                cost, turns, session_id = (
+                    message.total_cost_usd,
+                    message.num_turns,
+                    message.session_id,
+                )
                 LOGGER.info(
                     "Agent session finished: turns=%s cost_usd=%s error=%s",
                     message.num_turns,
@@ -198,7 +205,9 @@ def _run_agent(
     label: str,
 ) -> str:
     """Run one session to its end on its own event loop, recording it under `label` (this runs in a worker thread)."""
-    log = SessionLog(workspace, kind="task", label=label, model=model_label(settings, "implementer"))
+    log = SessionLog(
+        workspace, kind="task", label=label, model=model_label(settings, "implementer")
+    )
     return asyncio.run(
         _run_agent_async(
             prompt,
@@ -237,7 +246,8 @@ def run_implementation(workspace: Path, strategy: dict[str, Any], settings: Sett
                 workspace=workspace,
                 settings=settings,
                 max_turns=settings.implementer_max_turns,
-                max_budget_usd=settings.implementer_max_total_usd / len(workstreams),  # an equal share each
+                max_budget_usd=settings.implementer_max_total_usd
+                / len(workstreams),  # an equal share each
                 label=f"workstream-{name}",
             )
             logs.append(f"## Workstream `{name}`\n\n{session_log or 'No summary produced.'}")

@@ -14,7 +14,8 @@ from idea_to_mvp.ui.view import IMPL_CHOICE_START, MODE_ANSWERS, MODE_IMPL_GATE,
 
 IDEA = "A habit tracker for climbing gyms"
 ITEMS = [
-    {"question": f"Question {i}?", "why_it_matters": "Scope", "suggested_answer": f"Suggestion {i}"} for i in range(1, 6)
+    {"question": f"Question {i}?", "why_it_matters": "Scope", "suggested_answer": f"Suggestion {i}"}
+    for i in range(1, 6)
 ]
 
 
@@ -49,9 +50,13 @@ def test_the_answers_gate_answers_with_each_questions_suggestion(no_interrupt: N
     assert update["stage"] == "answers"
 
 
-def test_the_answers_gate_still_asks_when_there_are_no_suggestions_to_use(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_answers_gate_still_asks_when_there_are_no_suggestions_to_use(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     asked: list[str] = []
-    monkeypatch.setattr(gates, "interrupt", lambda payload: asked.append(payload["kind"]) or "my answers")
+    monkeypatch.setattr(
+        gates, "interrupt", lambda payload: asked.append(payload["kind"]) or "my answers"
+    )
     for items in ([], [{"question": "Q?", "why_it_matters": "x", "suggested_answer": ""}]):
         update = gates.collect_answers_node(autopilot_state(questions=items))
         assert update["user_answers"] == "my answers"
@@ -60,14 +65,26 @@ def test_the_answers_gate_still_asks_when_there_are_no_suggestions_to_use(monkey
 
 def test_the_architecture_gate_picks_the_architects_recommendation(no_interrupt: None) -> None:
     for recommended in ("A", "B"):
-        update = gates.arch_choice_node(autopilot_state(architecture_proposal={"recommendation": recommended}))
+        update = gates.arch_choice_node(
+            autopilot_state(architecture_proposal={"recommendation": recommended})
+        )
         assert update["arch_choice"]["option"] == recommended
         assert "utopilot" in update["arch_choice"]["notes"]
 
 
-def test_the_architecture_gate_falls_back_to_option_a_without_a_recommendation(no_interrupt: None) -> None:
-    assert gates.arch_choice_node(autopilot_state(architecture_proposal={}))["arch_choice"]["option"] == "A"
-    assert gates.arch_choice_node(autopilot_state(architecture_proposal={"recommendation": "C"}))["arch_choice"]["option"] == "A"
+def test_the_architecture_gate_falls_back_to_option_a_without_a_recommendation(
+    no_interrupt: None,
+) -> None:
+    assert (
+        gates.arch_choice_node(autopilot_state(architecture_proposal={}))["arch_choice"]["option"]
+        == "A"
+    )
+    assert (
+        gates.arch_choice_node(autopilot_state(architecture_proposal={"recommendation": "C"}))[
+            "arch_choice"
+        ]["option"]
+        == "A"
+    )
 
 
 def test_the_plan_gate_generates_the_pack(no_interrupt: None) -> None:
@@ -75,14 +92,20 @@ def test_the_plan_gate_generates_the_pack(no_interrupt: None) -> None:
     assert update["plan_decision"]["generate"] is True and update["stage"] == "plan_bundle"
 
 
-def test_the_implement_gate_and_the_iterate_gate_always_ask(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_implement_gate_and_the_iterate_gate_always_ask(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from idea_to_mvp.nodes import iterate
 
     asked: list[str] = []
 
     def ask(payload: dict[str, Any]) -> Any:
         asked.append(payload["kind"])
-        return {"implement": False, "notes": ""} if payload["kind"] == "implement_gate" else {"iterate": False, "feedback": ""}
+        return (
+            {"implement": False, "notes": ""}
+            if payload["kind"] == "implement_gate"
+            else {"iterate": False, "feedback": ""}
+        )
 
     monkeypatch.setattr(gates, "interrupt", ask)
     monkeypatch.setattr(iterate, "interrupt", ask)
@@ -112,7 +135,10 @@ async def test_a_demo_run_on_autopilot_stops_only_at_the_implement_gate(demo_env
     (interrupt,) = [i for task in snapshot.tasks for i in task.interrupts]
     assert interrupt.value["kind"] == "implement_gate"
     values = snapshot.values
-    assert values["user_answers"].startswith("1. ") and values["arch_choice"]["option"] in ("A", "B")
+    assert values["user_answers"].startswith("1. ") and values["arch_choice"]["option"] in (
+        "A",
+        "B",
+    )
     assert values["plan_decision"]["generate"] is True and values["project_bundle_files"]
     assert values["implement_decision"]["implement"] is False  # it was not decided for the user
 
@@ -120,13 +146,17 @@ async def test_a_demo_run_on_autopilot_stops_only_at_the_implement_gate(demo_env
 # ----------------------------------------------------------------- service
 
 
-async def test_the_ui_runs_on_autopilot_up_to_the_implement_gate_and_no_further(demo_service: Any) -> None:
+async def test_the_ui_runs_on_autopilot_up_to_the_implement_gate_and_no_further(
+    demo_service: Any,
+) -> None:
     service, graphs = demo_service
     outputs = await submit(service, IDEA, "", "ap-ui", autopilot=True)
     assert await mode_of(service, "ap-ui") == MODE_IMPL_GATE
     assert "Autopilot" in chat_text(outputs[-1])  # the transcript says these choices were automatic
     graph = await graphs.get()
-    assert (await graph.aget_state({"configurable": {"thread_id": "ap-ui"}})).values["autopilot"] is True
+    assert (await graph.aget_state({"configurable": {"thread_id": "ap-ui"}})).values[
+        "autopilot"
+    ] is True
 
     await submit(service, "", IMPL_CHOICE_START, "ap-ui", autopilot=True)
     assert await mode_of(service, "ap-ui") == MODE_ITERATE_GATE  # the iterate gate still asks
@@ -139,7 +169,9 @@ async def test_switching_autopilot_on_at_a_gate_takes_over_from_there(demo_servi
     await submit(service, "1. Solo climbers.", "", "ap-toggle", autopilot=True)
     assert await mode_of(service, "ap-toggle") == MODE_IMPL_GATE
     graph = await graphs.get()
-    assert (await graph.aget_state({"configurable": {"thread_id": "ap-toggle"}})).values["autopilot"] is True
+    assert (await graph.aget_state({"configurable": {"thread_id": "ap-toggle"}})).values[
+        "autopilot"
+    ] is True
 
 
 async def test_the_settings_panel_mode_reaches_the_new_run(demo_service: Any) -> None:

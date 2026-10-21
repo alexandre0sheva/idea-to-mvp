@@ -35,13 +35,22 @@ def test_duplicate_task_ids_are_reported() -> None:
 
 
 def test_malformed_task_ids_are_reported() -> None:
-    plan = make_plan([make_task("task-1", requirement_ids=["R1", "R2"]), make_task("T02", workstream="web-ui")])
+    plan = make_plan(
+        [make_task("task-1", requirement_ids=["R1", "R2"]), make_task("T02", workstream="web-ui")]
+    )
     assert any("malformed task id" in issue and "task-1" in issue for issue in issues_of(plan))
 
 
 def test_depends_on_an_unknown_task_is_reported() -> None:
-    plan = make_plan([make_task("T01", requirement_ids=["R1", "R2"]), make_task("T02", workstream="web-ui", depends_on=["T09"])])
-    assert any("T02" in issue and "unknown task" in issue and "T09" in issue for issue in issues_of(plan))
+    plan = make_plan(
+        [
+            make_task("T01", requirement_ids=["R1", "R2"]),
+            make_task("T02", workstream="web-ui", depends_on=["T09"]),
+        ]
+    )
+    assert any(
+        "T02" in issue and "unknown task" in issue and "T09" in issue for issue in issues_of(plan)
+    )
 
 
 def test_a_three_node_cycle_is_reported_with_its_path() -> None:
@@ -57,14 +66,23 @@ def test_a_three_node_cycle_is_reported_with_its_path() -> None:
 
 
 def test_a_task_depending_on_itself_is_a_cycle() -> None:
-    plan = make_plan([make_task("T01", depends_on=["T01"], requirement_ids=["R1", "R2"]), make_task("T02", workstream="web-ui")])
+    plan = make_plan(
+        [
+            make_task("T01", depends_on=["T01"], requirement_ids=["R1", "R2"]),
+            make_task("T02", workstream="web-ui"),
+        ]
+    )
     assert any("cycle" in issue for issue in issues_of(plan))
 
 
 def test_unknown_workstream_is_reported() -> None:
-    plan = make_plan([make_task("T01", requirement_ids=["R1", "R2"]), make_task("T02", workstream="mobile")])
+    plan = make_plan(
+        [make_task("T01", requirement_ids=["R1", "R2"]), make_task("T02", workstream="mobile")]
+    )
     issues = issues_of(plan)
-    assert any("T02" in issue and "unknown workstream" in issue and "mobile" in issue for issue in issues)
+    assert any(
+        "T02" in issue and "unknown workstream" in issue and "mobile" in issue for issue in issues
+    )
 
 
 def test_a_workstream_without_tasks_is_reported() -> None:
@@ -85,12 +103,24 @@ def test_unknown_contract_ids_are_reported_for_inputs_and_outputs() -> None:
 
 
 def test_requirement_ids_missing_from_the_prd_are_reported() -> None:
-    plan = make_plan([make_task("T01", requirement_ids=["R1", "R2", "R9"]), make_task("T02", workstream="web-ui")])
-    assert any("T01" in issue and "R9" in issue and "not in the PRD" in issue for issue in issues_of(plan))
+    plan = make_plan(
+        [
+            make_task("T01", requirement_ids=["R1", "R2", "R9"]),
+            make_task("T02", workstream="web-ui"),
+        ]
+    )
+    assert any(
+        "T01" in issue and "R9" in issue and "not in the PRD" in issue for issue in issues_of(plan)
+    )
 
 
 def test_a_p0_requirement_no_task_covers_is_reported_but_p1_is_not() -> None:
-    plan = make_plan([make_task("T01", requirement_ids=["R1"]), make_task("T02", workstream="web-ui", requirement_ids=["R1"])])
+    plan = make_plan(
+        [
+            make_task("T01", requirement_ids=["R1"]),
+            make_task("T02", workstream="web-ui", requirement_ids=["R1"]),
+        ]
+    )
     issues = issues_of(plan)
     assert any("R2" in issue and "P0" in issue and "no task" in issue for issue in issues)
     assert not any("R3" in issue for issue in issues)  # P1
@@ -106,7 +136,9 @@ def test_a_plan_without_tasks_is_reported() -> None:
 
 
 def test_a_plan_can_have_several_issues_at_once() -> None:
-    plan = make_plan([make_task("T01", workstream="mobile", depends_on=["T05"], contracts_in=["C9"])])
+    plan = make_plan(
+        [make_task("T01", workstream="mobile", depends_on=["T05"], contracts_in=["C9"])]
+    )
     assert len(issues_of(plan)) >= 4
 
 
@@ -236,7 +268,9 @@ def test_render_plan_markdown_snapshot() -> None:
                 handoff="",
             ),
         ],
-        commands=ProjectCommands(install="pip install -e .", test="pytest", lint=None, run="python -m app"),
+        commands=ProjectCommands(
+            install="pip install -e .", test="pytest", lint=None, run="python -m app"
+        ),
     )
     assert render_plan_markdown(plan) == EXPECTED_MARKDOWN
 
@@ -274,8 +308,16 @@ def test_a_rendered_plan_parses_back_to_the_same_plan() -> None:
 
     plan = make_plan(
         [
-            make_task("T01", requirement_ids=["R1", "R2"], contracts_out=["C1"], acceptance=["It works.", "It is fast."], tests=["A", "B"]),
-            make_task("T02", workstream="web-ui", depends_on=["T01"], contracts_in=["C1"], handoff=""),
+            make_task(
+                "T01",
+                requirement_ids=["R1", "R2"],
+                contracts_out=["C1"],
+                acceptance=["It works.", "It is fast."],
+                tests=["A", "B"],
+            ),
+            make_task(
+                "T02", workstream="web-ui", depends_on=["T01"], contracts_in=["C1"], handoff=""
+            ),
             make_task("I2-01", depends_on=["T02"], requirement_ids=[], coverage_target=90),
         ]
     )
@@ -285,7 +327,9 @@ def test_a_rendered_plan_parses_back_to_the_same_plan() -> None:
 def test_missing_commands_and_contracts_round_trip_as_none() -> None:
     from idea_to_mvp.plan import ProjectCommands, parse_plan_markdown, render_plan_markdown
 
-    plan = make_plan(contracts=[], commands=ProjectCommands(install=None, test="pytest -q", lint=None, run=None))
+    plan = make_plan(
+        contracts=[], commands=ProjectCommands(install=None, test="pytest -q", lint=None, run=None)
+    )
     parsed = parse_plan_markdown(render_plan_markdown(plan))
     assert parsed.contracts == [] and parsed.commands == plan.commands
 
@@ -293,7 +337,9 @@ def test_missing_commands_and_contracts_round_trip_as_none() -> None:
 def test_a_field_may_run_over_several_lines() -> None:
     from idea_to_mvp.plan import parse_plan_markdown, render_plan_markdown
 
-    text = render_plan_markdown(make_plan()).replace("- Goal: Deliver a slice.", "- Goal: Deliver a slice.\n  It spans two lines.", 1)
+    text = render_plan_markdown(make_plan()).replace(
+        "- Goal: Deliver a slice.", "- Goal: Deliver a slice.\n  It spans two lines.", 1
+    )
     assert "It spans two lines." in parse_plan_markdown(text).tasks[0].goal
 
 
@@ -301,7 +347,10 @@ def test_a_hand_edit_that_changes_a_dependency_is_reflected_in_the_plan() -> Non
     from idea_to_mvp.plan import parse_plan_markdown, render_plan_markdown
 
     text = render_plan_markdown(make_plan())
-    edited = text.replace("### T02. Task T02\n- Goal: Deliver a slice.\n- Workstream: web-ui.\n- Depends on: T01.", "### T02. Task T02\n- Goal: Deliver a slice.\n- Workstream: web-ui.\n- Depends on: none.")
+    edited = text.replace(
+        "### T02. Task T02\n- Goal: Deliver a slice.\n- Workstream: web-ui.\n- Depends on: T01.",
+        "### T02. Task T02\n- Goal: Deliver a slice.\n- Workstream: web-ui.\n- Depends on: none.",
+    )
     assert edited != text and parse_plan_markdown(edited).tasks[1].depends_on == []
 
 
@@ -316,7 +365,13 @@ def test_a_plan_that_cannot_be_read_says_what_is_wrong() -> None:
         parse_plan_markdown("just some prose")
     assert any("no tasks" in issue for issue in caught.value.issues)
     with pytest.raises(PlanParseError) as caught:
-        parse_plan_markdown(text.replace("- Coverage target: at least 80% for changed scope.", "- Coverage target: plenty.", 1))
+        parse_plan_markdown(
+            text.replace(
+                "- Coverage target: at least 80% for changed scope.",
+                "- Coverage target: plenty.",
+                1,
+            )
+        )
     assert any("Coverage target" in issue for issue in caught.value.issues)
 
 
@@ -325,7 +380,9 @@ def test_a_plan_without_a_test_command_parses_but_is_flagged_by_the_validator() 
 
     text = render_plan_markdown(make_plan()).replace("- Test: `pytest`", "- Test: none")
     plan = parse_plan_markdown(text)
-    assert plan.commands.test == "" and "the project test command is empty" in validate_plan(plan, prd_markdown=PRD, workstreams=WORKSTREAMS)
+    assert plan.commands.test == "" and "the project test command is empty" in validate_plan(
+        plan, prd_markdown=PRD, workstreams=WORKSTREAMS
+    )
 
 
 # ------------------------------------------------------------ test report command
@@ -341,19 +398,34 @@ def test_a_plan_written_before_test_reports_existed_still_loads_without_one() ->
 
 
 def test_the_report_command_is_rendered_and_read_back() -> None:
-    plan = make_plan(commands=ProjectCommands(install=None, test="pytest", lint=None, run=None, test_report=REPORT_COMMAND))
+    plan = make_plan(
+        commands=ProjectCommands(
+            install=None, test="pytest", lint=None, run=None, test_report=REPORT_COMMAND
+        )
+    )
     text = render_plan_markdown(plan)
     assert f"- Test report: `{REPORT_COMMAND}`" in text
     assert parse_plan_markdown(text).commands == plan.commands
-    assert parse_plan_markdown(text.replace(f"- Test report: `{REPORT_COMMAND}`\n", "")).commands.test_report is None  # an old plan.md
+    assert (
+        parse_plan_markdown(
+            text.replace(f"- Test report: `{REPORT_COMMAND}`\n", "")
+        ).commands.test_report
+        is None
+    )  # an old plan.md
 
 
 def test_a_report_command_must_write_where_the_orchestrator_reads() -> None:
     def issues(report: str | None) -> list[str]:
-        commands = ProjectCommands(install=None, test="pytest", lint=None, run=None, test_report=report)
-        return validate_plan(make_plan(commands=commands), prd_markdown=PRD, workstreams=WORKSTREAMS)
+        commands = ProjectCommands(
+            install=None, test="pytest", lint=None, run=None, test_report=report
+        )
+        return validate_plan(
+            make_plan(commands=commands), prd_markdown=PRD, workstreams=WORKSTREAMS
+        )
 
-    assert issues(REPORT_COMMAND) == [] and issues(None) == [] and issues("  ") == []  # no command is allowed
+    assert (
+        issues(REPORT_COMMAND) == [] and issues(None) == [] and issues("  ") == []
+    )  # no command is allowed
     (problem,) = issues("pytest --junitxml=report.xml")
     assert ".idea-to-mvp/reports" in problem and "test report" in problem
 
@@ -362,4 +434,8 @@ def test_the_plan_writer_is_told_how_to_declare_the_report_command() -> None:
     from idea_to_mvp.roles import ROLES
 
     prompt = ROLES["plan_writer"].system_prompt
-    assert "test_report" in prompt and ".idea-to-mvp/reports/junit.xml" in prompt and "junitxml" in prompt
+    assert (
+        "test_report" in prompt
+        and ".idea-to-mvp/reports/junit.xml" in prompt
+        and "junitxml" in prompt
+    )

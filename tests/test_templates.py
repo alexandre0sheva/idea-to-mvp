@@ -51,7 +51,11 @@ def test_every_template_can_run_tests_with_a_report_and_lint(name: str) -> None:
     assert "junit" in (commands.test_report or "")
     plan = with_template_commands(make_plan(), name)
     assert plan.commands == commands
-    problems = validate_plan(plan, prd_markdown="## Requirements\n- R1 (P0): x\n- R2 (P0): y\n- R3 (P1): z\n", workstreams=["backend-api", "web-ui"])
+    problems = validate_plan(
+        plan,
+        prd_markdown="## Requirements\n- R1 (P0): x\n- R2 (P0): y\n- R3 (P1): z\n",
+        workstreams=["backend-api", "web-ui"],
+    )
     assert not [p for p in problems if "command" in p]
 
 
@@ -60,19 +64,34 @@ def test_a_scaffold_carries_a_gitignore_a_check_script_and_a_test(name: str) -> 
     template = get_template(name)
     assert template is not None
     files = template_files(template, "habit-tracker")
-    assert ".gitignore" in files and "gitignore" not in files  # a real .gitignore here would apply to this folder
+    assert (
+        ".gitignore" in files and "gitignore" not in files
+    )  # a real .gitignore here would apply to this folder
     assert files[CHECK_SCRIPT] == render_check_script(template.commands)
     assert files[CHECK_SCRIPT].startswith("#!/usr/bin/env bash")
     assert any("test" in path and path != CHECK_SCRIPT for path in files)
-    assert not [path for path, text in files.items() if "{{name}}" in text]  # every placeholder is filled
+    assert not [
+        path for path, text in files.items() if "{{name}}" in text
+    ]  # every placeholder is filled
     assert any("habit-tracker" in text for text in files.values())
     assert "node_modules/" in files[".gitignore"] or ".venv/" in files[".gitignore"]
-    assert not [path for path in files if path in {"README.md", "AGENTS.md", "CLAUDE.md"}]  # the pack's documents
+    assert not [
+        path for path in files if path in {"README.md", "AGENTS.md", "CLAUDE.md"}
+    ]  # the pack's documents
 
 
 def test_a_scaffold_never_brings_a_file_outside_the_harness_surface_into_conflict() -> None:
     """The check script and the gitignore are the only files a pack also writes; the rest is the stack's own."""
-    pack_files = {"CLAUDE.md", "AGENTS.md", "README.md", "PRD.md", "ARCHITECTURE.md", "plan.md", "plan.json", "STRATEGY.json"}
+    pack_files = {
+        "CLAUDE.md",
+        "AGENTS.md",
+        "README.md",
+        "PRD.md",
+        "ARCHITECTURE.md",
+        "plan.md",
+        "plan.json",
+        "STRATEGY.json",
+    }
     for template in load_templates().values():
         clashes = set(template_files(template)) & pack_files
         assert not clashes, (template.name, clashes)
@@ -81,7 +100,9 @@ def test_a_scaffold_never_brings_a_file_outside_the_harness_surface_into_conflic
 def test_the_check_script_of_a_template_is_the_one_a_pack_renders_for_its_commands() -> None:
     """Pack and template then write the same bytes, whichever lands first."""
     for template in load_templates().values():
-        assert template_files(template)[CHECK_SCRIPT] == render_check_script(with_template_commands(make_plan(), template.name).commands)
+        assert template_files(template)[CHECK_SCRIPT] == render_check_script(
+            with_template_commands(make_plan(), template.name).commands
+        )
 
 
 def test_the_harness_validator_accepts_the_check_script_of_every_template() -> None:
@@ -115,7 +136,10 @@ def test_the_strategy_is_offered_every_template_and_none() -> None:
 
 def test_the_project_name_drops_the_pack_timestamp() -> None:
     assert project_name("20261020-101500-000001-habit-tracker") == "habit-tracker"
-    assert project_name("20261020-101500-000001-habit-tracker-101500123456") == "habit-tracker-101500123456"
+    assert (
+        project_name("20261020-101500-000001-habit-tracker-101500123456")
+        == "habit-tracker-101500123456"
+    )
     assert project_name("20261020-101500-000001-") == "app"
     assert project_name("My Idea!") == "my-idea"
 
@@ -130,7 +154,9 @@ def test_missing_tools_names_what_the_template_needs(monkeypatch: pytest.MonkeyP
 
 def test_the_plan_writer_is_told_what_already_exists() -> None:
     block = prompt_block("python-fastapi")
-    assert "python-fastapi" in block and "`src/app/main.py`" in block and "`scripts/check.sh`" in block
+    assert (
+        "python-fastapi" in block and "`src/app/main.py`" in block and "`scripts/check.sh`" in block
+    )
     assert "Do not plan tasks that create" in block and "scaffold" in block
     assert (get_template("python-fastapi").commands.test_report or "") in block  # type: ignore[union-attr]
     assert prompt_block("none") == "" and prompt_block(None) == "" and prompt_block("django") == ""
@@ -171,7 +197,11 @@ def test_apply_lays_the_scaffold_and_keeps_what_the_workspace_has(tmp_path: Path
     assert (workspace / "scripts" / "check.sh").read_text() == "#!/bin/sh\n# the pack's own\n"
     assert (workspace / "README.md").read_text() == "pack readme\n"
     ignore = (workspace / ".gitignore").read_text().splitlines()
-    assert ignore[:2] == ["custom/", ".venv/"] and ignore.count(".venv/") == 1 and "__pycache__/" in ignore
+    assert (
+        ignore[:2] == ["custom/", ".venv/"]
+        and ignore.count(".venv/") == 1
+        and "__pycache__/" in ignore
+    )
     assert 'name = "habit-tracker"' in (workspace / "pyproject.toml").read_text()
 
 
@@ -205,7 +235,9 @@ def test_the_pack_names_its_template_in_strategy_json(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("recorded", [None, "none", "", "django"])
-def test_no_template_when_the_pack_records_none_or_an_unknown_one(tmp_path: Path, recorded: str | None) -> None:
+def test_no_template_when_the_pack_records_none_or_an_unknown_one(
+    tmp_path: Path, recorded: str | None
+) -> None:
     assert pack_template(_pack(tmp_path, recorded)) is None
 
 
@@ -231,24 +263,42 @@ def test_check_sh_runs_green_on_the_scaffold(name: str, tmp_path: Path) -> None:
         pytest.skip(f"{', '.join(missing_tools(template))} not installed")
     apply_template(template, tmp_path, "demo-app")
     done = subprocess.run(
-        ["bash", CHECK_SCRIPT], cwd=tmp_path, capture_output=True, text=True, timeout=900, check=False
+        ["bash", CHECK_SCRIPT],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=900,
+        check=False,
     )
     assert done.returncode == 0, done.stdout[-3000:] + done.stderr[-3000:]
     evidence = read_evidence(tmp_path)
-    assert evidence.problem == "" and evidence.tests >= 1 and evidence.failed == 0 and evidence.errors == 0
-    if name.startswith("python"):  # the Cobertura file of the JS tools has a DOCTYPE, which the reader refuses
+    assert (
+        evidence.problem == ""
+        and evidence.tests >= 1
+        and evidence.failed == 0
+        and evidence.errors == 0
+    )
+    if name.startswith(
+        "python"
+    ):  # the Cobertura file of the JS tools has a DOCTYPE, which the reader refuses
         assert evidence.coverage_percent is not None
 
 
 def test_what_a_tool_leaves_in_the_template_folder_is_not_part_of_the_scaffold() -> None:
     template = get_template("python-cli")
     assert template is not None
-    for junk in (".ruff_cache/CACHEDIR.TAG", "src/app/__pycache__/cli.pyc", "node_modules/x/index.js"):
+    for junk in (
+        ".ruff_cache/CACHEDIR.TAG",
+        "src/app/__pycache__/cli.pyc",
+        "node_modules/x/index.js",
+    ):
         stray = template.root / junk
         stray.parent.mkdir(parents=True, exist_ok=True)
         stray.write_bytes(b"\xff\xff")
     try:
-        assert not [path for path in template_files(template) if "cache" in path or "node_modules" in path]
+        assert not [
+            path for path in template_files(template) if "cache" in path or "node_modules" in path
+        ]
     finally:
         for top in (".ruff_cache", "node_modules"):
             shutil.rmtree(template.root / top, ignore_errors=True)

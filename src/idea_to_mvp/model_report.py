@@ -32,7 +32,9 @@ def price_label(item: ModelEntry | None) -> str:
 
 def configured_models(settings: Settings) -> list[tuple[str, str, str]]:
     """`(role, provider, model)` for every role the settings resolve, then each kind of agent session."""
-    rows: list[tuple[str, str, str]] = [(role, *resolve_role_model(settings, role)) for role in ROLES]
+    rows: list[tuple[str, str, str]] = [
+        (role, *resolve_role_model(settings, role)) for role in ROLES
+    ]
     rows += [(role, "anthropic", resolve_agent_model(settings, role)) for role in AGENT_ROLES]
     return rows
 
@@ -48,7 +50,10 @@ def configured_choices(settings: Settings) -> dict[str, str]:
 
 def _table(header: list[str], rows: list[list[str]]) -> str:
     widths = [max(len(line[i]) for line in [header, *rows]) for i in range(len(header))]
-    lines = ["  ".join(cell.ljust(width) for cell, width in zip(line, widths, strict=True)).rstrip() for line in [header, *rows]]
+    lines = [
+        "  ".join(cell.ljust(width) for cell, width in zip(line, widths, strict=True)).rstrip()
+        for line in [header, *rows]
+    ]
     lines.insert(1, "  ".join("-" * width for width in widths))
     return "\n".join(lines)
 
@@ -63,11 +68,16 @@ def format_models_report(settings: Settings, catalog: ModelCatalog | None = None
     profiles = list(PROFILES)
     roles = list(next(iter(PROFILES.values())))
     checked = max(item.checked for item in catalog.models.values())
-    sections = [f"Model catalog: {len(catalog.models)} models (models.toml), last checked {checked}."]
+    sections = [
+        f"Model catalog: {len(catalog.models)} models (models.toml), last checked {checked}."
+    ]
 
     sections.append(
         "Model per role and profile\n"
-        + _table(["role", *profiles], [[role, *(PROFILES[name][role][1] for name in profiles)] for role in roles])
+        + _table(
+            ["role", *profiles],
+            [[role, *(PROFILES[name][role][1] for name in profiles)] for role in roles],
+        )
     )
 
     price_rows = [
@@ -85,19 +95,31 @@ def format_models_report(settings: Settings, catalog: ModelCatalog | None = None
     ]
     sections.append(
         "Prices, USD per million tokens\n"
-        + _table(["model", "provider", "tier", "status", "in / out", "cached in", "context", "checked"], price_rows)
+        + _table(
+            ["model", "provider", "tier", "status", "in / out", "cached in", "context", "checked"],
+            price_rows,
+        )
     )
 
     cost_rows: list[list[str]] = []
     notes: list[str] = []
-    estimates: list[tuple[str, RunEstimate]] = [(name, catalog.estimate_run(name)) for name in profiles]
-    estimates.append(("this configuration", catalog.estimate_run(settings.model_profile, configured_choices(settings))))
+    estimates: list[tuple[str, RunEstimate]] = [
+        (name, catalog.estimate_run(name)) for name in profiles
+    ]
+    estimates.append(
+        (
+            "this configuration",
+            catalog.estimate_run(settings.model_profile, configured_choices(settings)),
+        )
+    )
     for name, estimate in estimates:
         cost_rows.append(
             [name, _dollars(estimate.planning), _dollars(estimate.agents), _dollars(estimate.total)]
         )
         if estimate.unpriced:
-            notes.append(f"{name}: unpriced, left out of the estimate: {', '.join(estimate.unpriced)}")
+            notes.append(
+                f"{name}: unpriced, left out of the estimate: {', '.join(estimate.unpriced)}"
+            )
     sections.append(
         "Typical run (a three-round panel; a three-task plan built by implementer sessions, one fix, three verifier lanes)\n"
         + _table(["profile", "planning", "agent sessions", "total"], cost_rows)
@@ -107,7 +129,8 @@ def format_models_report(settings: Settings, catalog: ModelCatalog | None = None
     )
 
     configured = [
-        [role, provider, model, price_label(catalog.find(model))] for role, provider, model in configured_models(settings)
+        [role, provider, model, price_label(catalog.find(model))]
+        for role, provider, model in configured_models(settings)
     ]
     sections.append(
         f"This configuration (profile {settings.model_profile}; roles pinned in .env override it)\n"

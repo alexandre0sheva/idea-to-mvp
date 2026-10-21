@@ -42,7 +42,9 @@ def suggested_answers(items: Sequence[Mapping[str, Any]]) -> str | None:
     suggestions = [str(item.get("suggested_answer") or "").strip() for item in items]
     if not items or not all(suggestions):
         return None
-    return "\n".join(f"{number}. {suggestion}" for number, suggestion in enumerate(suggestions, start=1))
+    return "\n".join(
+        f"{number}. {suggestion}" for number, suggestion in enumerate(suggestions, start=1)
+    )
 
 
 def recommended_option(proposal: Mapping[str, Any]) -> Literal["A", "B"]:
@@ -66,7 +68,10 @@ def collect_answers_node(state: IdeaDiscussionState) -> dict[str, Any]:
 
 def arch_choice_node(state: IdeaDiscussionState) -> dict[str, Any]:
     if state.get("autopilot"):
-        auto: ArchChoice = {"option": recommended_option(state.get("architecture_proposal") or {}), "notes": AUTOPILOT_NOTE}
+        auto: ArchChoice = {
+            "option": recommended_option(state.get("architecture_proposal") or {}),
+            "notes": AUTOPILOT_NOTE,
+        }
         return {"arch_choice": auto, "stage": "arch_choice"}
     decision = interrupt(
         {
@@ -137,7 +142,9 @@ def _gate_warning(settings: Any, status: SandboxStatus) -> str:
 def _plan_shape(state: IdeaDiscussionState, max_parallel: int) -> tuple[int, int, str]:
     """(task count, dag width, one sentence for the question) of the pack's plan, for the cost estimate."""
     try:
-        plan = load_plan((Path(state.get("project_bundle_dir", "")) / "plan.json").read_text(encoding="utf-8"))
+        plan = load_plan(
+            (Path(state.get("project_bundle_dir", "")) / "plan.json").read_text(encoding="utf-8")
+        )
     except OSError:
         plan = None
     if plan is None or not plan.tasks:
@@ -148,7 +155,9 @@ def _plan_shape(state: IdeaDiscussionState, max_parallel: int) -> tuple[int, int
     if max_parallel <= 1 or width <= 1:
         how = "they will be built one at a time"
     else:
-        how = f"{min(width, max_parallel)} of them can run in parallel (each in its own git worktree)"
+        how = (
+            f"{min(width, max_parallel)} of them can run in parallel (each in its own git worktree)"
+        )
     return len(plan.tasks), width, f"The plan has {len(plan.tasks)} tasks; {how}. "
 
 
@@ -157,7 +166,9 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
     status = sandbox_status(settings)
     task_count, width, shape = _plan_shape(state, settings.implementer_max_parallel)
     models = {role: resolve_agent_model(settings, role) for role in AGENT_ROLES}
-    run_estimate = estimate_run_cost(settings, task_count, task_cost_history(settings.projects_dir, models["implementer"]))
+    run_estimate = estimate_run_cost(
+        settings, task_count, task_cost_history(settings.projects_dir, models["implementer"])
+    )
     estimate = run_estimate.to_dict()
     # Harness tuning needs a plan to pick a pilot from; whether the workspace can host its worktrees is checked when
     # it runs (it is skipped with a note otherwise).
@@ -191,7 +202,8 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
             "harness and two proposed edits of it) to choose the harness the rest is built with."
         )
     review_notes = [
-        str(issue.get("description") or "") for issue in (state.get("blueprint_review") or {}).get("issues") or []
+        str(issue.get("description") or "")
+        for issue in (state.get("blueprint_review") or {}).get("issues") or []
     ]
     if review_notes:
         question += (
@@ -204,7 +216,11 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
             "question": question,
             "bundle_dir": state.get("project_bundle_dir", ""),
             "review_issues": review_notes,
-            "sandbox": {"enabled": status.enabled, "mode": settings.implementer_sandbox, "summary": status.summary},
+            "sandbox": {
+                "enabled": status.enabled,
+                "mode": settings.implementer_sandbox,
+                "summary": status.summary,
+            },
             "permission_mode": settings.implementer_permission_mode,
             "strategy_mode": (state.get("execution_strategy") or {}).get("mode") or "subagents",
             "models": models,
@@ -240,7 +256,9 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
         "parallel": parallel,
         "harness_tuning": tune and bool(tuning["available"]),
     }
-    if implement_decision["harness_tuning"]:  # the pilot runs are agent spend: the dashboard compares against both
+    if implement_decision[
+        "harness_tuning"
+    ]:  # the pilot runs are agent spend: the dashboard compares against both
         estimate = with_tuning(estimate, tuning["estimate"], settings.implementer_max_total_usd)
     return {
         "implement_decision": implement_decision,
@@ -249,7 +267,9 @@ def implement_gate_node(state: IdeaDiscussionState) -> dict[str, Any]:
     }
 
 
-def route_after_implement_gate(state: IdeaDiscussionState) -> Literal["prepare_workspace", "__end__"]:
+def route_after_implement_gate(
+    state: IdeaDiscussionState,
+) -> Literal["prepare_workspace", "__end__"]:
     if state.get("implement_decision", {}).get("implement"):
         return "prepare_workspace"
     return "__end__"

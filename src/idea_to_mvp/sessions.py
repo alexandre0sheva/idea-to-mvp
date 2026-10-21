@@ -56,7 +56,9 @@ class SessionRegistry:
         connection.execute(_SCHEMA)
         return connection
 
-    def upsert(self, thread_id: str, title: str, stage: str, interrupted_at: str | None = None) -> None:
+    def upsert(
+        self, thread_id: str, title: str, stage: str, interrupted_at: str | None = None
+    ) -> None:
         now = self._clock().isoformat()
         with closing(self._connect()) as connection, connection:
             connection.execute(

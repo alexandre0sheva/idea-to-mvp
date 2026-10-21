@@ -18,7 +18,9 @@ from idea_to_mvp.ui.theme import CSS, build_theme
 
 # ------------------------------------------------------------------- stepper
 
-_STEP = re.compile(r"<li class='stage-step (\w+)'[^>]*>.*?<span class='stage-label'>(.*?)</span>", re.DOTALL)
+_STEP = re.compile(
+    r"<li class='stage-step (\w+)'[^>]*>.*?<span class='stage-label'>(.*?)</span>", re.DOTALL
+)
 
 
 def steps(html: str) -> dict[str, str]:
@@ -29,7 +31,9 @@ def steps(html: str) -> dict[str, str]:
 def test_the_stepper_marks_done_active_and_todo_steps() -> None:
     found = steps(stage_stepper("strategy", {}, {}))
     assert list(found) == [label for _, label in PIPELINE_STAGES]
-    assert found["Panel"] == "done" and found["Strategy"] == "active" and found["Blueprint"] == "todo"
+    assert (
+        found["Panel"] == "done" and found["Strategy"] == "active" and found["Blueprint"] == "todo"
+    )
     assert list(found.values()).count("active") == 1
 
 
@@ -65,7 +69,9 @@ def test_elapsed_time_is_shown_only_for_stages_that_have_some() -> None:
     html = stage_stepper("strategy", {}, {"discussion": 8.2, "summary": 65.0, "answers": 0.0})
     assert html.count("class='stage-time'") == 2
     assert ">8s<" in html and ">1m 05s<" in html
-    assert "title='Panel: 8s'" in html and "title='Summary: 1m 05s'" in html  # a finished step's time on hover
+    assert (
+        "title='Panel: 8s'" in html and "title='Summary: 1m 05s'" in html
+    )  # a finished step's time on hover
     assert "title='Answers" not in html
 
 
@@ -75,7 +81,16 @@ def test_stage_names_are_escaped() -> None:
 
 @pytest.mark.parametrize(
     ("seconds", "text"),
-    [(0, "0s"), (-3, "0s"), (0.4, "0s"), (8.4, "8s"), (59.6, "1m 00s"), (65, "1m 05s"), (600, "10m 00s"), (3725, "1h 02m")],
+    [
+        (0, "0s"),
+        (-3, "0s"),
+        (0.4, "0s"),
+        (8.4, "8s"),
+        (59.6, "1m 00s"),
+        (65, "1m 05s"),
+        (600, "10m 00s"),
+        (3725, "1h 02m"),
+    ],
 )
 def test_elapsed_time_formatting(seconds: float, text: str) -> None:
     assert format_elapsed(seconds) == text
@@ -106,8 +121,12 @@ def test_the_usage_badge_omits_the_agent_badge_before_any_session_ran() -> None:
 
 def test_calls_without_a_price_are_called_unpriced() -> None:
     mixed = usage_badge(summary(unpriced_calls=2))
-    assert "$0.25 planning" in mixed and "unpriced" in mixed  # the figure leaves some calls out, and says so
-    none = usage_badge(summary(planning_cost_usd=None, unpriced_calls=4, agent_cost_usd=0.0, agent_calls=0))
+    assert (
+        "$0.25 planning" in mixed and "unpriced" in mixed
+    )  # the figure leaves some calls out, and says so
+    none = usage_badge(
+        summary(planning_cost_usd=None, unpriced_calls=4, agent_cost_usd=0.0, agent_calls=0)
+    )
     assert "planning unpriced" in none and "$" not in none
 
 
@@ -138,7 +157,9 @@ def test_the_model_profile_names_the_preset_and_shows_the_models_it_resolves(mon
 
 
 def test_a_role_pinned_in_the_environment_is_marked_as_overriding_the_profile() -> None:
-    text = model_profile_markdown(Settings(_env_file=None, model_profile="fast", architect_model="my-model"))
+    text = model_profile_markdown(
+        Settings(_env_file=None, model_profile="fast", architect_model="my-model")
+    )
     assert "my-model" in text and "overrides the profile" in text
 
 
@@ -163,7 +184,10 @@ _THEME_SELECTOR = re.compile(r":root|data-theme|\.dark")
 
 
 def rules(css: str) -> list[tuple[str, str]]:
-    return [(selector.strip(), body) for selector, body in _RULE.findall(re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL))]
+    return [
+        (selector.strip(), body)
+        for selector, body in _RULE.findall(re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL))
+    ]
 
 
 def variables(scheme: str) -> dict[str, str]:
@@ -181,9 +205,16 @@ def test_the_theme_is_a_gradio_theme() -> None:
 
 
 def test_no_colour_is_hard_coded_outside_the_variable_blocks() -> None:
-    offenders = [selector for selector, body in rules(CSS) if not _THEME_SELECTOR.search(selector) and _HEX.search(body)]
+    offenders = [
+        selector
+        for selector, body in rules(CSS)
+        if not _THEME_SELECTOR.search(selector) and _HEX.search(body)
+    ]
     assert offenders == []
-    assert not re.search(r"rgba?\(", "".join(body for selector, body in rules(CSS) if not _THEME_SELECTOR.search(selector)))
+    assert not re.search(
+        r"rgba?\(",
+        "".join(body for selector, body in rules(CSS) if not _THEME_SELECTOR.search(selector)),
+    )
 
 
 def test_every_variable_the_rules_use_is_defined() -> None:
@@ -195,7 +226,12 @@ def test_every_variable_the_rules_use_is_defined() -> None:
 def test_the_dark_scheme_restates_every_light_colour() -> None:
     light = {name for name, value in variables("light").items() if _HEX.fullmatch(value.strip())}
     dark = {name for name in variables("dark") if name in light}
-    dark_block = {name for selector, body in rules(CSS) if "dark" in selector for name in re.findall(r"(--[\w-]+):", body)}
+    dark_block = {
+        name
+        for selector, body in rules(CSS)
+        if "dark" in selector
+        for name in re.findall(r"(--[\w-]+):", body)
+    }
     assert light <= dark_block, light - dark_block
     assert dark == light
 
@@ -214,7 +250,8 @@ def _contrast(a: str, b: str) -> float:
 def _mix(accent: str, base: str, share: float) -> str:
     """`color-mix(in srgb, accent share%, base)` as a hex colour."""
     parts = [
-        round(int(accent[i : i + 2], 16) * share + int(base[i : i + 2], 16) * (1 - share)) for i in (1, 3, 5)
+        round(int(accent[i : i + 2], 16) * share + int(base[i : i + 2], 16) * (1 - share))
+        for i in (1, 3, 5)
     ]
     return "#" + "".join(f"{p:02x}" for p in parts)
 
@@ -225,7 +262,9 @@ def test_text_is_readable_in_both_colour_schemes(scheme: str) -> None:
     assert _contrast(v["--text"], v["--card-bg"]) >= 7
     assert _contrast(v["--text-muted"], v["--card-bg"]) >= 4.5
     assert _contrast(v["--text"], v["--page-bg"]) >= 7
-    for accent in [name for name in v if name.startswith("--accent") or name in ("--ok", "--warn", "--danger")]:
+    for accent in [
+        name for name in v if name.startswith("--accent") or name in ("--ok", "--warn", "--danger")
+    ]:
         card = _mix(v[accent], v["--card-bg"], 0.10)  # cards are tinted with their accent
         assert _contrast(v[accent], card) >= 4.5, f"{accent} on its tinted card in {scheme}"
         assert _contrast(v["--text"], card) >= 7, f"body text on the {accent} card in {scheme}"

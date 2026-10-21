@@ -58,7 +58,10 @@ def _card(
     trajectory: str = "",
 ) -> str:
     task_id = str(task.get("id") or "")
-    meta = [f"<span class='chip'>{_e(task.get('workstream'))}</span>", f"<span class='chip'>{_e(f'task/{task_id}' if parallel else MAIN_BRANCH)}</span>"]
+    meta = [
+        f"<span class='chip'>{_e(task.get('workstream'))}</span>",
+        f"<span class='chip'>{_e(f'task/{task_id}' if parallel else MAIN_BRANCH)}</span>",
+    ]
     badge = ""
     body = ""
     if result is not None:
@@ -79,7 +82,9 @@ def _card(
         if parts:
             body = "<details><summary>Summary and changes</summary>" + "".join(parts) + "</details>"
     elif state == "pending" and task.get("depends_on"):
-        meta.append(f"<span class='task-deps'>after {_e(', '.join(str(d) for d in task['depends_on']))}</span>")
+        meta.append(
+            f"<span class='task-deps'>after {_e(', '.join(str(d) for d in task['depends_on']))}</span>"
+        )
     if trajectory:  # the file to pick in the file viewer to read what the agent did
         meta.append(f"<code class='task-trajectory'>{_e(trajectory)}</code>")
     return (
@@ -175,11 +180,17 @@ def render_console(events: Sequence[ImplEvent], limit: int = 200) -> str:
     newest line stays in view as events arrive."""
     shown = list(events)[-limit:] if limit > 0 else []
     if not shown:
-        body = "<div class='console-line'><span class='what'>Waiting for the first event…</span></div>"
+        body = (
+            "<div class='console-line'><span class='what'>Waiting for the first event…</span></div>"
+        )
         title = "Live log"
     else:
         body = "".join(_line(event) for event in shown)
-        title = f"Live log ({len(events)} events)" if len(shown) == len(events) else f"Live log (last {len(shown)} of {len(events)})"
+        title = (
+            f"Live log ({len(events)} events)"
+            if len(shown) == len(events)
+            else f"Live log (last {len(shown)} of {len(events)})"
+        )
     return (
         f"<details class='console' open><summary>{title}</summary>"
         f"<div class='console-scroll' role='log' aria-live='polite'><div class='console-lines'>{body}</div></div></details>"

@@ -40,7 +40,9 @@ def test_nothing_outside_the_workspace_can_be_read(workspace: Path, tmp_path: Pa
         assert view.text == "" and view.note, attempt
 
 
-def test_a_symlink_pointing_out_of_the_workspace_is_not_followed(workspace: Path, tmp_path: Path) -> None:
+def test_a_symlink_pointing_out_of_the_workspace_is_not_followed(
+    workspace: Path, tmp_path: Path
+) -> None:
     secret = tmp_path / "secret.txt"
     secret.write_text("outside")
     (workspace / "link.txt").symlink_to(secret)
@@ -55,7 +57,10 @@ def test_secret_files_and_git_internals_are_hidden(workspace: Path) -> None:
     (workspace / ".env.example").write_text("KEY=")
     (workspace / ".git").mkdir()
     (workspace / ".git" / "config").write_text("[core]")
-    assert read_workspace_file(workspace, ".env").text == "" and read_workspace_file(workspace, ".env.local").text == ""
+    assert (
+        read_workspace_file(workspace, ".env").text == ""
+        and read_workspace_file(workspace, ".env.local").text == ""
+    )
     assert read_workspace_file(workspace, ".git/config").text == ""
     assert read_workspace_file(workspace, ".env.example").text == "KEY="
 
@@ -63,8 +68,14 @@ def test_secret_files_and_git_internals_are_hidden(workspace: Path) -> None:
 def test_large_and_binary_files_are_described_instead_of_shown(workspace: Path) -> None:
     (workspace / "big.txt").write_text("x" * (MAX_VIEW_BYTES + 1))
     (workspace / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\xff\xfe")
-    assert read_workspace_file(workspace, "big.txt").text == "" and "large" in read_workspace_file(workspace, "big.txt").note
-    assert read_workspace_file(workspace, "logo.png").text == "" and "binary" in read_workspace_file(workspace, "logo.png").note
+    assert (
+        read_workspace_file(workspace, "big.txt").text == ""
+        and "large" in read_workspace_file(workspace, "big.txt").note
+    )
+    assert (
+        read_workspace_file(workspace, "logo.png").text == ""
+        and "binary" in read_workspace_file(workspace, "logo.png").note
+    )
 
 
 def test_missing_files_directories_and_empty_selections_are_handled(workspace: Path) -> None:
@@ -96,7 +107,9 @@ def test_the_blueprint_folder_is_zipped_for_download(bundle: Path, tmp_path: Pat
         assert {f"{bundle.name}/PRD.md", f"{bundle.name}/plan.md"} <= set(bundle_zip.namelist())
 
 
-def test_the_artifact_key_changes_when_the_blueprint_is_edited(bundle: Path, tmp_path: Path) -> None:
+def test_the_artifact_key_changes_when_the_blueprint_is_edited(
+    bundle: Path, tmp_path: Path
+) -> None:
     before = artifact_key(str(tmp_path / "ws"), str(bundle), "")
     assert artifact_key(str(tmp_path / "ws"), str(bundle), "") == before
     import os
@@ -105,4 +118,6 @@ def test_the_artifact_key_changes_when_the_blueprint_is_edited(bundle: Path, tmp
     later = time.time() + 5
     os.utime(bundle / "PRD.md", (later, later))
     assert artifact_key(str(tmp_path / "ws"), str(bundle), "") != before
-    assert artifact_key(str(tmp_path / "ws"), str(bundle), "a.zip") != artifact_key(str(tmp_path / "ws"), str(bundle), "b.zip")
+    assert artifact_key(str(tmp_path / "ws"), str(bundle), "a.zip") != artifact_key(
+        str(tmp_path / "ws"), str(bundle), "b.zip"
+    )

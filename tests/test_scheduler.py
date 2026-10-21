@@ -25,7 +25,9 @@ def test_only_the_root_is_ready_at_the_start() -> None:
 def test_the_two_branches_become_ready_together_only_after_the_root() -> None:
     plan = diamond()
     assert ids(next_ready(plan, done={"T01"}, running=set())) == ["T02", "T03"]
-    assert ids(next_ready(plan, done=set(), running={"T01"})) == []  # T01 is still running: nothing else can start
+    assert (
+        ids(next_ready(plan, done=set(), running={"T01"})) == []
+    )  # T01 is still running: nothing else can start
 
 
 def test_the_join_waits_for_both_branches() -> None:
@@ -55,7 +57,12 @@ def test_a_task_with_an_unknown_dependency_is_never_ready() -> None:
 
 def test_tasks_behind_a_failed_task_are_blocked_transitively() -> None:
     plan = make_plan(
-        [make_task("T01"), make_task("T02", depends_on=["T01"]), make_task("T03", depends_on=["T02"]), make_task("T04")]
+        [
+            make_task("T01"),
+            make_task("T02", depends_on=["T01"]),
+            make_task("T03", depends_on=["T02"]),
+            make_task("T04"),
+        ]
     )
     blocked = blocked_tasks(plan, dead={"T01"}, finished={"T01"})
     assert blocked == {"T02": ["T01"], "T03": ["T02"]}  # T04 is independent and unaffected
@@ -63,7 +70,9 @@ def test_tasks_behind_a_failed_task_are_blocked_transitively() -> None:
 
 def test_finished_tasks_are_never_reported_as_blocked() -> None:
     plan = diamond()
-    assert blocked_tasks(plan, dead={"T02"}, finished={"T01", "T02", "T04"}) == {}  # T04 already has a result
+    assert (
+        blocked_tasks(plan, dead={"T02"}, finished={"T01", "T02", "T04"}) == {}
+    )  # T04 already has a result
 
 
 def test_a_join_is_blocked_by_its_dead_branch_only() -> None:
@@ -76,10 +85,21 @@ def test_a_join_is_blocked_by_its_dead_branch_only() -> None:
 def test_dag_width_is_the_largest_dependency_layer() -> None:
     assert dag_width(diamond()) == 2
     assert dag_width(make_plan([make_task(f"T0{i}") for i in range(1, 6)])) == 5
-    chain = make_plan([make_task("T01"), make_task("T02", depends_on=["T01"]), make_task("T03", depends_on=["T02"])])
+    chain = make_plan(
+        [
+            make_task("T01"),
+            make_task("T02", depends_on=["T01"]),
+            make_task("T03", depends_on=["T02"]),
+        ]
+    )
     assert dag_width(chain) == 1
 
 
 def test_dag_width_of_an_empty_or_broken_plan_is_zero() -> None:
     assert dag_width(make_plan([])) == 0
-    assert dag_width(make_plan([make_task("T01", depends_on=["T02"]), make_task("T02", depends_on=["T01"])])) == 0
+    assert (
+        dag_width(
+            make_plan([make_task("T01", depends_on=["T02"]), make_task("T02", depends_on=["T01"])])
+        )
+        == 0
+    )

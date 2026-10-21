@@ -31,27 +31,38 @@ def _ask(role: str, system: str, human: str) -> str:
 
 @pytest.mark.parametrize("role", ["pm", "tech_lead", "skeptic"])
 def test_panelists_echo_the_idea(role: str) -> None:
-    text = _ask(role, ROLES[role].system_prompt, f"Anchor idea:\n{IDEA}\n\nPanel transcript so far:\n")
+    text = _ask(
+        role, ROLES[role].system_prompt, f"Anchor idea:\n{IDEA}\n\nPanel transcript so far:\n"
+    )
     assert "climbing gyms" in text
 
 
 def test_summarizer_produces_the_brief() -> None:
-    summary = _ask("summarizer", SUMMARY_SYSTEM, f"Original idea:\n{IDEA}\n\nFull discussion thread")
+    summary = _ask(
+        "summarizer", SUMMARY_SYSTEM, f"Original idea:\n{IDEA}\n\nFull discussion thread"
+    )
     assert "## Executive summary" in summary and "climbing gyms" in summary
 
 
 @pytest.mark.parametrize(
     ("schema", "check"),
     [
-        (QuestionSet, lambda r: len(r.questions) == 5 and all(q.suggested_answer for q in r.questions)),
+        (
+            QuestionSet,
+            lambda r: len(r.questions) == 5 and all(q.suggested_answer for q in r.questions),
+        ),
         (ArchitectureProposal, lambda r: r.option_a.key == "A" and r.option_b.key == "B"),
-        (ExecutionStrategy, lambda r: len(r.workstreams) >= 2 and r.mode in ("subagents", "agent_team")),
+        (
+            ExecutionStrategy,
+            lambda r: len(r.workstreams) >= 2 and r.mode in ("subagents", "agent_team"),
+        ),
     ],
 )
 def test_structured_outputs_come_from_fixtures_and_validate(schema, check) -> None:
     model = DemoChatModel(role="architect")
     result = model.with_structured_output(schema).invoke(
-        [SystemMessage(content="s"), HumanMessage(content=f"Idea:\n{IDEA}\n\nmore")], max_output_tokens=10
+        [SystemMessage(content="s"), HumanMessage(content=f"Idea:\n{IDEA}\n\nmore")],
+        max_output_tokens=10,
     )
     assert isinstance(result, schema) and check(result)
 
@@ -63,16 +74,19 @@ def test_unknown_schema_or_architect_prompt_fails_loudly() -> None:
         x: int
 
     with pytest.raises(KeyError, match="Unknown"):
-        DemoChatModel(role="architect").with_structured_output(Unknown).invoke([HumanMessage(content="x")])
+        DemoChatModel(role="architect").with_structured_output(Unknown).invoke(
+            [HumanMessage(content="x")]
+        )
     with pytest.raises(KeyError, match="demo fixture"):
         _ask("architect", "a prompt no fixture knows", "x")
 
 
 def test_every_blueprint_document_gets_distinct_demo_content() -> None:
-    strategy = {"mode": "agent_team", "workstreams": [{"name": "core-app", "focus": "f", "deliverables": "d"}]}
-    context = (
-        f"Original idea:\n{IDEA}\n\nExecution strategy:\n{json.dumps(strategy)}\n"
-    )
+    strategy = {
+        "mode": "agent_team",
+        "workstreams": [{"name": "core-app", "focus": "f", "deliverables": "d"}],
+    }
+    context = f"Original idea:\n{IDEA}\n\nExecution strategy:\n{json.dumps(strategy)}\n"
     seen: dict[str, str] = {}
     for spec in blueprints.bundle_file_plan(strategy):
         if spec.structured:  # the plan comes from the structured Plan fixture (tested below)
@@ -97,7 +111,11 @@ def test_demo_implementation_builds_a_project_whose_tests_pass(tmp_path: Path) -
     assert "Ran 3 tests" in result.summary
     # The generated project really runs from a clean interpreter.
     run = subprocess.run(
-        [sys.executable, "-m", "demo_app"], cwd=workspace, capture_output=True, text=True, timeout=30
+        [sys.executable, "-m", "demo_app"],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     assert run.returncode == 0 and run.stdout.strip()
 
@@ -120,7 +138,10 @@ def _moderate(turns: dict[str, int]) -> ModeratorDecision:
     counts = ", ".join(f"{name}: {count}" for name, count in turns.items())
     model = DemoChatModel(role="moderator")
     return model.with_structured_output(ModeratorDecision).invoke(  # type: ignore[return-value]
-        [SystemMessage(content="s"), HumanMessage(content=f"Anchor idea:\n{IDEA}\n\nTurns so far: {counts}.\n")]
+        [
+            SystemMessage(content="s"),
+            HumanMessage(content=f"Anchor idea:\n{IDEA}\n\nTurns so far: {counts}.\n"),
+        ]
     )
 
 
@@ -133,7 +154,9 @@ def test_demo_moderator_steers_to_the_quietest_speaker_then_converges() -> None:
 
 def _structured(schema, human: str):
     model = DemoChatModel(role="plan_writer")
-    return model.with_structured_output(schema).invoke([SystemMessage(content="s"), HumanMessage(content=human)])
+    return model.with_structured_output(schema).invoke(
+        [SystemMessage(content="s"), HumanMessage(content=human)]
+    )
 
 
 def _plan_prompt(prd: str, strategy: dict) -> str:
@@ -154,7 +177,14 @@ def test_demo_plan_is_a_valid_dag_over_the_real_workstreams_and_prd_requirements
 
 def test_demo_plan_without_a_prd_or_strategy_still_validates() -> None:
     plan = _structured(Plan, f"Idea:\n{IDEA}\n\nno strategy here")
-    assert validate_plan(plan, prd_markdown="- R1 (P0): a\n- R2 (P0): b\n- R3 (P1): c\n", workstreams=["core-product"]) == []
+    assert (
+        validate_plan(
+            plan,
+            prd_markdown="- R1 (P0): a\n- R2 (P0): b\n- R3 (P1): c\n",
+            workstreams=["core-product"],
+        )
+        == []
+    )
 
 
 def test_demo_critic_approves_the_pack() -> None:

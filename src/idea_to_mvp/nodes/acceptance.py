@@ -30,9 +30,22 @@ from idea_to_mvp.usage import with_usage
 LOGGER = logging.getLogger(__name__)
 
 
-def _record(iteration: int, *, folder: Path | None = None, files: list[str] | None = None, covers: list[str] | None = None, note: str = "") -> dict[str, Any]:
+def _record(
+    iteration: int,
+    *,
+    folder: Path | None = None,
+    files: list[str] | None = None,
+    covers: list[str] | None = None,
+    note: str = "",
+) -> dict[str, Any]:
     """The state's `acceptance` record: one shape whether a suite was written or not."""
-    return {"iteration": iteration, "dir": str(folder) if folder else "", "files": files or [], "covers": covers or [], "note": note}
+    return {
+        "iteration": iteration,
+        "dir": str(folder) if folder else "",
+        "files": files or [],
+        "covers": covers or [],
+        "note": note,
+    }
 
 
 def _no_suite() -> AcceptanceSuite:
@@ -42,17 +55,27 @@ def _no_suite() -> AcceptanceSuite:
 def author_prompt(prd: str, plan: Plan, change_requests: list[str]) -> str:
     """What the author may know: the PRD, the public contracts, the commands, and the changes asked for since."""
     required = priority_requirements(prd)
-    contracts = "\n".join(f"- {c.id} {c.name}: {c.description}" for c in plan.contracts) or "- (none)"
+    contracts = (
+        "\n".join(f"- {c.id} {c.name}: {c.description}" for c in plan.contracts) or "- (none)"
+    )
     commands = plan.commands
     command_lines = "\n".join(
         f"- {name}: `{value}`"
-        for name, value in (("install", commands.install), ("test", commands.test), ("run", commands.run))
+        for name, value in (
+            ("install", commands.install),
+            ("test", commands.test),
+            ("run", commands.run),
+        )
         if value
     )
-    listed_required = ", ".join(f"{rid} ({priority or 'unprioritised'})" for rid, priority in required.items())
+    listed_required = ", ".join(
+        f"{rid} ({priority or 'unprioritised'})" for rid, priority in required.items()
+    )
     changes = ""
     if change_requests:
-        listed = "\n".join(f"{n}. {request.strip()}" for n, request in enumerate(change_requests, start=2))
+        listed = "\n".join(
+            f"{n}. {request.strip()}" for n, request in enumerate(change_requests, start=2)
+        )
         changes = (
             "\n\n## Changes since the PRD (one per later version; a change wins where it conflicts with the PRD)\n"
             f"{listed}\n"
@@ -83,17 +106,26 @@ def acceptance_author_node(state: IdeaDiscussionState) -> dict[str, Any]:
         runtime,
         [
             SystemMessage(content=runtime.system_prompt),
-            HumanMessage(content=author_prompt(read_text(workspace / "PRD.md"), plan, list(state.get("change_requests") or []))),
+            HumanMessage(
+                content=author_prompt(
+                    read_text(workspace / "PRD.md"), plan, list(state.get("change_requests") or [])
+                )
+            ),
         ],
         AcceptanceSuite,
         fallback=_no_suite,
     )
     if not suite.files:
-        LOGGER.warning("The acceptance author wrote no tests for v0.%d; verification runs without the acceptance lane.", iteration)
+        LOGGER.warning(
+            "The acceptance author wrote no tests for v0.%d; verification runs without the acceptance lane.",
+            iteration,
+        )
         return {"acceptance": _record(iteration, note="The acceptance author wrote no tests.")}
     folder = suite_dir(settings, workspace, iteration)
     files = save_suite(folder, suite)
-    LOGGER.info("Wrote %d held-out acceptance file(s) for v0.%d to %s", len(files), iteration, folder)
+    LOGGER.info(
+        "Wrote %d held-out acceptance file(s) for v0.%d to %s", len(files), iteration, folder
+    )
     return {"acceptance": _record(iteration, folder=folder, files=files, covers=suite.covers)}
 
 
@@ -107,6 +139,10 @@ def lanes_for(state: IdeaDiscussionState) -> tuple[LaneName, ...]:
     if not (current and suite.get("files") and folder):
         return LANES
     if not (Path(folder) / SUITE_FILE).is_file():
-        LOGGER.warning("The acceptance suite of v0.%s is gone from %s; verifying without the acceptance lane.", suite.get("iteration"), folder)
+        LOGGER.warning(
+            "The acceptance suite of v0.%s is gone from %s; verifying without the acceptance lane.",
+            suite.get("iteration"),
+            folder,
+        )
         return LANES
     return (*LANES, ACCEPTANCE)

@@ -111,7 +111,9 @@ def _create_worktree_unlocked(workspace: Path, task_id: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     done = run_git(workspace, "worktree", "add", "-q", "-b", branch_name(task_id), str(path))
     if done is None or done.returncode != 0:
-        raise RuntimeError(f"git worktree add failed for {task_id}: {(done.stderr if done else 'git unavailable').strip()}")
+        raise RuntimeError(
+            f"git worktree add failed for {task_id}: {(done.stderr if done else 'git unavailable').strip()}"
+        )
     expected = os.path.realpath(_admin_dir(workspace, task_id))
     declared = (path / ".git").read_text(encoding="utf-8").strip().removeprefix("gitdir:").strip()
     if os.path.realpath(declared) != expected:
@@ -139,7 +141,9 @@ def commit_worktree(workspace: Path, work_dir: Path, task_id: str, message: str)
     staged = run_git(work_dir, *pinned, "diff", "--cached", "--quiet")
     if staged is None or staged.returncode == 0:
         return None
-    if not _git_ok(work_dir, *pinned, "commit", "-q", "--no-verify", "--no-gpg-sign", "-m", message):
+    if not _git_ok(
+        work_dir, *pinned, "commit", "-q", "--no-verify", "--no-gpg-sign", "-m", message
+    ):
         return None
     shown = run_git(work_dir, *pinned, "rev-parse", "--short", "HEAD")
     return shown.stdout.strip() if shown is not None and shown.returncode == 0 else None
@@ -155,14 +159,18 @@ def conflicted_files(workspace: Path) -> list[str]:
 
 def _merge_task(workspace: Path, task_id: str, message: str | None) -> MergeOutcome:
     harden_git_dir(workspace / ".git")
-    done = run_git(workspace, "merge", "--no-edit", "-m", message or f"merge {task_id}", branch_name(task_id))
+    done = run_git(
+        workspace, "merge", "--no-edit", "-m", message or f"merge {task_id}", branch_name(task_id)
+    )
     if done is not None and done.returncode == 0:
         return MergeOutcome("merged", done.stdout.strip()[-200:], head_commit(workspace))
     files = conflicted_files(workspace)
     if files:
         return MergeOutcome("conflict", "conflicts in: " + ", ".join(files))
     run_git(workspace, "merge", "--abort")
-    raise RuntimeError(f"git merge {branch_name(task_id)} failed: {(done.stderr if done else 'git unavailable').strip()}")
+    raise RuntimeError(
+        f"git merge {branch_name(task_id)} failed: {(done.stderr if done else 'git unavailable').strip()}"
+    )
 
 
 async def merge_task(workspace: Path, task_id: str, *, message: str | None = None) -> MergeOutcome:
@@ -185,15 +193,22 @@ def _has_markers(path: Path) -> bool:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False  # deleted: a delete/modify conflict resolved by deleting
-    return any(line.startswith(("<<<<<<< ", ">>>>>>> ")) or line in ("<<<<<<<", ">>>>>>>") for line in text.splitlines())
+    return any(
+        line.startswith(("<<<<<<< ", ">>>>>>> ")) or line in ("<<<<<<<", ">>>>>>>")
+        for line in text.splitlines()
+    )
 
 
 def _complete_merge(workspace: Path, message: str, task_id: str) -> MergeOutcome:
     if not (workspace / ".git" / "MERGE_HEAD").exists():
         # The resolver may have committed the merge itself.
-        if not conflicted_files(workspace) and _git_ok(workspace, "merge-base", "--is-ancestor", branch_name(task_id), "HEAD"):
+        if not conflicted_files(workspace) and _git_ok(
+            workspace, "merge-base", "--is-ancestor", branch_name(task_id), "HEAD"
+        ):
             return MergeOutcome("merged", "merge already committed", head_commit(workspace))
-        return MergeOutcome("conflict", "the merge is no longer in progress and the task branch is not merged")
+        return MergeOutcome(
+            "conflict", "the merge is no longer in progress and the task branch is not merged"
+        )
     # A resolver edits the files but need not `git add` them, so judge by the content, then stage it.
     still_marked = [name for name in conflicted_files(workspace) if _has_markers(workspace / name)]
     if still_marked:
@@ -202,7 +217,9 @@ def _complete_merge(workspace: Path, message: str, task_id: str) -> MergeOutcome
         return MergeOutcome("conflict", "could not stage the resolution")
     marked = run_git(workspace, "grep", "--cached", "-l", "-E", _MARKER_PATTERN)
     if marked is not None and marked.returncode == 0 and marked.stdout.strip():
-        return MergeOutcome("conflict", "conflict markers remain in: " + ", ".join(marked.stdout.split()))
+        return MergeOutcome(
+            "conflict", "conflict markers remain in: " + ", ".join(marked.stdout.split())
+        )
     if leftover := conflicted_files(workspace):
         return MergeOutcome("conflict", "still unmerged: " + ", ".join(leftover))
     if not _git_ok(workspace, "commit", "-q", "--no-verify", "--no-gpg-sign", "-m", message):
@@ -232,8 +249,14 @@ def _apply_commit(workspace: Path, commit: str, message: str) -> MergeOutcome:
         detail = "nothing to apply"
     else:
         files = conflicted_files(workspace)
-        detail = "conflicts in: " + ", ".join(files) if files else (done.stderr.strip()[-200:] if done else "git unavailable")
-    run_git(workspace, "reset", "-q", "--hard", "HEAD")  # the tree was clean before: nothing of the commit is kept
+        detail = (
+            "conflicts in: " + ", ".join(files)
+            if files
+            else (done.stderr.strip()[-200:] if done else "git unavailable")
+        )
+    run_git(
+        workspace, "reset", "-q", "--hard", "HEAD"
+    )  # the tree was clean before: nothing of the commit is kept
     return MergeOutcome("conflict", detail)
 
 

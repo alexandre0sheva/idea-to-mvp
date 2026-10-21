@@ -1,8 +1,8 @@
 """Opt-in LLM-as-judge for blueprint packs (spends tokens; never run by CI).
 
-    uv run python scripts/eval_blueprint.py --live --idea climbing-log
-    uv run python scripts/eval_blueprint.py --live --pack ~/idea-to-mvp/blueprints/<folder>
-    DEMO_MODE=true uv run python scripts/eval_blueprint.py --live --all     # offline, canned scores
+uv run python scripts/eval_blueprint.py --live --idea climbing-log
+uv run python scripts/eval_blueprint.py --live --pack ~/idea-to-mvp/blueprints/<folder>
+DEMO_MODE=true uv run python scripts/eval_blueprint.py --live --all     # offline, canned scores
 """
 
 import sys

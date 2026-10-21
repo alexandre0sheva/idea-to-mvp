@@ -1,6 +1,6 @@
 """Command-line entry point: `idea-to-mvp` starts the UI, `run` / `resume` / `sessions` drive the pipeline
-headless, `publish` puts a delivery on GitHub, `bench` scores the pipeline on the golden ideas, `doctor` checks the
-setup, `models` shows the model catalog."""
+headless, `publish` puts a delivery on GitHub, `bench` scores the pipeline on the golden ideas, `mcp` serves the
+pipeline to other agents over MCP, `doctor` checks the setup, `models` shows the model catalog."""
 
 from __future__ import annotations
 
@@ -104,6 +104,13 @@ def _build_parser() -> argparse.ArgumentParser:
     sessions.add_argument("--json", action="store_true", help="print the list as JSON")
     _add_publish(commands)
     _add_bench(commands)
+    commands.add_parser(
+        "mcp",
+        help="start an MCP server (stdio) so Claude Code, Claude Desktop, or another agent can drive the pipeline",
+        description="Serve the pipeline as MCP tools over stdin / stdout: start_run, get_status, answer_gate, "
+        "list_sessions, get_delivery. Agent sessions start only when answer_gate gets confirm_spend=true at the "
+        "implement gate. Logs go to stderr; needs the `mcp` extra (idea-to-mvp[mcp]).",
+    )
     return parser
 
 
@@ -180,6 +187,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         return run_command(args)
 
+    if args.command == "mcp":
+        return _mcp()
+
     if args.command == "publish":
         return _publish(args)
 
@@ -190,6 +200,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     launch_ui()
     return 0
+
+
+def _mcp() -> int:
+    try:
+        from idea_to_mvp.mcp_server import serve
+    except ImportError as exc:  # the optional `mcp` extra is missing (or too old)
+        print(f"idea-to-mvp: the MCP server needs the mcp package ({exc}); install idea-to-mvp[mcp]", file=sys.stderr)
+        return 1
+    return serve()
 
 
 def _progress(line: str) -> None:

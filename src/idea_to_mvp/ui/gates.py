@@ -50,7 +50,9 @@ from idea_to_mvp.ui.view import (
     with_notes,
 )
 
-GateInputs = dict[str, Any]  # field name -> value, plus "action": the name of the button that was pressed
+GateInputs = dict[
+    str, Any
+]  # field name -> value, plus "action": the name of the button that was pressed
 
 NO_ANSWER = "(no answer)"
 BLUEPRINT_FILES = ("PRD.md", "ARCHITECTURE.md", "plan.md")
@@ -76,7 +78,9 @@ class GateRuntime:
     """What a gate's own events (fill suggestions, save a file) need from the app."""
 
     thread: gr.State
-    payload: Callable[[str], Awaitable[dict[str, Any]]]  # the interrupt payload the thread is paused at
+    payload: Callable[
+        [str], Awaitable[dict[str, Any]]
+    ]  # the interrupt payload the thread is paused at
     # The iterate gate's Publish to GitHub: (thread, repo, visibility) -> what to show; and with the fingerprint of
     # the plan the user reviewed, the same for the confirmation.
     review_publish: Callable[[str, str, str], Awaitable[PublishScreen]] | None = None
@@ -96,7 +100,9 @@ class GateSpec:
     kind: str
     mode: str  # the UI mode while this gate is pending
     fields: tuple[str, ...]  # data widgets: form inputs and update targets, in layout order
-    actions: tuple[GateAction, ...]  # submit buttons, created by `build` as widgets named "action:<name>"
+    actions: tuple[
+        GateAction, ...
+    ]  # submit buttons, created by `build` as widgets named "action:<name>"
     build: Callable[[], dict[str, Any]]
     render: Callable[[dict[str, Any]], GateView]
     build_resume: Callable[[GateInputs], Any]
@@ -130,10 +136,16 @@ def _question_texts(payload: Mapping[str, Any]) -> list[tuple[str, str, str]]:
     items = [item for item in payload.get("question_items") or [] if isinstance(item, Mapping)]
     if items:
         return [
-            (str(i.get("question") or ""), str(i.get("why_it_matters") or ""), str(i.get("suggested_answer") or ""))
+            (
+                str(i.get("question") or ""),
+                str(i.get("why_it_matters") or ""),
+                str(i.get("suggested_answer") or ""),
+            )
             for i in items
         ][:QUESTION_COUNT]
-    return [(_LEADING_NUMBER.sub("", str(q)), "", "") for q in payload.get("questions") or []][:QUESTION_COUNT]
+    return [(_LEADING_NUMBER.sub("", str(q)), "", "") for q in payload.get("questions") or []][
+        :QUESTION_COUNT
+    ]
 
 
 def _answers_view(payload: dict[str, Any]) -> GateView:
@@ -142,7 +154,12 @@ def _answers_view(payload: dict[str, Any]) -> GateView:
     for number, name in enumerate(_ANSWER_FIELDS, start=1):
         if number <= len(questions):
             question, why, suggestion = questions[number - 1]
-            updates[name] = {"visible": True, "label": f"{number}. {question}", "info": why or None, "value": suggestion}
+            updates[name] = {
+                "visible": True,
+                "label": f"{number}. {question}",
+                "info": why or None,
+                "value": suggestion,
+            }
         else:
             updates[name] = {"visible": False, "label": f"{number}.", "info": None, "value": ""}
     return GateView(updates)
@@ -158,7 +175,9 @@ def _answers_resume(inputs: GateInputs) -> str:
     answers = [_text(inputs, name) for name in _ANSWER_FIELDS]
     while answers and not answers[-1]:
         answers.pop()
-    return "\n".join(f"{number}. {answer or NO_ANSWER}" for number, answer in enumerate(answers, start=1))
+    return "\n".join(
+        f"{number}. {answer or NO_ANSWER}" for number, answer in enumerate(answers, start=1)
+    )
 
 
 def _answers_validate(inputs: GateInputs, payload: dict[str, Any]) -> str | None:
@@ -179,9 +198,13 @@ def _answers_build() -> dict[str, Any]:
 
 def _answers_wire(widgets: dict[str, Any], runtime: GateRuntime) -> None:
     async def fill(thread_id: str) -> list[Any]:
-        return [gr.update(**update) for update in suggestion_updates(await runtime.payload(thread_id))]
+        return [
+            gr.update(**update) for update in suggestion_updates(await runtime.payload(thread_id))
+        ]
 
-    widgets["use_suggestions"].click(fill, inputs=[runtime.thread], outputs=[widgets[name] for name in _ANSWER_FIELDS])
+    widgets["use_suggestions"].click(
+        fill, inputs=[runtime.thread], outputs=[widgets[name] for name in _ANSWER_FIELDS]
+    )
 
 
 # -------------------------------------------------------------- architecture
@@ -208,7 +231,9 @@ def _arch_card(option: Mapping[str, Any], key: str, recommended: bool) -> str:
 
 def _arch_view(payload: dict[str, Any]) -> GateView:
     proposal = payload.get("proposal") or {}
-    recommendation = "B" if str(proposal.get("recommendation") or "").strip().upper() == "B" else "A"
+    recommendation = (
+        "B" if str(proposal.get("recommendation") or "").strip().upper() == "B" else "A"
+    )
     option_a, option_b = proposal.get("option_a") or {}, proposal.get("option_b") or {}
     cards = (
         "<div class='arch-grid'>"
@@ -222,7 +247,10 @@ def _arch_view(payload: dict[str, Any]) -> GateView:
         {
             "cards": {"value": cards},
             "option": {
-                "choices": [(f"Option A — {option_a.get('name') or 'A'}", "A"), (f"Option B — {option_b.get('name') or 'B'}", "B")],
+                "choices": [
+                    (f"Option A — {option_a.get('name') or 'A'}", "A"),
+                    (f"Option B — {option_b.get('name') or 'B'}", "B"),
+                ],
                 "value": recommendation,
             },
             "notes": {"value": ""},
@@ -239,7 +267,9 @@ def _arch_build() -> dict[str, Any]:
     widgets: dict[str, Any] = {}
     gr.Markdown("### Choose the architecture")
     widgets["cards"] = gr.HTML()
-    widgets["option"] = gr.Radio(choices=[("Option A", "A"), ("Option B", "B")], value="A", label="Option")
+    widgets["option"] = gr.Radio(
+        choices=[("Option A", "A"), ("Option B", "B")], value="A", label="Option"
+    )
     widgets["notes"] = gr.Textbox(label="Notes on the architecture choice (optional)", lines=2)
     widgets["action:submit"] = gr.Button("Send choice", variant="primary")
     return widgets
@@ -255,7 +285,11 @@ def _plan_resume(inputs: GateInputs) -> dict[str, Any]:
 def _plan_build() -> dict[str, Any]:
     widgets: dict[str, Any] = {}
     gr.Markdown("### Execution pack")
-    widgets["notes"] = gr.Textbox(label="Planning notes (optional)", placeholder="Anything the planner should account for...", lines=2)
+    widgets["notes"] = gr.Textbox(
+        label="Planning notes (optional)",
+        placeholder="Anything the planner should account for...",
+        lines=2,
+    )
     with gr.Row():
         widgets["action:generate"] = gr.Button("Generate the execution pack", variant="primary")
         widgets["action:skip"] = gr.Button("Skip for now")
@@ -331,7 +365,9 @@ def save_blueprint_file(bundle_dir: str | Path, name: str, text: str) -> SaveRes
     if name == "PRD.md" and current is not None:
         issues = [i for i in _plan_issues(current, text, workstreams) if i not in baseline]
         if issues:
-            return SaveResult(False, [f"the plan no longer fits this PRD: {issue}" for issue in issues])
+            return SaveResult(
+                False, [f"the plan no longer fits this PRD: {issue}" for issue in issues]
+            )
     (bundle / name).write_text(text, encoding="utf-8")
     return SaveResult(True, [], text)
 
@@ -346,7 +382,9 @@ def _read_json(bundle: Path) -> str:
 def _save_message(name: str, result: SaveResult) -> str:
     if result.ok:
         return f"Saved `{name}`."
-    return f"**Not saved.** `{name}` has problems:\n" + "\n".join(f"- {issue}" for issue in result.issues)
+    return f"**Not saved.** `{name}` has problems:\n" + "\n".join(
+        f"- {issue}" for issue in result.issues
+    )
 
 
 # ----------------------------------------------------------------- implement
@@ -359,13 +397,21 @@ def _row(label: str, value: Any) -> str:
 def _estimate(payload: Mapping[str, Any]) -> str:
     tasks = int(payload.get("task_count") or 0)
     fixes = int(payload.get("max_fix_attempts") or 0)
-    build = f"{tasks} task sessions" if payload.get("strategy_mode") == "agent_team" and tasks else "1 lead session"
+    build = (
+        f"{tasks} task sessions"
+        if payload.get("strategy_mode") == "agent_team" and tasks
+        else "1 lead session"
+    )
     return f"≈ {build} + 3 verification lanes, plus up to {fixes} fix round(s)"
 
 
 def _cost_cell(estimate: Mapping[str, Any]) -> str:
     """The dollar range the run is expected to cost, and what it rests on."""
-    if estimate.get("basis") == "unpriced" or estimate.get("low") is None or estimate.get("high") is None:
+    if (
+        estimate.get("basis") == "unpriced"
+        or estimate.get("low") is None
+        or estimate.get("high") is None
+    ):
         roles = ", ".join(str(role) for role in estimate.get("unpriced") or []) or "a model"
         return f"unpriced: no price for the {_e(roles)} model (add one in models.toml or MODEL_PRICES_FILE)"
     tasks, per_task = int(estimate.get("tasks") or 0), float(estimate.get("per_task") or 0.0)
@@ -426,9 +472,16 @@ def _implement_view(payload: dict[str, Any]) -> GateView:
         + _row("Permission mode", f"<code>{_e(payload.get('permission_mode'))}</code>")
         + _row("Tasks", _e(payload.get("task_count", 0)))
         + _row("DAG width", _e(payload.get("dag_width", 0)))
-        + _row("Budget", f"${float(payload.get('max_total_usd') or 0):.2f} total, ${float(payload.get('max_task_usd') or 0):.2f} per task")
+        + _row(
+            "Budget",
+            f"${float(payload.get('max_total_usd') or 0):.2f} total, ${float(payload.get('max_task_usd') or 0):.2f} per task",
+        )
         + _row("Estimated sessions", _e(_estimate(payload)))
-        + (_row("Estimated cost", _cost_cell(payload["cost_estimate"])) if payload.get("cost_estimate") else "")
+        + (
+            _row("Estimated cost", _cost_cell(payload["cost_estimate"]))
+            if payload.get("cost_estimate")
+            else ""
+        )
         + (_row("Harness tuning", _tuning_cell(tuning)) if tuning.get("available") else "")
         + "</tbody></table>"
     )
@@ -438,7 +491,12 @@ def _implement_view(payload: dict[str, Any]) -> GateView:
     bundle = str(payload.get("bundle_dir") or "")
     return GateView(
         {
-            "banner": {"visible": bool(warning), "value": f"<div class='gate-banner danger'>⚠️ {_e(warning)}</div>" if warning else ""},
+            "banner": {
+                "visible": bool(warning),
+                "value": f"<div class='gate-banner danger'>⚠️ {_e(warning)}</div>"
+                if warning
+                else "",
+            },
             "summary": {"value": table},
             "review": {
                 "visible": bool(review),
@@ -449,7 +507,11 @@ def _implement_view(payload: dict[str, Any]) -> GateView:
                 else "",
             },
             "parallel": {"choices": choices, "value": default, "interactive": interactive},
-            "tuning": {"value": bool(tuning.get("default")), "interactive": bool(tuning.get("available")), "visible": bool(tuning.get("available"))},
+            "tuning": {
+                "value": bool(tuning.get("default")),
+                "interactive": bool(tuning.get("available")),
+                "visible": bool(tuning.get("available")),
+            },
             "file": {"choices": list(BLUEPRINT_FILES), "value": BLUEPRINT_FILES[0]},
             "editor": {"value": read_blueprint_file(bundle, BLUEPRINT_FILES[0])},
             "save_status": {"value": ""},
@@ -486,7 +548,10 @@ def _implement_validate(inputs: GateInputs, payload: dict[str, Any]) -> str | No
     name = str(inputs.get("file") or "")
     on_disk = read_blueprint_file(str(payload.get("bundle_dir") or ""), name)
     edited = str(inputs.get("editor") or "")
-    if name in BLUEPRINT_FILES and edited.replace("\r\n", "\n").rstrip() != on_disk.replace("\r\n", "\n").rstrip():
+    if (
+        name in BLUEPRINT_FILES
+        and edited.replace("\r\n", "\n").rstrip() != on_disk.replace("\r\n", "\n").rstrip()
+    ):
         return f"You have unsaved changes in {name}. Save them (or reload the file) before starting the implementation."
     return None
 
@@ -497,18 +562,31 @@ def _implement_build() -> dict[str, Any]:
     widgets["banner"] = gr.HTML(visible=False)
     widgets["summary"] = gr.HTML()
     widgets["review"] = gr.HTML(visible=False)
-    widgets["parallel"] = gr.Dropdown(choices=[SEQUENTIAL], value=SEQUENTIAL, label="Parallelism", info="Tasks that can run at the same time, each in its own git worktree.")
+    widgets["parallel"] = gr.Dropdown(
+        choices=[SEQUENTIAL],
+        value=SEQUENTIAL,
+        label="Parallelism",
+        info="Tasks that can run at the same time, each in its own git worktree.",
+    )
     widgets["tuning"] = gr.Checkbox(
         value=False,
         label="Tune the agent harness on a pilot task first",
         info="Builds one task three times (the pack's harness and two proposed edits) and keeps what helped; costs the extra shown above.",
     )
     with gr.Accordion("Blueprint: read and edit before building", open=False):
-        widgets["file"] = gr.Dropdown(choices=list(BLUEPRINT_FILES), value=BLUEPRINT_FILES[0], label="Document")
-        widgets["editor"] = gr.Code(label="Contents", language="markdown", lines=18, interactive=True)
+        widgets["file"] = gr.Dropdown(
+            choices=list(BLUEPRINT_FILES), value=BLUEPRINT_FILES[0], label="Document"
+        )
+        widgets["editor"] = gr.Code(
+            label="Contents", language="markdown", lines=18, interactive=True
+        )
         widgets["save"] = gr.Button("Save changes")
         widgets["save_status"] = gr.Markdown()
-    widgets["notes"] = gr.Textbox(label="Notes for the implementation agents (optional)", placeholder="Priorities, stack preferences...", lines=2)
+    widgets["notes"] = gr.Textbox(
+        label="Notes for the implementation agents (optional)",
+        placeholder="Priorities, stack preferences...",
+        lines=2,
+    )
     with gr.Row():
         widgets["action:start"] = gr.Button("Start implementation", variant="primary")
         widgets["action:skip"] = gr.Button("Stop here (blueprint only)")
@@ -518,16 +596,26 @@ def _implement_build() -> dict[str, Any]:
 def _implement_wire(widgets: dict[str, Any], runtime: GateRuntime) -> None:
     async def load(thread_id: str, name: str) -> Any:
         payload = await runtime.payload(thread_id)
-        return gr.update(value=read_blueprint_file(str(payload.get("bundle_dir") or ""), name)), gr.update(value="")
+        return gr.update(
+            value=read_blueprint_file(str(payload.get("bundle_dir") or ""), name)
+        ), gr.update(value="")
 
     async def save(thread_id: str, name: str, text: str) -> tuple[Any, Any]:
         payload = await runtime.payload(thread_id)
         result = save_blueprint_file(str(payload.get("bundle_dir") or ""), name, text)
-        return (gr.update(value=result.text) if result.ok else gr.update()), gr.update(value=_save_message(name, result))
+        return (gr.update(value=result.text) if result.ok else gr.update()), gr.update(
+            value=_save_message(name, result)
+        )
 
-    widgets["file"].change(load, inputs=[runtime.thread, widgets["file"]], outputs=[widgets["editor"], widgets["save_status"]])
+    widgets["file"].change(
+        load,
+        inputs=[runtime.thread, widgets["file"]],
+        outputs=[widgets["editor"], widgets["save_status"]],
+    )
     widgets["save"].click(
-        save, inputs=[runtime.thread, widgets["file"], widgets["editor"]], outputs=[widgets["editor"], widgets["save_status"]]
+        save,
+        inputs=[runtime.thread, widgets["file"], widgets["editor"]],
+        outputs=[widgets["editor"], widgets["save_status"]],
     )
 
 
@@ -575,11 +663,17 @@ def publish_preview_html(plan: PublishPlan) -> str:
         return f"<div class='publish-plan publish-problem'><strong>Cannot publish</strong><ul>{items}</ul></div>"
     files = list(plan.files[:FILE_LIST_LIMIT])
     more = len(plan.files) - len(files)
-    file_items = "".join(f"<li><code>{_e(path)}</code></li>" for path in files) + (f"<li>... and {more} more</li>" if more > 0 else "")
-    history = "".join(f"<li>{_e(line)}</li>" for line in plan.commits) + ("<li>...</li>" if plan.commit_count > len(plan.commits) else "")
+    file_items = "".join(f"<li><code>{_e(path)}</code></li>" for path in files) + (
+        f"<li>... and {more} more</li>" if more > 0 else ""
+    )
+    history = "".join(f"<li>{_e(line)}</li>" for line in plan.commits) + (
+        "<li>...</li>" if plan.commit_count > len(plan.commits) else ""
+    )
     removed = list(plan.removed[:FILE_LIST_LIMIT])
     removed_items = "".join(f"<li><code>{_e(path)}</code></li>" for path in removed) + (
-        f"<li>... and {len(plan.removed) - len(removed)} more</li>" if len(plan.removed) > len(removed) else ""
+        f"<li>... and {len(plan.removed) - len(removed)} more</li>"
+        if len(plan.removed) > len(removed)
+        else ""
     )
     removed_html = (
         f"<details open><summary>{len(plan.removed)} more file(s) in the history, removed from the latest version "
@@ -610,7 +704,10 @@ def _iterate_view(payload: dict[str, Any]) -> GateView:
             "feedback": {"label": f"What should change in v0.{version}?", "value": ""},
             "publish_info": {"value": publish_info_html(options)},
             "publish_repo": {"value": options.get("repo") or "", "interactive": not settled},
-            "publish_visibility": {"value": options.get("visibility") or "private", "interactive": not settled},
+            "publish_visibility": {
+                "value": options.get("visibility") or "private",
+                "interactive": not settled,
+            },
             "publish_preview": {"value": "", "visible": False},
             "publish_fingerprint": {"value": ""},
             "publish_confirm": {"visible": False},
@@ -632,18 +729,28 @@ def _iterate_validate(inputs: GateInputs, payload: dict[str, Any]) -> str | None
 def _iterate_build() -> dict[str, Any]:
     widgets: dict[str, Any] = {}
     gr.Markdown("### Next version")
-    widgets["feedback"] = gr.Textbox(label="What should change in the next version?", placeholder="Add ... / fix ... / change ...", lines=3)
+    widgets["feedback"] = gr.Textbox(
+        label="What should change in the next version?",
+        placeholder="Add ... / fix ... / change ...",
+        lines=3,
+    )
     with gr.Row():
         widgets["action:iterate"] = gr.Button("Iterate", variant="primary")
         widgets["action:finish"] = gr.Button("Finish")
     with gr.Accordion("Publish to GitHub (optional)", open=False):
         widgets["publish_info"] = gr.HTML()
-        widgets["publish_repo"] = gr.Textbox(label="Repository", info="A new repository: name, or owner/name", lines=1)
-        widgets["publish_visibility"] = gr.Radio(choices=["private", "public"], value="private", label="Visibility")
+        widgets["publish_repo"] = gr.Textbox(
+            label="Repository", info="A new repository: name, or owner/name", lines=1
+        )
+        widgets["publish_visibility"] = gr.Radio(
+            choices=["private", "public"], value="private", label="Visibility"
+        )
         widgets["publish_review"] = gr.Button("Review what will be pushed")
         widgets["publish_preview"] = gr.HTML(visible=False)
         widgets["publish_fingerprint"] = gr.Textbox(visible=False)
-        widgets["publish_confirm"] = gr.Button("Confirm: create the repository and push", variant="primary", visible=False)
+        widgets["publish_confirm"] = gr.Button(
+            "Confirm: create the repository and push", variant="primary", visible=False
+        )
     return widgets
 
 
@@ -651,7 +758,10 @@ def _iterate_wire(widgets: dict[str, Any], runtime: GateRuntime) -> None:
     if runtime.review_publish is None or runtime.confirm_publish is None:
         return
     review, confirm = runtime.review_publish, runtime.confirm_publish
-    outputs = [widgets[name] for name in ("publish_info", "publish_preview", "publish_fingerprint", "publish_confirm")]
+    outputs = [
+        widgets[name]
+        for name in ("publish_info", "publish_preview", "publish_fingerprint", "publish_confirm")
+    ]
 
     def show(screen: PublishScreen) -> list[Any]:
         return [
@@ -669,7 +779,9 @@ def _iterate_wire(widgets: dict[str, Any], runtime: GateRuntime) -> None:
 
     inputs = [runtime.thread, widgets["publish_repo"], widgets["publish_visibility"]]
     widgets["publish_review"].click(on_review, inputs=inputs, outputs=outputs)
-    widgets["publish_confirm"].click(on_confirm, inputs=[*inputs, widgets["publish_fingerprint"]], outputs=outputs)
+    widgets["publish_confirm"].click(
+        on_confirm, inputs=[*inputs, widgets["publish_fingerprint"]], outputs=outputs
+    )
 
 
 # ------------------------------------------------------------------ registry
@@ -702,7 +814,12 @@ GATES: dict[str, GateSpec] = {
         render=_arch_view,
         build_resume=_arch_resume,
         echo=lambda inputs: _entry(
-            "arch_decision", "You", with_notes(f"Architecture choice: Option {_arch_resume(inputs)['option']}", _text(inputs, "notes"))
+            "arch_decision",
+            "You",
+            with_notes(
+                f"Architecture choice: Option {_arch_resume(inputs)['option']}",
+                _text(inputs, "notes"),
+            ),
         ),
         next_step=lambda resume: "strategy",
     ),
@@ -710,29 +827,51 @@ GATES: dict[str, GateSpec] = {
         kind="plan_gate",
         mode=MODE_PLAN_GATE,
         fields=("notes",),
-        actions=(GateAction("generate", "Generate the execution pack", "primary"), GateAction("skip", "Skip for now")),
+        actions=(
+            GateAction("generate", "Generate the execution pack", "primary"),
+            GateAction("skip", "Skip for now"),
+        ),
         build=_plan_build,
         render=lambda payload: GateView({"notes": {"value": ""}}),
         build_resume=_plan_resume,
         echo=lambda inputs: _entry(
             "planner_decision",
             "You",
-            with_notes(PLAN_CHOICE_GENERATE if inputs.get("action") == "generate" else PLAN_CHOICE_SKIP, _text(inputs, "notes")),
+            with_notes(
+                PLAN_CHOICE_GENERATE if inputs.get("action") == "generate" else PLAN_CHOICE_SKIP,
+                _text(inputs, "notes"),
+            ),
         ),
         next_step=lambda resume: "plan_bundle" if resume.get("generate") else None,
     ),
     "implement_gate": GateSpec(
         kind="implement_gate",
         mode=MODE_IMPL_GATE,
-        fields=("banner", "summary", "review", "parallel", "tuning", "file", "editor", "save_status", "notes"),
-        actions=(GateAction("start", "Start implementation", "primary"), GateAction("skip", "Stop here (blueprint only)")),
+        fields=(
+            "banner",
+            "summary",
+            "review",
+            "parallel",
+            "tuning",
+            "file",
+            "editor",
+            "save_status",
+            "notes",
+        ),
+        actions=(
+            GateAction("start", "Start implementation", "primary"),
+            GateAction("skip", "Stop here (blueprint only)"),
+        ),
         build=_implement_build,
         render=_implement_view,
         build_resume=_implement_resume,
         echo=lambda inputs: _entry(
             "implement_decision",
             "You",
-            with_notes(IMPL_CHOICE_START if inputs.get("action") == "start" else IMPL_CHOICE_SKIP, _text(inputs, "notes")),
+            with_notes(
+                IMPL_CHOICE_START if inputs.get("action") == "start" else IMPL_CHOICE_SKIP,
+                _text(inputs, "notes"),
+            ),
         ),
         next_step=lambda resume: "implementer" if resume.get("implement") else None,
         validate=_implement_validate,
@@ -757,7 +896,9 @@ GATES: dict[str, GateSpec] = {
         echo=lambda inputs: _entry(
             "change_request",
             "You",
-            f"Change request: {_text(inputs, 'feedback')}" if inputs.get("action") == "iterate" else "Finish here",
+            f"Change request: {_text(inputs, 'feedback')}"
+            if inputs.get("action") == "iterate"
+            else "Finish here",
         ),
         next_step=lambda resume: "change_planner" if resume.get("iterate") else None,
         validate=_iterate_validate,

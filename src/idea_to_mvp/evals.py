@@ -110,10 +110,13 @@ def render_table(results: Sequence[PackScores]) -> str:
     name_width = max([len("overall"), *(len(r.name) for r in results)])
 
     def line(name: str, cells: Sequence[str]) -> str:
-        return name.ljust(name_width) + "".join(f"  {cell.rjust(len(column))}" for column, cell in zip(columns, cells, strict=True))
+        return name.ljust(name_width) + "".join(
+            f"  {cell.rjust(len(column))}" for column, cell in zip(columns, cells, strict=True)
+        )
 
     rows = [
-        line(r.name, [*(str(getattr(r.scores, c).score) for c in CRITERIA), f"{r.scores.mean:.1f}"]) for r in results
+        line(r.name, [*(str(getattr(r.scores, c).score) for c in CRITERIA), f"{r.scores.mean:.1f}"])
+        for r in results
     ]
     overall = sum(r.scores.mean for r in results) / len(results) if results else 0.0
     header = "pack".ljust(name_width) + "".join(f"  {column}" for column in columns)
@@ -125,14 +128,20 @@ def generate_pack(idea: str, preferences: dict[str, Any] | None = None) -> Path:
     With real models this costs a full panel, architecture, and blueprint run."""
     graph = build_graph(MemorySaver())
     config = run_config(f"eval-{uuid.uuid4()}")
-    state = make_initial_state(idea, 1, autopilot=True, preferences=ProjectPreferences(**(preferences or {})))
+    state = make_initial_state(
+        idea, 1, autopilot=True, preferences=ProjectPreferences(**(preferences or {}))
+    )
     graph.invoke(state, config)
     return Path(graph.get_state(config).values["project_bundle_dir"])
 
 
 def main(argv: Sequence[str] | None = None, *, golden_path: Path) -> int:
-    parser = argparse.ArgumentParser(description="Score blueprint packs with an LLM judge (opt-in, spends tokens).")
-    parser.add_argument("--live", action="store_true", help="allow the model calls this makes (required)")
+    parser = argparse.ArgumentParser(
+        description="Score blueprint packs with an LLM judge (opt-in, spends tokens)."
+    )
+    parser.add_argument(
+        "--live", action="store_true", help="allow the model calls this makes (required)"
+    )
     parser.add_argument("--pack", type=Path, help="judge an existing blueprint folder")
     parser.add_argument("--idea", help="generate a pack from this golden idea id, then judge it")
     parser.add_argument("--all", action="store_true", help="generate and judge every golden idea")
@@ -146,7 +155,10 @@ def main(argv: Sequence[str] | None = None, *, golden_path: Path) -> int:
         ids = list(golden)
     elif args.idea:
         if args.idea not in golden:
-            print(f"Unknown golden idea {args.idea!r}; choose one of: {', '.join(golden)}", file=sys.stderr)
+            print(
+                f"Unknown golden idea {args.idea!r}; choose one of: {', '.join(golden)}",
+                file=sys.stderr,
+            )
             return 2
         ids = [args.idea]
     elif args.pack:

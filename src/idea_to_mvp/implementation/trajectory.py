@@ -95,7 +95,11 @@ def _result_text(content: Any) -> str:
         return ""
     if isinstance(content, str):
         return content
-    parts = [str(part.get("text") or "") for part in content if isinstance(part, dict) and part.get("type") == "text"]
+    parts = [
+        str(part.get("text") or "")
+        for part in content
+        if isinstance(part, dict) and part.get("type") == "text"
+    ]
     return "\n".join(part for part in parts if part)
 
 
@@ -122,14 +126,25 @@ class SessionLog:
         self._workspace = Path(workspace)
         # A session whose trajectory agents must not read (the acceptance lane's shows the held-out tests) keeps it
         # elsewhere; its ledger row is still the workspace's, so the spend adds up.
-        self._folder = Path(trajectory_dir) if trajectory_dir is not None else self._workspace / LEDGER_DIR / TRAJECTORY_DIR
+        self._folder = (
+            Path(trajectory_dir)
+            if trajectory_dir is not None
+            else self._workspace / LEDGER_DIR / TRAJECTORY_DIR
+        )
         self._base = _safe_label(label)
         self._kind: SessionKind = kind
         self._task_id = task_id
         self._iteration = iteration
         self._model = model
-        self._attempt = attempt if attempt is not None else 1 + sum(
-            1 for row in load_ledger(self._workspace) if row["kind"] == kind and row["task_id"] == task_id
+        self._attempt = (
+            attempt
+            if attempt is not None
+            else 1
+            + sum(
+                1
+                for row in load_ledger(self._workspace)
+                if row["kind"] == kind and row["task_id"] == task_id
+            )
         )
         self._started = time.time()
         self._path: Path | None = None
@@ -184,7 +199,9 @@ class SessionLog:
         if isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, ToolUseBlock):
-                    payload = json.dumps(_clip_values(block.input, INPUT_VALUE_LIMIT), ensure_ascii=False)
+                    payload = json.dumps(
+                        _clip_values(block.input, INPUT_VALUE_LIMIT), ensure_ascii=False
+                    )
                     self._write("ACTION", f"{block.name} {payload}")
                 elif isinstance(block, TextBlock) and block.text.strip():
                     self._write("TEXT", _clip(block.text.strip(), TEXT_LIMIT))
@@ -194,12 +211,17 @@ class SessionLog:
             for block in message.content:
                 if isinstance(block, ToolResultBlock):
                     text = _clip(_result_text(block.content).strip(), OBSERVATION_LIMIT)
-                    self._write("OBSERVATION", f"(error) {text}".rstrip() if block.is_error else text)
+                    self._write(
+                        "OBSERVATION", f"(error) {text}".rstrip() if block.is_error else text
+                    )
 
     def event(self, event: ImplEvent) -> None:
         """Record a simulated session's event (demo mode has no SDK messages) in the same grammar."""
         if event["kind"] == "tool":
-            self._write("ACTION", f"{event['label']} {json.dumps({'detail': event['detail']}, ensure_ascii=False)}")
+            self._write(
+                "ACTION",
+                f"{event['label']} {json.dumps({'detail': event['detail']}, ensure_ascii=False)}",
+            )
         elif event["kind"] == "text":
             self._write("TEXT", event["detail"])
 
@@ -245,7 +267,9 @@ class SessionLog:
             "session_id": session_id,
             # Agents may read the ledger: a trajectory kept outside the workspace (the acceptance lane's, next to the
             # held-out suite) is not named in it.
-            "trajectory": path.relative_to(self._workspace).as_posix() if path.is_relative_to(self._workspace) else "",
+            "trajectory": path.relative_to(self._workspace).as_posix()
+            if path.is_relative_to(self._workspace)
+            else "",
             "started_at": self._started,
             "ended_at": max(time.time(), self._started),
         }
@@ -328,7 +352,12 @@ def events_from_trajectories(
             continue  # a model call, not a session: nothing for the console
         task_id = _task_id_of(row)
         started, ended = row["started_at"], row["ended_at"]
-        events.append({**make_event("task_start", task_id=task_id, label=_title_of(row, titles)), "ts": started})
+        events.append(
+            {
+                **make_event("task_start", task_id=task_id, label=_title_of(row, titles)),
+                "ts": started,
+            }
+        )
         try:
             text = (workspace / row["trajectory"]).read_text(encoding="utf-8")
         except OSError:
@@ -337,10 +366,35 @@ def events_from_trajectories(
             if tag == "ACTION":
                 events.append(_action_event(body, task_id, started))
             elif tag == "TEXT":
-                events.append({**make_event("text", task_id=task_id, label="agent", detail=shorten(body, 240)), "ts": started})
+                events.append(
+                    {
+                        **make_event(
+                            "text", task_id=task_id, label="agent", detail=shorten(body, 240)
+                        ),
+                        "ts": started,
+                    }
+                )
         if row["cost_usd"] > 0:
             detail = f"{row['turns']} turns"
-            events.append({**make_event("cost", task_id=task_id, label="session", detail=detail, cost_usd=row["cost_usd"]), "ts": ended})
+            events.append(
+                {
+                    **make_event(
+                        "cost",
+                        task_id=task_id,
+                        label="session",
+                        detail=detail,
+                        cost_usd=row["cost_usd"],
+                    ),
+                    "ts": ended,
+                }
+            )
         detail = "done" if row["outcome"] == "success" else row["outcome"]
-        events.append({**make_event("task_end", task_id=task_id, label=_title_of(row, titles), detail=detail), "ts": ended})
+        events.append(
+            {
+                **make_event(
+                    "task_end", task_id=task_id, label=_title_of(row, titles), detail=detail
+                ),
+                "ts": ended,
+            }
+        )
     return events[-limit:] if limit > 0 else []

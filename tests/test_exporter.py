@@ -44,7 +44,11 @@ def finished_values(**overrides: Any) -> dict[str, Any]:
             "passed": False,
             "attempts": 1,
             "report": "merged report",
-            "lanes": [lane("tests"), lane("quality", False, ["ruff: 2 errors"]), lane("requirements")],
+            "lanes": [
+                lane("tests"),
+                lane("quality", False, ["ruff: 2 errors"]),
+                lane("requirements"),
+            ],
         },
         "delivery_report": "## Delivery report\nv0.1 is ready.",
         "stage": "done",
@@ -82,11 +86,15 @@ def test_the_export_shows_each_verification_lane_with_its_failures() -> None:
 def test_a_verification_that_has_not_been_delivered_yet_is_exported_too() -> None:
     values = finished_values(delivery_report="", stage="report")
     text = export(values)
-    assert "## Verification" in text and "ruff: 2 errors" in text and "## Delivery Report" not in text
+    assert (
+        "## Verification" in text and "ruff: 2 errors" in text and "## Delivery Report" not in text
+    )
 
 
 def test_a_verification_that_never_ran_exports_its_report() -> None:
-    values = finished_values(verification={"passed": False, "attempts": 0, "report": "Budget used up.", "lanes": []})
+    values = finished_values(
+        verification={"passed": False, "attempts": 0, "report": "Budget used up.", "lanes": []}
+    )
     assert "Budget used up." in export(values)
 
 
@@ -99,31 +107,61 @@ def test_decisions_and_the_moderator_keep_their_own_headings() -> None:
 
 def test_the_markdown_export_keeps_what_it_always_had() -> None:
     text = export(finished_values())
-    for expected in ("# Idea-to-MVP Session Export", "## Idea", "## Panel Discussion", "## Summary", "## MVP Questions"):
+    for expected in (
+        "# Idea-to-MVP Session Export",
+        "## Idea",
+        "## Panel Discussion",
+        "## Summary",
+        "## MVP Questions",
+    ):
         assert expected in text
     assert "## Your Answers" in text and "## Architect Output" in text
 
 
 def test_the_json_export_carries_the_same_run_in_structured_form() -> None:
     data = json.loads(
-        build_session_json(entries=transcript_from_state(finished_values(), None), thread_id="t1", mode="done", saved_at=SAVED_AT)
+        build_session_json(
+            entries=transcript_from_state(finished_values(), None),
+            thread_id="t1",
+            mode="done",
+            saved_at=SAVED_AT,
+        )
     )
-    assert data["thread_id"] == "t1" and data["stage"] == "done" and data["saved_at"].startswith("2026-09-30")
+    assert (
+        data["thread_id"] == "t1"
+        and data["stage"] == "done"
+        and data["saved_at"].startswith("2026-09-30")
+    )
     assert data["idea"] == "Climbing log app"
     assert data["blueprint_files"] == ["PRD.md", "ARCHITECTURE.md", "plan.md"]
     assert data["verification"]["attempts"] == 1
-    assert [item["lane"] for item in data["verification"]["lanes"]] == ["tests", "quality", "requirements"]
+    assert [item["lane"] for item in data["verification"]["lanes"]] == [
+        "tests",
+        "quality",
+        "requirements",
+    ]
     assert data["delivery_report"].startswith("## Delivery report")
     kinds = [entry["kind"] for entry in data["entries"]]
     assert kinds[0] == "idea" and "strategy" in kinds and kinds[-1] == "delivery_report"
-    assert all(set(entry) == {"kind", "speaker", "content"} for entry in data["entries"])  # nothing unserialisable
+    assert all(
+        set(entry) == {"kind", "speaker", "content"} for entry in data["entries"]
+    )  # nothing unserialisable
 
 
 def test_the_json_export_of_a_short_session_has_no_later_stages() -> None:
     data = json.loads(
-        build_session_json(entries=[ViewEntry("idea", "You", "An idea")], thread_id="", mode="idea", saved_at=SAVED_AT)
+        build_session_json(
+            entries=[ViewEntry("idea", "You", "An idea")],
+            thread_id="",
+            mode="idea",
+            saved_at=SAVED_AT,
+        )
     )
-    assert data["blueprint_files"] == [] and data["verification"] is None and data["delivery_report"] == ""
+    assert (
+        data["blueprint_files"] == []
+        and data["verification"] is None
+        and data["delivery_report"] == ""
+    )
 
 
 def test_saving_writes_both_formats_side_by_side(tmp_path: Path) -> None:
@@ -133,18 +171,31 @@ def test_saving_writes_both_formats_side_by_side(tmp_path: Path) -> None:
         thread_id="t1",
         mode="idea",
     )
-    assert markdown.suffix == ".md" and json_path.suffix == ".json" and markdown.stem == json_path.stem
+    assert (
+        markdown.suffix == ".md" and json_path.suffix == ".json" and markdown.stem == json_path.stem
+    )
     assert markdown.read_text(encoding="utf-8").startswith("# Idea-to-MVP Session Export")
     assert json.loads(json_path.read_text(encoding="utf-8"))["idea"] == "An idea"
 
 
 def test_the_export_keeps_the_stated_preferences_next_to_the_idea() -> None:
-    values = finished_values(preferences={"platform": "web", "stack_hints": "TypeScript + Postgres"})
+    values = finished_values(
+        preferences={"platform": "web", "stack_hints": "TypeScript + Postgres"}
+    )
     text = export(values)
     assert "## Project Preferences" in text and "TypeScript + Postgres" in text
-    assert text.index("## Idea") < text.index("## Project Preferences") < text.index("## Panel Discussion")
+    assert (
+        text.index("## Idea")
+        < text.index("## Project Preferences")
+        < text.index("## Panel Discussion")
+    )
     assert "## Project Preferences" not in export(finished_values())
     data = json.loads(
-        build_session_json(entries=transcript_from_state(values, None), thread_id="t", mode="done", saved_at=SAVED_AT)
+        build_session_json(
+            entries=transcript_from_state(values, None),
+            thread_id="t",
+            mode="done",
+            saved_at=SAVED_AT,
+        )
     )
     assert "TypeScript + Postgres" in data["preferences"]

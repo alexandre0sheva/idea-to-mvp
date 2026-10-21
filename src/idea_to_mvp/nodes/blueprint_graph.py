@@ -110,11 +110,16 @@ def _send(
 
 def _wave_router(wave: int) -> Callable[[IdeaDiscussionState], list[Send] | str]:
     def route(state: IdeaDiscussionState) -> list[Send] | str:
-        specs = [s for s in bundle_file_plan(state.get("execution_strategy") or None) if s.wave == wave]
+        specs = [
+            s for s in bundle_file_plan(state.get("execution_strategy") or None) if s.wave == wave
+        ]
         if not specs:
             return _next_step(wave)
         context_block = blueprint_context(state)
-        return [_send(s, _worker_for(s, f"doc_{wave}", "plan_writer"), state, context_block) for s in specs]
+        return [
+            _send(s, _worker_for(s, f"doc_{wave}", "plan_writer"), state, context_block)
+            for s in specs
+        ]
 
     route.__name__ = f"route_wave_{wave}"
     return route
@@ -161,20 +166,34 @@ def build_blueprint_subgraph() -> CompiledStateGraph:
     builder = StateGraph(IdeaDiscussionState, input_schema=BlueprintInput)
     for wave in WAVES:
         builder.add_node(f"wave_{wave}", read_library_node if wave == WAVES[0] else _fan_out)
-        builder.add_node(f"doc_{wave}", generate_doc_node, input_schema=DocInput, retry_policy=LLM_RETRY)
-    builder.add_node("plan_writer", generate_plan_node, input_schema=DocInput, retry_policy=LLM_RETRY)
-    builder.add_node("harness_writer", generate_harness_node, input_schema=DocInput, retry_policy=LLM_RETRY)
+        builder.add_node(
+            f"doc_{wave}", generate_doc_node, input_schema=DocInput, retry_policy=LLM_RETRY
+        )
+    builder.add_node(
+        "plan_writer", generate_plan_node, input_schema=DocInput, retry_policy=LLM_RETRY
+    )
+    builder.add_node(
+        "harness_writer", generate_harness_node, input_schema=DocInput, retry_policy=LLM_RETRY
+    )
     builder.add_node("review", review_node, retry_policy=LLM_RETRY)
     builder.add_node("revise", revise_node)
-    builder.add_node("rewrite_doc", generate_doc_node, input_schema=DocInput, retry_policy=LLM_RETRY)
-    builder.add_node("rewrite_plan", generate_plan_node, input_schema=DocInput, retry_policy=LLM_RETRY)
+    builder.add_node(
+        "rewrite_doc", generate_doc_node, input_schema=DocInput, retry_policy=LLM_RETRY
+    )
+    builder.add_node(
+        "rewrite_plan", generate_plan_node, input_schema=DocInput, retry_policy=LLM_RETRY
+    )
     builder.add_node("write", write_bundle_node)
 
     builder.add_edge(START, "wave_1")
     for wave in WAVES:
         workers = [f"doc_{wave}", *_STRUCTURED_WORKERS.get(wave, ())]
-        builder.add_conditional_edges(f"wave_{wave}", _wave_router(wave), [*workers, _next_step(wave)])
-        for worker in workers:  # separate edges: the step after fires once per superstep, whichever ran
+        builder.add_conditional_edges(
+            f"wave_{wave}", _wave_router(wave), [*workers, _next_step(wave)]
+        )
+        for (
+            worker
+        ) in workers:  # separate edges: the step after fires once per superstep, whichever ran
             builder.add_edge(worker, _next_step(wave))
     builder.add_conditional_edges("review", route_after_review, ["revise", "write"])
     builder.add_conditional_edges("revise", route_revisions, ["rewrite_doc", "rewrite_plan"])

@@ -83,21 +83,31 @@ def test_full_pipeline_pauses_resumes_and_declines(fake_pipeline) -> None:
     assert interrupts[0].value["kind"] == "answers"
     assert len(interrupts[0].value["questions"]) == 5
 
-    events = list(g.stream(Command(resume="1. Solo founders."), config=config, stream_mode="updates"))
+    events = list(
+        g.stream(Command(resume="1. Solo founders."), config=config, stream_mode="updates")
+    )
     interrupts = _interrupts(events)
     assert len(interrupts) == 1
     assert interrupts[0].value["kind"] == "arch_choice"
     assert interrupts[0].value["architecture"].strip()
 
     events = list(
-        g.stream(Command(resume={"option": "A", "notes": "keep it simple"}), config=config, stream_mode="updates")
+        g.stream(
+            Command(resume={"option": "A", "notes": "keep it simple"}),
+            config=config,
+            stream_mode="updates",
+        )
     )
     interrupts = _interrupts(events)
     assert len(interrupts) == 1
     assert interrupts[0].value["kind"] == "plan_gate"
     assert interrupts[0].value["question"].strip()
 
-    events = list(g.stream(Command(resume={"generate": False, "notes": ""}), config=config, stream_mode="updates"))
+    events = list(
+        g.stream(
+            Command(resume={"generate": False, "notes": ""}), config=config, stream_mode="updates"
+        )
+    )
     assert not _interrupts(events)
     snapshot = g.get_state(config)
     assert snapshot.next == ()
@@ -114,9 +124,15 @@ def test_full_pipeline_accept_generates_bundle(fake_pipeline, tmp_path) -> None:
 
     list(g.stream(_base_state(max_rounds=3), config=config, stream_mode="updates"))
     list(g.stream(Command(resume="Answers."), config=config, stream_mode="updates"))
-    list(g.stream(Command(resume={"option": "B", "notes": ""}), config=config, stream_mode="updates"))
+    list(
+        g.stream(Command(resume={"option": "B", "notes": ""}), config=config, stream_mode="updates")
+    )
     events = list(
-        g.stream(Command(resume={"generate": True, "notes": "keep it lean"}), config=config, stream_mode="updates")
+        g.stream(
+            Command(resume={"generate": True, "notes": "keep it lean"}),
+            config=config,
+            stream_mode="updates",
+        )
     )
 
     snapshot = g.get_state(config)
@@ -130,7 +146,9 @@ def test_full_pipeline_accept_generates_bundle(fake_pipeline, tmp_path) -> None:
     assert interrupts[0].value["question"].strip()
 
 
-async def test_implement_gate_accept_builds_verifies_and_reports(fake_pipeline, monkeypatch, tmp_path) -> None:
+async def test_implement_gate_accept_builds_verifies_and_reports(
+    fake_pipeline, monkeypatch, tmp_path
+) -> None:
     workspace = tmp_path / "projects" / "ws"
     workspace.mkdir(parents=True)
     (workspace / "README.md").write_text("readme")
@@ -143,7 +161,11 @@ async def test_implement_gate_accept_builds_verifies_and_reports(fake_pipeline, 
             rounds.append(1)
         failing = lane == "tests" and len(rounds) == 1  # the first round fails, the fix works
         report = LaneReport(
-            lane=lane, passed=not failing, commands_run=[], failures=["2 failed"] if failing else [], summary=lane
+            lane=lane,
+            passed=not failing,
+            commands_run=[],
+            failures=["2 failed"] if failing else [],
+            summary=lane,
         )
         return LaneOutcome(report)
 
@@ -152,12 +174,15 @@ async def test_implement_gate_accept_builds_verifies_and_reports(fake_pipeline, 
         return FixOutcome(True, "fixed")
 
     monkeypatch.setattr(implementer, "prepare_workspace", lambda bundle, root: workspace)
-    monkeypatch.setattr(implementer, "run_implementation", lambda ws, strategy, settings: "Implemented everything.")
+    monkeypatch.setattr(
+        implementer, "run_implementation", lambda ws, strategy, settings: "Implemented everything."
+    )
     monkeypatch.setattr(verify_lanes, "run_lane", run_lane)
     monkeypatch.setattr(verify_lanes, "run_fix", run_fix)
 
     g = graph_module.build_graph(MemorySaver())
     config = {"configurable": {"thread_id": "lifecycle-implement"}}
+
     # The implementer node is async (it can be cancelled and publishes live events), so drive the graph with astream.
     async def drive(payload) -> list[dict]:
         return [event async for event in g.astream(payload, config=config, stream_mode="updates")]
@@ -172,7 +197,12 @@ async def test_implement_gate_accept_builds_verifies_and_reports(fake_pipeline, 
     assert [i.value["kind"] for i in _interrupts(events)] == ["iterate_gate"]
     snapshot = await g.aget_state(config)
     assert snapshot.next == ("iterate_gate",)
-    assert snapshot.values["implement_decision"] == {"implement": True, "notes": "go", "parallel": 0, "harness_tuning": False}
+    assert snapshot.values["implement_decision"] == {
+        "implement": True,
+        "notes": "go",
+        "parallel": 0,
+        "harness_tuning": False,
+    }
     assert snapshot.values["workspace_dir"] == str(workspace)
     assert snapshot.values["implementation_log"] == "Implemented everything."
     assert snapshot.values["verification"]["passed"] is True
@@ -191,14 +221,29 @@ def test_implement_gate_decline_ends_run(fake_pipeline) -> None:
     config = {"configurable": {"thread_id": "lifecycle-no-implement"}}
     list(g.stream(_base_state(max_rounds=3), config=config, stream_mode="updates"))
     list(g.stream(Command(resume="Answers."), config=config, stream_mode="updates"))
-    list(g.stream(Command(resume={"option": "A", "notes": ""}), config=config, stream_mode="updates"))
-    list(g.stream(Command(resume={"generate": True, "notes": ""}), config=config, stream_mode="updates"))
-    events = list(g.stream(Command(resume={"implement": False, "notes": ""}), config=config, stream_mode="updates"))
+    list(
+        g.stream(Command(resume={"option": "A", "notes": ""}), config=config, stream_mode="updates")
+    )
+    list(
+        g.stream(
+            Command(resume={"generate": True, "notes": ""}), config=config, stream_mode="updates"
+        )
+    )
+    events = list(
+        g.stream(
+            Command(resume={"implement": False, "notes": ""}), config=config, stream_mode="updates"
+        )
+    )
 
     assert not _interrupts(events)
     snapshot = g.get_state(config)
     assert snapshot.next == ()
-    assert snapshot.values["implement_decision"] == {"implement": False, "notes": "", "parallel": 0, "harness_tuning": False}
+    assert snapshot.values["implement_decision"] == {
+        "implement": False,
+        "notes": "",
+        "parallel": 0,
+        "harness_tuning": False,
+    }
     assert snapshot.values["workspace_dir"] == ""
     assert snapshot.values["stage"] == "done"
 

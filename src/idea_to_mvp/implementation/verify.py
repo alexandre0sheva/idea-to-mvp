@@ -53,7 +53,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 LOGGER = logging.getLogger(__name__)
 
 LaneName = Literal["tests", "quality", "requirements", "acceptance"]
-LANES: tuple[LaneName, ...] = ("tests", "quality", "requirements")  # every round; "acceptance" only with a suite
+LANES: tuple[LaneName, ...] = (
+    "tests",
+    "quality",
+    "requirements",
+)  # every round; "acceptance" only with a suite
 ACCEPTANCE: LaneName = "acceptance"
 WRITE_TOOLS = ("Edit", "MultiEdit", "Write")
 
@@ -93,12 +97,16 @@ class FixOutcome:
     summary: str
     cost_usd: float = 0.0
     turns: int = 0
-    integrity: list[IntegrityFinding] = field(default_factory=list)  # what the session did to the tests
+    integrity: list[IntegrityFinding] = field(
+        default_factory=list
+    )  # what the session did to the tests
     # "environment": the session found that no change to the project can fix the failures (`environment` says what
     # is missing), so the loop ends instead of verifying an unchanged project again.
     kind: Literal["code", "environment"] = "code"
     environment: str = ""
-    notes: list[fixes.Note] = field(default_factory=list)  # its hypotheses, judged against the earlier attempts
+    notes: list[fixes.Note] = field(
+        default_factory=list
+    )  # its hypotheses, judged against the earlier attempts
     trajectory: str = ""  # its trajectory file, relative to the workspace
 
 
@@ -152,7 +160,8 @@ QUALITY_PROMPT = """\
    in the summary; that alone is not a failure.
 """
 
-REQUIREMENTS_PROMPT = """\
+REQUIREMENTS_PROMPT = (
+    """\
 The PRD's requirements to cover:
 {requirements}
 
@@ -162,7 +171,9 @@ is uncovered. `failures` has one entry per uncovered requirement, starting with 
 example `R2 (P0): no test covers exporting to CSV`. List the failures most serious first, by the order
 below. You need not run the tests; read them.
 
-""" + RUBRIC_ORDER
+"""
+    + RUBRIC_ORDER
+)
 
 
 def _commands(plan: Plan | None) -> str:
@@ -195,23 +206,39 @@ _CHECK_TESTS = (
 _CHECK_LINT = "   The project's check script runs the lint step: `bash scripts/check.sh lint`.\n"
 
 
-def build_lane_prompt(lane: LaneName, plan: Plan | None, prd_markdown: str, *, check_script: bool = False) -> str:
+def build_lane_prompt(
+    lane: LaneName, plan: Plan | None, prd_markdown: str, *, check_script: bool = False
+) -> str:
     """The prompt of one verification lane. With `check_script` (the workspace has the pack's
     `scripts/check.sh`) the tests and quality lanes run its steps instead of piecing the commands together."""
     if lane == "tests":
         report_command = (plan.commands.test_report or "").strip() if plan is not None else ""
-        run_tests = _RUN_TESTS_WITH_REPORT.format(command=report_command) if report_command else _RUN_TESTS
+        run_tests = (
+            _RUN_TESTS_WITH_REPORT.format(command=report_command) if report_command else _RUN_TESTS
+        )
         commands = _commands(plan) + (_CHECK_TESTS if check_script else "")
         body = TESTS_PROMPT.format(commands=commands, run_tests=run_tests)
     elif lane == "quality":
-        body = QUALITY_PROMPT.format(commands=_commands(plan) + (_CHECK_LINT if check_script else ""))
+        body = QUALITY_PROMPT.format(
+            commands=_commands(plan) + (_CHECK_LINT if check_script else "")
+        )
     else:
         required = priority_requirements(prd_markdown)
-        listing = "\n".join(f"- {rid} ({priority or 'unprioritised'})" for rid, priority in required.items())
-        body = REQUIREMENTS_PROMPT.format(
-            requirements=listing or "- (none could be parsed from PRD.md: read it and cover every requirement it states)"
+        listing = "\n".join(
+            f"- {rid} ({priority or 'unprioritised'})" for rid, priority in required.items()
         )
-    return _LANE_INTRO.format(lane=lane) + "\n" + body + "\n" + EVIDENCE_BOUNDARY + _REPORT_FORMAT.format(lane=lane)
+        body = REQUIREMENTS_PROMPT.format(
+            requirements=listing
+            or "- (none could be parsed from PRD.md: read it and cover every requirement it states)"
+        )
+    return (
+        _LANE_INTRO.format(lane=lane)
+        + "\n"
+        + body
+        + "\n"
+        + EVIDENCE_BOUNDARY
+        + _REPORT_FORMAT.format(lane=lane)
+    )
 
 
 FIX_PROMPT = (
@@ -288,9 +315,13 @@ def parse_lane_report(lane: str, structured: Any, text: str) -> LaneReport:
         return _invalid(lane, f"{where}: {first['msg']}.", text)
     if parsed.lane != lane:
         return _invalid(lane, f"it is a report for the {parsed.lane} lane.", text)
-    parsed = parsed.model_copy(update={"evidence": None})  # evidence comes from the orchestrator, never the agent
+    parsed = parsed.model_copy(
+        update={"evidence": None}
+    )  # evidence comes from the orchestrator, never the agent
     if parsed.passed and parsed.failures:
-        return parsed.model_copy(update={"passed": False})  # a lane that lists failures has not passed
+        return parsed.model_copy(
+            update={"passed": False}
+        )  # a lane that lists failures has not passed
     return parsed
 
 
@@ -311,8 +342,15 @@ def combine_lanes(reports: Sequence[LaneReport], lanes: Sequence[LaneName] = LAN
     ordered = [by_lane.get(lane) or _missing(lane) for lane in lanes]
     blocks = []
     for lane_report in ordered:
-        lines = [f"### {lane_report.lane.capitalize()} lane: {'PASSED' if lane_report.passed else 'FAILED'}", "", lane_report.summary.strip()]
-        commands = [f"`{run.get('command', '?')}` (exit {run.get('exit_code', '?')})" for run in lane_report.commands_run]
+        lines = [
+            f"### {lane_report.lane.capitalize()} lane: {'PASSED' if lane_report.passed else 'FAILED'}",
+            "",
+            lane_report.summary.strip(),
+        ]
+        commands = [
+            f"`{run.get('command', '?')}` (exit {run.get('exit_code', '?')})"
+            for run in lane_report.commands_run
+        ]
         if commands:
             lines += ["", "Commands: " + ", ".join(commands)]
         if lane_report.failures:
@@ -408,9 +446,21 @@ _read = read_text
 
 def _finish_log(log: SessionLog, session: _Session) -> None:
     """Close a session's trajectory and add it to the ledger (a lane that fails its checks is still a session that worked)."""
-    outcome: SessionOutcome = "crashed" if session.crashed else "failed" if session.is_error else "success"
-    note = session.crashed or (f"The session ended with {session.subtype}. {session.text}".strip() if session.is_error else "")
-    log.finish(outcome=outcome, cost_usd=session.cost_usd, turns=session.turns, session_id=session.session_id, note=note)
+    outcome: SessionOutcome = (
+        "crashed" if session.crashed else "failed" if session.is_error else "success"
+    )
+    note = session.crashed or (
+        f"The session ended with {session.subtype}. {session.text}".strip()
+        if session.is_error
+        else ""
+    )
+    log.finish(
+        outcome=outcome,
+        cost_usd=session.cost_usd,
+        turns=session.turns,
+        session_id=session.session_id,
+        note=note,
+    )
 
 
 def log_name(iteration: int, name: str) -> str:
@@ -432,7 +482,9 @@ def check_test_report(workspace: Path, plan: Plan | None, report: LaneReport) ->
         return report
     if (plan.commands.test_report or "").strip():
         return apply_evidence(report, read_evidence(workspace))
-    LOGGER.warning("The plan has no test report command, so the tests lane's verdict is the agent's claim.")
+    LOGGER.warning(
+        "The plan has no test report command, so the tests lane's verdict is the agent's claim."
+    )
     return report.model_copy(update={"summary": report.summary.rstrip() + _UNBACKED})
 
 
@@ -497,7 +549,9 @@ async def run_lane(
         session = await _run_session(
             cwd,
             settings,
-            prompt=build_lane_prompt(lane, plan, _read(cwd / "PRD.md"), check_script=(cwd / CHECK_SCRIPT).is_file()),
+            prompt=build_lane_prompt(
+                lane, plan, _read(cwd / "PRD.md"), check_script=(cwd / CHECK_SCRIPT).is_file()
+            ),
             task_id=task_id,
             max_turns=settings.verifier_max_turns,
             budget_usd=budget_usd,
@@ -512,7 +566,11 @@ async def run_lane(
         outcome = LaneOutcome(_lane_report_from(lane, session), session.cost_usd, session.turns)
     if lane == "tests":
         outcome.report = check_test_report(cwd, plan, outcome.report)
-    detail = "passed" if outcome.report.passed else f"failed: {outcome.report.failures[0][:120] if outcome.report.failures else 'see report'}"
+    detail = (
+        "passed"
+        if outcome.report.passed
+        else f"failed: {outcome.report.failures[0][:120] if outcome.report.failures else 'see report'}"
+    )
     emit(make_event("task_end", task_id=task_id, label=label, detail=detail))
     return outcome
 
@@ -524,12 +582,29 @@ def build_acceptance_prompt(plan: Plan | None, command: str) -> str:
         command=command,
         report=held_out.ACCEPTANCE_REPORT,
     )
-    return _LANE_INTRO.format(lane=ACCEPTANCE) + "\n" + steps + "\n" + EVIDENCE_BOUNDARY + _REPORT_FORMAT.format(lane=ACCEPTANCE)
+    return (
+        _LANE_INTRO.format(lane=ACCEPTANCE)
+        + "\n"
+        + steps
+        + "\n"
+        + EVIDENCE_BOUNDARY
+        + _REPORT_FORMAT.format(lane=ACCEPTANCE)
+    )
 
 
-def _acceptance_report(failures: list[str], summary: str, commands: list[dict[str, Any]] | None = None, evidence: dict[str, Any] | None = None) -> LaneReport:
+def _acceptance_report(
+    failures: list[str],
+    summary: str,
+    commands: list[dict[str, Any]] | None = None,
+    evidence: dict[str, Any] | None = None,
+) -> LaneReport:
     return LaneReport(
-        lane=ACCEPTANCE, passed=not failures, commands_run=commands or [], failures=failures, summary=summary, evidence=evidence
+        lane=ACCEPTANCE,
+        passed=not failures,
+        commands_run=commands or [],
+        failures=failures,
+        summary=summary,
+        evidence=evidence,
     )
 
 
@@ -555,8 +630,15 @@ async def _run_acceptance(
     emit(make_event("task_start", task_id=task_id, label=label))
     suite = held_out.load_suite(folder)
     if folder is None or suite is None or not suite.files:
-        report = _acceptance_report(["No acceptance tests were written for this version, so none could run."], "No held-out suite.")
-        emit(make_event("task_end", task_id=task_id, label=label, detail="failed: no acceptance tests"))
+        report = _acceptance_report(
+            ["No acceptance tests were written for this version, so none could run."],
+            "No held-out suite.",
+        )
+        emit(
+            make_event(
+                "task_end", task_id=task_id, label=label, detail="failed: no acceptance tests"
+            )
+        )
         return LaneOutcome(report)
     plan = plan or load_plan(_read(workspace / "plan.json"))
     log = SessionLog(
@@ -569,12 +651,24 @@ async def _run_acceptance(
         trajectory_dir=Path(folder).parent / held_out.TRAJECTORY_DIR,
     )
     try:
-        scratch = await asyncio.to_thread(held_out.make_scratch, workspace, Path(folder), f"v{iteration}-{attempt}")
-    except (OSError, shutil.Error) as error:  # a full disk, a file that cannot be read: a failed lane, not a crash
+        scratch = await asyncio.to_thread(
+            held_out.make_scratch, workspace, Path(folder), f"v{iteration}-{attempt}"
+        )
+    except (
+        OSError,
+        shutil.Error,
+    ) as error:  # a full disk, a file that cannot be read: a failed lane, not a crash
         LOGGER.warning("Could not copy %s for the acceptance lane: %s", workspace, error)
         reason = f"The acceptance lane could not copy the project to run the suite ({type(error).__name__})."
         report = _acceptance_report([reason], "The held-out suite could not run.")
-        emit(make_event("task_end", task_id=task_id, label=label, detail="failed: could not copy the project"))
+        emit(
+            make_event(
+                "task_end",
+                task_id=task_id,
+                label=label,
+                detail="failed: could not copy the project",
+            )
+        )
         return LaneOutcome(report)
     outcome = LaneOutcome(_acceptance_report([], ""))
     notes: list[str] = []
@@ -584,7 +678,14 @@ async def _run_acceptance(
 
             code = await asyncio.to_thread(demo_run_acceptance, scratch, suite.command)
             commands = [{"command": suite.command, "exit_code": code}]
-            log.event(make_event("text", task_id=task_id, label="agent", detail=f"Ran the acceptance suite (exit {code})."))
+            log.event(
+                make_event(
+                    "text",
+                    task_id=task_id,
+                    label="agent",
+                    detail=f"Ran the acceptance suite (exit {code}).",
+                )
+            )
             log.finish(outcome="success", cost_usd=0.0, turns=0, session_id=None)
         else:
             session = await _run_session(
@@ -603,7 +704,11 @@ async def _run_acceptance(
             )
             _finish_log(log, session)
             outcome.cost_usd, outcome.turns = session.cost_usd, session.turns
-            commands = parse_lane_report(ACCEPTANCE, session.structured, session.text).commands_run if not session.crashed else []
+            commands = (
+                parse_lane_report(ACCEPTANCE, session.structured, session.text).commands_run
+                if not session.crashed
+                else []
+            )
             if session.crashed or session.is_error:
                 notes.append("The acceptance session did not finish normally.")
         cases: list[CaseResult] = []
@@ -617,18 +722,29 @@ async def _run_acceptance(
         f"{evidence.passed} of {evidence.tests} held-out acceptance test(s) passed; "
         f"{passed_requirements} of {len(requirements)} requirement(s) they check passed."
     )
-    recorded = {**evidence.model_dump(), "failures": failures, "requirements": requirements, "suite": str(folder)}
-    outcome.report = _acceptance_report([*notes, *failures] if failures else [], summary, commands, recorded)
+    recorded = {
+        **evidence.model_dump(),
+        "failures": failures,
+        "requirements": requirements,
+        "suite": str(folder),
+    }
+    outcome.report = _acceptance_report(
+        [*notes, *failures] if failures else [], summary, commands, recorded
+    )
     detail = "passed" if outcome.report.passed else f"failed: {outcome.report.failures[0][:120]}"
     emit(make_event("task_end", task_id=task_id, label=label, detail=detail))
     return outcome
 
 
-def build_fix_prompt(failures: list[str], *, workspace: Path | None = None, attempt: int = 1, iteration: int = 1) -> str:
+def build_fix_prompt(
+    failures: list[str], *, workspace: Path | None = None, attempt: int = 1, iteration: int = 1
+) -> str:
     """The fix prompt. Failures from the held-out acceptance tests add a note on what they are (only then, so a
     fix session without them is not told that such tests exist). From the second attempt on, the earlier attempts'
     folders are named (`fixes.evidence_block`): their content is read from the files, not pasted."""
-    prompt = FIX_PROMPT.format(failures="\n".join(f"- {failure}" for failure in failures) or "- (none listed)")
+    prompt = FIX_PROMPT.format(
+        failures="\n".join(f"- {failure}" for failure in failures) or "- (none listed)"
+    )
     if any(failure.startswith(f"[{ACCEPTANCE}]") for failure in failures):
         prompt += "\n" + held_out.FIX_NOTE
     classified = fixes.classify_failures(failures)
@@ -638,7 +754,9 @@ def build_fix_prompt(failures: list[str], *, workspace: Path | None = None, atte
             "\n## Not yours to fix\nThese failures come from the environment and cannot be fixed by changing the "
             f"project. Leave them alone and fix the others:\n{listing}\n"
         )
-    if workspace is not None and (block := fixes.evidence_block(workspace, iteration=iteration, attempt=attempt)):
+    if workspace is not None and (
+        block := fixes.evidence_block(workspace, iteration=iteration, attempt=attempt)
+    ):
         prompt += "\n" + block
     return prompt
 
@@ -673,7 +791,9 @@ async def run_fix(
     The test files are compared before and after the session (`integrity.SessionWatch`), as for task sessions.
     """
     task_id, label = "verify:fix", "Fix"
-    emit(make_event("task_start", task_id=task_id, label=label, detail=f"{len(failures)} failure(s)"))
+    emit(
+        make_event("task_start", task_id=task_id, label=label, detail=f"{len(failures)} failure(s)")
+    )
     log = SessionLog(
         workspace,
         kind="fix",
@@ -683,7 +803,11 @@ async def run_fix(
         model=model_label(settings, fix_role(attempt)),
     )
     watch = await asyncio.to_thread(
-        SessionWatch, Path(workspace), settings, session=log_name(iteration, f"fix-{attempt}"), iteration=iteration
+        SessionWatch,
+        Path(workspace),
+        settings,
+        session=log_name(iteration, f"fix-{attempt}"),
+        iteration=iteration,
     )
     if settings.demo_mode:
         from idea_to_mvp.demo.implementer import demo_fix
@@ -698,7 +822,9 @@ async def run_fix(
         session = await _run_session(
             Path(workspace),
             settings,
-            prompt=build_fix_prompt(failures, workspace=Path(workspace), attempt=attempt, iteration=iteration),
+            prompt=build_fix_prompt(
+                failures, workspace=Path(workspace), attempt=attempt, iteration=iteration
+            ),
             task_id=task_id,
             max_turns=settings.implementer_max_task_turns,
             budget_usd=budget_usd,
@@ -723,5 +849,14 @@ async def run_fix(
     if log.path is not None and log.path.is_relative_to(Path(workspace)):
         outcome.trajectory = log.path.relative_to(Path(workspace)).as_posix()
     outcome.integrity = await asyncio.to_thread(watch.findings, session=log.label)
-    emit(make_event("task_end", task_id=task_id, label=label, detail="done" if outcome.success else f"failed: {outcome.summary.splitlines()[0][:120]}"))
+    emit(
+        make_event(
+            "task_end",
+            task_id=task_id,
+            label=label,
+            detail="done"
+            if outcome.success
+            else f"failed: {outcome.summary.splitlines()[0][:120]}",
+        )
+    )
     return outcome

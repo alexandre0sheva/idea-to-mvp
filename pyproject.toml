@@ -1,11 +1,28 @@
 [project]
 name = "idea-to-mvp"
 version = "0.3.0"
-description = "Multi-agent idea-to-MVP orchestrator with Gradio and LangGraph."
+description = "Turn a product idea into a built, tested first version: a multi-LLM panel, human gates, a blueprint pack, and sandboxed Claude agents."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
-authors = [{ name = "idea-to-mvp contributors" }]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "alexandre0sheva" }]
+keywords = ["ai-agents", "llm", "langgraph", "claude-agent-sdk", "gradio", "mcp", "code-generation", "multi-agent"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Environment :: Web Environment",
+  "Intended Audience :: Developers",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Code Generators",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
   "gradio>=6.29",
   "langgraph>=1.2",
@@ -21,6 +38,16 @@ dependencies = [
   "aiosqlite>=0.22.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/alexandre0sheva/idea-to-mvp"
+Repository = "https://github.com/alexandre0sheva/idea-to-mvp"
+Issues = "https://github.com/alexandre0sheva/idea-to-mvp/issues"
+Changelog = "https://github.com/alexandre0sheva/idea-to-mvp/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+# `idea-to-mvp mcp`. claude-agent-sdk already installs mcp; the extra pins the 2.x API the server is written for.
+mcp = ["mcp>=2.3"]
+
 [dependency-groups]
 dev = [
   "pytest>=8.0",
@@ -35,11 +62,33 @@ dev = [
 idea-to-mvp = "idea_to_mvp.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/idea_to_mvp"]
+
+# An allowlist: hatch honours only the repository's .gitignore, so a file a developer ignores globally (the
+# per-user `.claude/settings.local.json`, editor folders) would otherwise ship in the sdist.
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/scripts",
+  "/docs",
+  "/.github",
+  "/.env.example",
+  "/.pre-commit-config.yaml",
+  "/CHANGELOG.md",
+  "/CLAUDE.md",
+  "/CODE_OF_CONDUCT.md",
+  "/CONTRIBUTING.md",
+  "/LICENSE",
+  "/README.md",
+  "/SECURITY.md",
+  "/pyproject.toml",
+  "/uv.lock",
+]
 
 [tool.ruff]
 line-length = 100

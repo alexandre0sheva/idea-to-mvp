@@ -118,8 +118,12 @@ class TuningInput(TypedDict):
 
     workspace_dir: str
     iteration: int
-    execution_strategy: dict[str, Any]  # whether the plan is built task by task: only then is a pilot build selected
-    library: dict[str, Any]  # the experience library read before the blueprint: the proposers get its index
+    execution_strategy: dict[
+        str, Any
+    ]  # whether the plan is built task by task: only then is a pilot build selected
+    library: dict[
+        str, Any
+    ]  # the experience library read before the blueprint: the proposers get its index
 
 
 class ProposeInput(TypedDict):
@@ -152,7 +156,9 @@ def tuning_wanted(state: IdeaDiscussionState) -> bool:
     return bool(choice) if choice is not None else get_settings().harness_tuning == "pilot"
 
 
-def route_after_acceptance(state: IdeaDiscussionState) -> Literal["harness_tuning", "implementer", "implement_plan"]:
+def route_after_acceptance(
+    state: IdeaDiscussionState,
+) -> Literal["harness_tuning", "implementer", "implement_plan"]:
     return "harness_tuning" if tuning_wanted(state) else route_after_workspace(state)
 
 
@@ -195,7 +201,9 @@ def _write_changes(root: Path, changes: dict[str, str]) -> list[str]:
     or leads through, a symbolic link is skipped with a warning: writing there could land outside `root`."""
     linked = sorted(path for path in changes if _through_link(root, path))
     for path in linked:
-        LOGGER.warning("Harness tuning did not write %s: it is or leads through a symbolic link.", path)
+        LOGGER.warning(
+            "Harness tuning did not write %s: it is or leads through a symbolic link.", path
+        )
     safe = {path: text for path, text in changes.items() if path not in linked}
     write_harness(root, {path: text for path, text in safe.items() if text.strip()})
     for path, text in safe.items():
@@ -233,24 +241,58 @@ async def _probe(
     if changes:
         # Committed apart, so the rollout's commit (and `delivered`) is the session's own work.
         written = _write_changes(work_dir, changes)
-        candidate = await asyncio.to_thread(merge.commit_worktree, workspace, work_dir, name, f"harness: {arm} candidate")
+        candidate = await asyncio.to_thread(
+            merge.commit_worktree, workspace, work_dir, name, f"harness: {arm} candidate"
+        )
         if candidate is None or len(written) != len(changes):
-            raise RuntimeError(f"could not lay the {arm} candidate harness down in {work_dir} (git commit failed or a path is a link)")
+            raise RuntimeError(
+                f"could not lay the {arm} candidate harness down in {work_dir} (git commit failed or a path is a link)"
+            )
     emit(make_event("task_start", task_id=session_id, label=title))
     rollout = await executor.run_pilot_rollout(
-        workspace, work_dir, task, settings, arm=arm, budget_usd=budget_usd, emit=_relabel(emit, session_id), plan=plan
+        workspace,
+        work_dir,
+        task,
+        settings,
+        arm=arm,
+        budget_usd=budget_usd,
+        emit=_relabel(emit, session_id),
+        plan=plan,
     )
-    usage = [agent_record("pilot", model_label(settings, "implementer"), rollout.cost_usd)] if rollout.cost_usd > 0 else []
+    usage = (
+        [agent_record("pilot", model_label(settings, "implementer"), rollout.cost_usd)]
+        if rollout.cost_usd > 0
+        else []
+    )
     delivered = rollout.success and rollout.commit is not None
     outcome = "crashed" if rollout.crashed else "success" if rollout.success else "failed"
-    emit(make_event("task_end", task_id=session_id, label=title, detail=outcome if delivered else f"{outcome}: delivered nothing"))
+    emit(
+        make_event(
+            "task_end",
+            task_id=session_id,
+            label=title,
+            detail=outcome if delivered else f"{outcome}: delivered nothing",
+        )
+    )
     lane_cost = 0.0
     if delivered:
         log = SessionLog(
-            workspace, kind="pilot_lane", label=f"{name}-tests", task_id=task.id, attempt=1, model=model_label(settings, "verifier")
+            workspace,
+            kind="pilot_lane",
+            label=f"{name}-tests",
+            task_id=task.id,
+            attempt=1,
+            model=model_label(settings, "verifier"),
         )
         lane = await verify.run_lane(
-            workspace, "tests", settings, budget_usd=budget_usd, emit=_relabel(emit, lane_id), plan=plan, work_dir=work_dir, log=log
+            workspace,
+            "tests",
+            settings,
+            budget_usd=budget_usd,
+            emit=_relabel(emit, lane_id),
+            plan=plan,
+            work_dir=work_dir,
+            log=log,
         )
         lane_cost = lane.cost_usd
         if lane_cost > 0:
@@ -282,15 +324,34 @@ async def _probe(
     return probe, usage
 
 
-def _record_call(workspace: Path, settings: Settings, *, kind: SessionKind, label: str, role: str, records: list[UsageRecord], started: float) -> None:
+def _record_call(
+    workspace: Path,
+    settings: Settings,
+    *,
+    kind: SessionKind,
+    label: str,
+    role: str,
+    records: list[UsageRecord],
+    started: float,
+) -> None:
     cost = sum(record["cost_usd"] or 0.0 for record in records)
     record_call(
-        workspace, kind=kind, label=label, model=_call_model(settings, role), cost_usd=cost, started_at=started, ended_at=time.time()
+        workspace,
+        kind=kind,
+        label=label,
+        model=_call_model(settings, role),
+        cost_usd=cost,
+        started_at=started,
+        ended_at=time.time(),
     )
 
 
 def _structured(
-    role: str, messages: list[BaseMessage], schema: type[Any], fallback: Callable[[], Any], check: Callable[[Any], list[str]]
+    role: str,
+    messages: list[BaseMessage],
+    schema: type[Any],
+    fallback: Callable[[], Any],
+    check: Callable[[Any], list[str]],
 ) -> tuple[Any, list[str]]:
     """A structured call checked by `check`, repaired once in the words of an edit (no files keeps the base)."""
     return structured_with_repair(role, messages, schema, fallback, check, repair=repair_prompt)
@@ -314,7 +375,11 @@ async def pilot_node(state: IdeaDiscussionState) -> dict[str, Any]:
     plan = runnable_plan(workspace)
     if plan is None:
         return skip("the plan cannot be scheduled")
-    done = [task_id for task_id, result in load_progress(workspace).items() if result["status"] == "done"]
+    done = [
+        task_id
+        for task_id, result in load_progress(workspace).items()
+        if result["status"] == "done"
+    ]
     task = pick_pilot(plan, done)
     if task is None:
         return skip("no task of the plan is ready to start")
@@ -326,9 +391,22 @@ async def pilot_node(state: IdeaDiscussionState) -> dict[str, Any]:
         )
     for arm in ("base", *EDIT_KINDS):  # left by a killed run
         await merge.remove_worktree(workspace, _worktree_name(arm))
-    emit(make_event("text", label="harness tuning", detail=f"Pilot task {task.id}: building it under the pack's harness"))
-    base, usage = await _probe(workspace, task, plan, settings, arm="base", changes={}, budget_usd=budget, emit=emit)
-    record = {"status": "running", "pilot": {"id": task.id, "title": task.title}, "budget_usd": budget, "base": base}
+    emit(
+        make_event(
+            "text",
+            label="harness tuning",
+            detail=f"Pilot task {task.id}: building it under the pack's harness",
+        )
+    )
+    base, usage = await _probe(
+        workspace, task, plan, settings, arm="base", changes={}, budget_usd=budget, emit=emit
+    )
+    record = {
+        "status": "running",
+        "pilot": {"id": task.id, "title": task.title},
+        "budget_usd": budget,
+        "base": base,
+    }
     return {"harness_tuning": record, "usage": usage}
 
 
@@ -338,7 +416,12 @@ def route_after_pilot(state: IdeaDiscussionState) -> list[Send] | Literal["__end
         return "__end__"
     reference = reference_block(state.get("library"))
     return [
-        Send("propose", ProposeInput(kind=kind, workspace_dir=state["workspace_dir"], record=record, reference=reference))
+        Send(
+            "propose",
+            ProposeInput(
+                kind=kind, workspace_dir=state["workspace_dir"], record=record, reference=reference
+            ),
+        )
         for kind in EDIT_KINDS
     ]
 
@@ -360,14 +443,37 @@ def propose_node(state: ProposeInput) -> dict[str, Any]:
     with recording_usage("harness_editor") as records:
         edit, problems = _structured(
             "harness_editor",
-            [HumanMessage(content=proposal_prompt(kind, task, base_files, base, trajectory, state.get("reference", "")))],  # type: ignore[arg-type]
+            [
+                HumanMessage(
+                    content=proposal_prompt(
+                        kind,  # type: ignore[arg-type]
+                        task,
+                        base_files,
+                        base,
+                        trajectory,
+                        state.get("reference", ""),
+                    )
+                )
+            ],
             HarnessEdit,
             _no_edit,
             lambda answer: edit_problems(base_files, answer.files),
         )
-    _record_call(workspace, settings, kind="proposal", label=f"propose-{kind}", role="harness_editor", records=records, started=started)
+    _record_call(
+        workspace,
+        settings,
+        kind="proposal",
+        label=f"propose-{kind}",
+        role="harness_editor",
+        records=records,
+        started=started,
+    )
     if problems:
-        LOGGER.warning("The %s edit stays invalid (%s); its probe runs under the base harness.", kind.upper(), "; ".join(problems))
+        LOGGER.warning(
+            "The %s edit stays invalid (%s); its probe runs under the base harness.",
+            kind.upper(),
+            "; ".join(problems),
+        )
     candidate = {
         "kind": kind,
         "summary": edit.summary.strip(),
@@ -387,7 +493,15 @@ def probe_wave_node(state: IdeaDiscussionState) -> dict[str, Any]:
 def route_probes(state: IdeaDiscussionState) -> list[Send]:
     record = dict(state.get("harness_tuning") or {})
     return [
-        Send("probe", ProbeInput(kind=kind, workspace_dir=state["workspace_dir"], record=record, candidate=dict(record[kind])))
+        Send(
+            "probe",
+            ProbeInput(
+                kind=kind,
+                workspace_dir=state["workspace_dir"],
+                record=record,
+                candidate=dict(record[kind]),
+            ),
+        )
         for kind in EDIT_KINDS
     ]
 
@@ -398,15 +512,29 @@ async def probe_node(state: ProbeInput) -> dict[str, Any]:
     kind, record, candidate = state["kind"], state["record"], state["candidate"]
     plan = _plan(workspace)
     task = _pilot_task(plan, record["pilot"]["id"])
-    changes = changes_of([HarnessFile.model_validate(item) for item in candidate.get("files") or []])
+    changes = changes_of(
+        [HarnessFile.model_validate(item) for item in candidate.get("files") or []]
+    )
     probe, usage = await _probe(
-        workspace, task, plan, settings, arm=kind, changes=changes, budget_usd=float(record["budget_usd"]), emit=emitter()
+        workspace,
+        task,
+        plan,
+        settings,
+        arm=kind,
+        changes=changes,
+        budget_usd=float(record["budget_usd"]),
+        emit=emitter(),
     )
     return {"harness_tuning": {kind: {**candidate, "probe": probe}}, "usage": usage}
 
 
 def _keep_base() -> Composition:
-    return Composition(decision="keep_base", files=[], notes=[], rationale="The composer gave no usable answer, so the base harness is kept.")
+    return Composition(
+        decision="keep_base",
+        files=[],
+        notes=[],
+        rationale="The composer gave no usable answer, so the base harness is kept.",
+    )
 
 
 def compose_node(state: IdeaDiscussionState) -> dict[str, Any]:
@@ -416,8 +544,14 @@ def compose_node(state: IdeaDiscussionState) -> dict[str, Any]:
     task = _pilot_task(_plan(workspace), record["pilot"]["id"])
     base_files = read_harness(workspace)
     candidates: dict[str, Any] = {kind: record[kind] for kind in EDIT_KINDS}
-    probes: dict[str, ProbeResult] = {"base": record["base"], **{kind: record[kind]["probe"] for kind in EDIT_KINDS}}
-    trajectories = {arm: read_text(workspace / probe["trajectory"]) if probe["trajectory"] else "" for arm, probe in probes.items()}
+    probes: dict[str, ProbeResult] = {
+        "base": record["base"],
+        **{kind: record[kind]["probe"] for kind in EDIT_KINDS},
+    }
+    trajectories = {
+        arm: read_text(workspace / probe["trajectory"]) if probe["trajectory"] else ""
+        for arm, probe in probes.items()
+    }
 
     def check(answer: Composition) -> list[str]:
         return edit_problems(base_files, answer.files) if answer.decision == "merge" else []
@@ -426,12 +560,24 @@ def compose_node(state: IdeaDiscussionState) -> dict[str, Any]:
     with recording_usage("harness_composer") as records:
         composition, problems = _structured(
             "harness_composer",
-            [HumanMessage(content=compose_prompt(task, base_files, candidates, probes, trajectories))],
+            [
+                HumanMessage(
+                    content=compose_prompt(task, base_files, candidates, probes, trajectories)
+                )
+            ],
             Composition,
             _keep_base,
             check,
         )
-    _record_call(workspace, settings, kind="compose", label="compose", role="harness_composer", records=records, started=started)
+    _record_call(
+        workspace,
+        settings,
+        kind="compose",
+        label="compose",
+        role="harness_composer",
+        records=records,
+        started=started,
+    )
     proposed = composition.decision
     overruled = ""
     if problems:
@@ -443,7 +589,9 @@ def compose_node(state: IdeaDiscussionState) -> dict[str, Any]:
     if decision != "keep_base" and not changes:
         decision, overruled = "keep_base", "the adopted edit changes nothing"
     if overruled:
-        LOGGER.warning("The composer's %s is overruled: %s; keeping the base harness.", proposed, overruled)
+        LOGGER.warning(
+            "The composer's %s is overruled: %s; keeping the base harness.", proposed, overruled
+        )
     result = {
         "decision": decision,
         "proposed": proposed,
@@ -472,7 +620,9 @@ def select_node(state: IdeaDiscussionState) -> dict[str, Any]:
     probes = _probes(record)
 
     def skip(note: str) -> dict[str, Any]:
-        return {"harness_tuning": {"selection": {"status": "skipped", "note": note, "called": False}}}
+        return {
+            "harness_tuning": {"selection": {"status": "skipped", "note": note, "called": False}}
+        }
 
     if not builds_task_by_task(state):
         return skip("the plan is built by one lead session, which does not take a task's result")
@@ -481,9 +631,15 @@ def select_node(state: IdeaDiscussionState) -> dict[str, Any]:
         return skip("no pilot run delivered a build")
     task = _pilot_task(_plan(workspace), record["pilot"]["id"])
     # Seeded by what the runs produced, so a retried or resumed step shows the selector the same names.
-    builds = anonymize(arms, "|".join([workspace.name, task.id, *(str(probes[arm]["commit"]) for arm in arms)]))
+    builds = anonymize(
+        arms, "|".join([workspace.name, task.id, *(str(probes[arm]["commit"]) for arm in arms)])
+    )
     sections = {
-        build: build_section(build, probes[arm], commit_diff(workspace, probes[arm]["commit"] or "", 2 * SELECT_DIFF_CHARS))
+        build: build_section(
+            build,
+            probes[arm],
+            commit_diff(workspace, probes[arm]["commit"] or "", 2 * SELECT_DIFF_CHARS),
+        )
         for build, arm in builds.items()
     }
     prompt = selection_prompt(task, read_text(workspace / "PRD.md"), sections, _hidden(workspace))
@@ -491,18 +647,40 @@ def select_node(state: IdeaDiscussionState) -> dict[str, Any]:
     started = time.time()
     with recording_usage("pilot_selector") as records:
         answer, problems = _structured(
-            "pilot_selector", [HumanMessage(content=prompt)], Selection, _no_selection, lambda reply: selection_problems(reply, ids)
+            "pilot_selector",
+            [HumanMessage(content=prompt)],
+            Selection,
+            _no_selection,
+            lambda reply: selection_problems(reply, ids),
         )
-    _record_call(workspace, settings, kind="select", label="select", role="pilot_selector", records=records, started=started)
-    scores = {score.build.strip().upper(): score.model_dump() for score in answer.scores if score.build.strip().upper() in builds}
+    _record_call(
+        workspace,
+        settings,
+        kind="select",
+        label="select",
+        role="pilot_selector",
+        records=records,
+        started=started,
+    )
+    scores = {
+        score.build.strip().upper(): score.model_dump()
+        for score in answer.scores
+        if score.build.strip().upper() in builds
+    }
     choice, overruled = "none", ""
     if problems:
-        overruled = "the selector's answer stays unusable (" + "; ".join(problems) + "), so no build is selected"
+        overruled = (
+            "the selector's answer stays unusable ("
+            + "; ".join(problems)
+            + "), so no build is selected"
+        )
         LOGGER.warning("Pilot selection: %s.", overruled)
     else:
         choice, overruled = overrule(answer.choice, builds, probes, scores)
     if overruled and not problems:
-        LOGGER.warning("The selector's choice of build %s is overruled: %s.", answer.choice, overruled)
+        LOGGER.warning(
+            "The selector's choice of build %s is overruled: %s.", answer.choice, overruled
+        )
     selection = {
         "status": "chosen" if choice in builds else "none",
         "builds": builds,  # build id -> arm: revealed only now
@@ -518,11 +696,15 @@ def select_node(state: IdeaDiscussionState) -> dict[str, Any]:
     return {"harness_tuning": {"selection": selection}, "usage": records}
 
 
-async def _land_build(workspace: Path, task: PlanTask, selection: dict[str, Any], probe: ProbeResult) -> dict[str, Any]:
+async def _land_build(
+    workspace: Path, task: PlanTask, selection: dict[str, Any], probe: ProbeResult
+) -> dict[str, Any]:
     """Apply the selected build as the pilot task's commit and record the task done: the engines then skip it. Its
     cost stays harness tuning's (the task's result costs nothing more), so the budget does not count it twice."""
     previous = load_progress(workspace).get(task.id)
-    if previous is not None and previous["status"] == "done":  # a resumed step that had landed it already
+    if (
+        previous is not None and previous["status"] == "done"
+    ):  # a resumed step that had landed it already
         return {**selection, "landed": True, "task_commit": previous["commit"]}
     build, arm = selection["choice"], selection["arm"]
     message = f"{task.id}: {task.title} (pilot build {build}, selected)"
@@ -548,7 +730,14 @@ async def _land_build(workspace: Path, task: PlanTask, selection: dict[str, Any]
     if probe.get("integrity"):
         result["integrity"] = list(probe.get("integrity") or [])
     save_result(workspace, result)
-    emitter()(make_event("task_end", task_id=task.id, label=task.title, detail=f"done (pilot build {build}, selected)"))
+    emitter()(
+        make_event(
+            "task_end",
+            task_id=task.id,
+            label=task.title,
+            detail=f"done (pilot build {build}, selected)",
+        )
+    )
     return {**selection, "landed": True, "task_commit": outcome.commit}
 
 
@@ -560,38 +749,82 @@ async def adopt_node(state: IdeaDiscussionState) -> dict[str, Any]:
     pilot = record["pilot"]["id"]
     probes = _probes(record)
 
-    rows = [row for row in load_ledger(workspace) if row["iteration"] == 1 and row["kind"] in (*TUNING_SESSION_KINDS, *CALL_KINDS)]
+    rows = [
+        row
+        for row in load_ledger(workspace)
+        if row["iteration"] == 1 and row["kind"] in (*TUNING_SESSION_KINDS, *CALL_KINDS)
+    ]
     delivered = sum(1 for probe in probes.values() if probe["delivered"])
     problems = tuning_identity(rows, delivered, 1 if selection.get("called") else 0)
-    spent = sum(r["cost_usd"] or 0.0 for r in state.get("usage") or [] if r["role"] in ("pilot", *CALL_USAGE_ROLES))
+    spent = sum(
+        r["cost_usd"] or 0.0
+        for r in state.get("usage") or []
+        if r["role"] in ("pilot", *CALL_USAGE_ROLES)
+    )
     recorded = sum(row["cost_usd"] for row in rows)
     if abs(spent - recorded) > _TOLERANCE_USD:
-        problems.append(f"the ledger's tuning rows add up to ${recorded:.2f} but usage records ${spent:.2f}")
+        problems.append(
+            f"the ledger's tuning rows add up to ${recorded:.2f} but usage records ${spent:.2f}"
+        )
     if problems:
-        LOGGER.error("Harness tuning's ledger does not add up (%s); keeping the base harness.", "; ".join(problems))
+        LOGGER.error(
+            "Harness tuning's ledger does not add up (%s); keeping the base harness.",
+            "; ".join(problems),
+        )
 
     decision = compose.get("decision", "keep_base") if not problems else "keep_base"
-    files = [HarnessFile.model_validate(item) for item in compose.get("files") or []] if decision != "keep_base" else []
+    files = (
+        [HarnessFile.model_validate(item) for item in compose.get("files") or []]
+        if decision != "keep_base"
+        else []
+    )
     commit = None
     written: list[str] = []
     if files:
         base_files = read_harness(workspace)
         edited = apply_edit(base_files, files)
-        written = _write_changes(workspace, {path: edited.get(path, "") for path in changes_of(files)})
-        committed = bool(written) and await asyncio.to_thread(commit_workspace, workspace, f"harness: tuned (pilot {pilot})")
+        written = _write_changes(
+            workspace, {path: edited.get(path, "") for path in changes_of(files)}
+        )
+        committed = bool(written) and await asyncio.to_thread(
+            commit_workspace, workspace, f"harness: tuned (pilot {pilot})"
+        )
         commit = head_commit(workspace) if committed else None
     if selection.get("status") == "chosen":
         if problems:
-            selection = {**selection, "landed": False, "task_commit": None, "note": f"the ledger did not add up, so no pilot build is used and {pilot} is built again"}
+            selection = {
+                **selection,
+                "landed": False,
+                "task_commit": None,
+                "note": f"the ledger did not add up, so no pilot build is used and {pilot} is built again",
+            }
         else:
             task = _pilot_task(_plan(workspace), pilot)
             selection = await _land_build(workspace, task, selection, probes[selection["arm"]])
-    for arm in ("base", *EDIT_KINDS):  # after the build landed: its commit lives on a worktree's branch
+    for arm in (
+        "base",
+        *EDIT_KINDS,
+    ):  # after the build landed: its commit lives on a worktree's branch
         await merge.remove_worktree(workspace, _worktree_name(arm))
-    adopted = {"keep_base": "the base harness", "adopt_inv": "the INV edit", "adopt_dom": "the DOM edit", "merge": "both edits, merged"}
-    landed = f"; build {selection['choice']} is {pilot}'s result" if selection.get("landed") else f"; {pilot} is built again"
+    adopted = {
+        "keep_base": "the base harness",
+        "adopt_inv": "the INV edit",
+        "adopt_dom": "the DOM edit",
+        "merge": "both edits, merged",
+    }
+    landed = (
+        f"; build {selection['choice']} is {pilot}'s result"
+        if selection.get("landed")
+        else f"; {pilot} is built again"
+    )
     emit = emitter()
-    emit(make_event("text", label="harness tuning", detail=f"Pilot {pilot}: adopted {adopted.get(decision, decision)}{landed}"))
+    emit(
+        make_event(
+            "text",
+            label="harness tuning",
+            detail=f"Pilot {pilot}: adopted {adopted.get(decision, decision)}{landed}",
+        )
+    )
     LOGGER.info("Harness tuning on %s: %s (%s).", pilot, decision, commit or "no commit")
     return {
         "harness_tuning": {
@@ -600,7 +833,12 @@ async def adopt_node(state: IdeaDiscussionState) -> dict[str, Any]:
             "commit": commit,
             "changed_files": written,
             "selection": selection,
-            "ledger": {"ok": not problems, "problems": problems, "rows": len(rows), "cost_usd": recorded},
+            "ledger": {
+                "ok": not problems,
+                "problems": problems,
+                "rows": len(rows),
+                "cost_usd": recorded,
+            },
         }
     }
 
