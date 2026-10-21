@@ -106,7 +106,7 @@ An approach comparison, not a quality ranking: what each project's own README sa
 | **Hand-offs** | validated typed objects (strategy, plan, harness edits); a critic and a verify/fix loop | documents per role (user stories, requirements, APIs, ...) | one generated codebase | one agent session |
 | **Where code runs** | an OS sandbox, a tool-call guard, a scrubbed environment, per-run cost caps, git worktrees per task | the README describes no isolation | the README describes no isolation | OpenHands offers Docker, VM, or host runtimes (host mode gives the agent your whole filesystem); hosted products run in their own cloud |
 | **Is "done" true** | test reports the orchestrator parses itself, a test-integrity guard, and held-out acceptance tests the builders never see | the README reports no benchmark scores | the README does not say whether output is tested | the agent's own claim, unless you add checks |
-| **Measured** | `idea-to-mvp bench`: verified deliveries per dollar on eight ideas, per model profile (below) | no scores in the README | none in the README | none on the OpenHands page |
+| **Measured** | `idea-to-mvp bench`: verified deliveries per dollar over eight golden ideas, per model profile; the first live data point (one idea, two profiles) is below | no scores in the README | none in the README | none on the OpenHands page |
 
 Devin-style products are closed, so only their approach is compared here.
 
@@ -150,7 +150,7 @@ Every 🔒 is a real pause: the whole session is one checkpointed LangGraph thre
 - **Parallel where the work is independent.** `Send` fans out the panel's openings, the blueprint's documents, the plan's tasks (in git worktrees), and the verification lanes, each bounded by concurrency and budget caps.
 - **Typed hand-offs and loops that check themselves.** Agents exchange validated Pydantic objects instead of prose, the plan is machine-checked, and a critic/revise loop and a verify/fix loop catch problems before you do.
 - **Autonomous agents, but confined.** An OS sandbox, a tool-call guard, a scrubbed environment, and whole-run cost caps bound what the implementation agents can do; [SECURITY.md](SECURITY.md) says exactly what is and is not protected.
-- **Offline-first, so it stays testable.** Every model call has a demo fixture, which lets CI run the entire pipeline (and three golden blueprint ideas) without a key.
+- **Offline-first, so it stays testable.** Every model call has a demo fixture, which lets CI run the entire pipeline (and the blueprint of each of the eight golden ideas) without a key.
 
 ## Learn more
 
@@ -159,6 +159,7 @@ Every 🔒 is a real pause: the whole session is one checkpointed LangGraph thre
 - [SECURITY.md](SECURITY.md): the agent-execution threat model and how to report a vulnerability
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup and quality checks
 - [CHANGELOG.md](CHANGELOG.md): what changed, including upgrade notes
+- [docs/roadmap.md](docs/roadmap.md): known limitations of this release and what comes next
 
 Before a real implementation run, check `IMPLEMENTER_MAX_TOTAL_USD` (the whole-run cost cap); the implementation gate shows the agents' models, sandbox status, and budget before anything starts. Never commit `.env` or API keys.
 

@@ -421,7 +421,7 @@ def _cost_cell(estimate: Mapping[str, Any]) -> str:
         basis = f"catalog guess of ${per_task:.2f} per task session; no history on this model yet"
     return (
         f"<strong>${float(estimate['low']):.2f}–${float(estimate['high']):.2f}</strong> "
-        f"<span class='gate-note'>({tasks} task(s), one verification round; the high end adds the fix attempts. {_e(basis)})</span>"
+        f"<span class='gate-note'>({tasks} task(s), one verification round; the high end adds the fix attempts; {_e(basis)})</span>"
     )
 
 

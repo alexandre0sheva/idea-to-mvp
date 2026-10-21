@@ -25,6 +25,7 @@ CSS = """
   --accent-questions: #92400e;
   --accent-architect: #1d4ed8;
   --accent-planner: #115e59;
+  --accent-neutral: #475569;
   --ok: #166534;
   --warn: #92400e;
   --danger: #b91c1c;
@@ -46,16 +47,21 @@ CSS = """
   --accent-questions: #fcd34d;
   --accent-architect: #93c5fd;
   --accent-planner: #5eead4;
+  --accent-neutral: #cbd5e1;
   --ok: #86efac;
   --warn: #fcd34d;
   --danger: #fca5a5;
 }
 
-.gradio-container { max-width: 100% !important; width: 100% !important; margin: 0 !important; padding: 0 12px !important; }
+/* `clip`, not Gradio's `hidden`: a container that hides its overflow becomes the scroll box of a sticky child,
+   and the page never scrolls it, so the stepper below would never stick. */
+.gradio-container { max-width: 100% !important; width: 100% !important; margin: 0 !important; padding: 0 12px !important; overflow: clip !important; }
 
-/* Sticky progress bar above the chat: the stepper and the token / cost badges. */
+/* Sticky progress bar above the chat: the stepper and the token / cost badges. The sticky box is Gradio's
+   wrapper of the HTML component (`elem_classes`), whose parent spans the page; the header alone would only
+   stick inside that wrapper, which is exactly its own height. */
+.stage-tracker { position: sticky !important; top: 0; z-index: 20; background: var(--page-bg); }
 .stage-header {
-  position: sticky; top: 0; z-index: 20;
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem;
   margin: 0.4rem 0 0.6rem 0; padding: 0.5rem 0.85rem;
   background: var(--card-bg); color: var(--text);
@@ -110,6 +116,7 @@ CSS = """
 }
 /* Chat cards. A speaker class sets the accent; the card border, tint and title follow it. */
 .speaker-card {
+  --card-accent: var(--accent-neutral); /* cards without a speaker class (strategy, verifier, delivery, ...) */
   border: 1px solid var(--card-accent); border-radius: var(--radius); padding: 0.75rem 0.9rem; margin: 0.25rem 0;
   background: color-mix(in srgb, var(--card-accent) 10%, var(--card-bg)); color: var(--text);
 }

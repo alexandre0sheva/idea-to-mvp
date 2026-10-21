@@ -85,7 +85,9 @@ def make_ui(
                 "> **Demo mode** — model outputs are canned and the implementation stage builds a tiny "
                 "stand-in project. No API calls, no cost. Unset `DEMO_MODE` to use real models."
             )
-        tracker_html = gr.HTML(stage_header("discussion", {}, {}, {}))
+        tracker_html = gr.HTML(
+            stage_header("discussion", {}, {}, {}), elem_classes=["stage-tracker"]
+        )
         status_md = gr.Markdown("")
         thread_id_state = gr.State(str(uuid.uuid4()))
         panels: dict[str, gr.Column] = {}
@@ -94,7 +96,7 @@ def make_ui(
         # otherwise (only when that changes, so the user can look at the other tab meanwhile).
         with gr.Tabs(selected="conversation") as tabs:
             with gr.Tab("Conversation", id="conversation"):
-                chatbot = gr.Chatbot(label="Discussion chat", height="70vh")
+                chatbot = gr.Chatbot(label="Discussion chat", show_label=False, height="70vh")
                 input_tb = gr.Textbox(
                     label="Describe your idea", lines=4, placeholder="Describe your product idea..."
                 )

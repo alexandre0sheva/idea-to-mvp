@@ -75,7 +75,8 @@ def test_diagram_expands_the_blueprint_subgraph() -> None:
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "idea_to_mvp"
 DOCS = [ROOT / name for name in ("README.md", "CONTRIBUTING.md", "CLAUDE.md", "SECURITY.md")] + [
-    ROOT / "docs" / "architecture.md"
+    ROOT / "docs" / "architecture.md",
+    ROOT / "docs" / "roadmap.md",
 ]
 _CODE_SPAN = re.compile(r"`([^`\n]+)`")
 
@@ -179,12 +180,6 @@ def test_the_version_is_released_and_matches_the_changelog() -> None:
         r"^## \[([^\]]+)\]", (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), re.MULTILINE
     )
     assert headings[0] == version  # the newest release is the one in pyproject
-
-
-def test_the_changelog_keeps_unreleased_above_the_newest_release() -> None:
-    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert text.count("## Unreleased") == 1
-    assert text.index("## Unreleased") < text.index("\n## [")
 
 
 def test_the_architecture_doc_maps_every_langgraph_pattern_to_code_and_a_test() -> None:

@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
 
+from idea_to_mvp.bench import DEFAULT_IDEAS
 from idea_to_mvp.graph import build_graph, pending_interrupt, run_config
 from idea_to_mvp.harness_pack import (
     CHECK_SCRIPT,
@@ -32,9 +33,7 @@ from idea_to_mvp.plan import (
 from idea_to_mvp.schemas import ProjectPreferences
 from idea_to_mvp.state import make_initial_state
 
-GOLDEN = json.loads(
-    (Path(__file__).parent / "fixtures" / "golden_ideas.json").read_text(encoding="utf-8")
-)
+GOLDEN = json.loads(DEFAULT_IDEAS.read_text(encoding="utf-8"))
 PACK_FILES = ("PRD.md", "ARCHITECTURE.md", "plan.md", "plan.json")
 
 

@@ -270,9 +270,16 @@ def test_text_is_readable_in_both_colour_schemes(scheme: str) -> None:
         assert _contrast(v["--text"], card) >= 7, f"body text on the {accent} card in {scheme}"
 
 
+def test_a_card_without_a_speaker_class_gets_a_readable_accent_not_the_border_colour() -> None:
+    rule = CSS.split(".speaker-card {", 1)[1].split("}", 1)[0]
+    assert "--card-accent: var(--accent-neutral)" in rule
+
+
 def test_the_stepper_is_sticky_and_the_chat_gets_no_fixed_pixel_height() -> None:
-    body = " ".join(body for selector, body in rules(CSS) if ".stage-header" in selector)
+    body = " ".join(body for selector, body in rules(CSS) if ".stage-tracker" in selector)
     assert "position: sticky" in body and "top: 0" in body
+    container = " ".join(body for selector, body in rules(CSS) if ".gradio-container" in selector)
+    assert "overflow: clip" in container  # Gradio's overflow: hidden would keep it from sticking
     assert "700px" not in CSS
 
 

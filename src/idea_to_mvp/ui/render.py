@@ -29,11 +29,35 @@ SPEAKER_STYLE_CLASS: dict[str, str] = {
 }
 
 
+_LIST_ITEM = re.compile(r"^ {0,3}(?:[-*+]|\d+[.)])\s")
+
+
+def _separate_lists(text: str) -> str:
+    """A blank line before a list that follows a paragraph line: models often leave it out, and Markdown then
+    runs the items into the paragraph as `- a - b`. Fenced code is left alone."""
+    lines: list[str] = []
+    in_fence = False
+    for line in text.split("\n"):
+        if line.lstrip().startswith(("```", "~~~")):
+            in_fence = not in_fence
+        previous = lines[-1] if lines else ""
+        if (
+            not in_fence
+            and _LIST_ITEM.match(line)
+            and previous.strip()
+            and not previous[0].isspace()
+            and not _LIST_ITEM.match(previous)
+        ):
+            lines.append("")
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _safe_markdown_to_html(content: str) -> str:
     text = (content or "").strip()
     if not text:
         text = "No visible response."
-    escaped = html.escape(text)
+    escaped = html.escape(_separate_lists(text))
     if render_markdown is None:
         return escaped.replace("\n", "<br>")
     return render_markdown(escaped, extensions=["extra", "sane_lists"])

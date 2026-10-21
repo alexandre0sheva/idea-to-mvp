@@ -32,12 +32,13 @@ Use demo mode to exercise UI and graph changes end to end. When you add an LLM c
 
 ```bash
 uv run ruff check .
+uv run ruff format --check .
 uv run mypy
 uv run pytest                                  # offline: fakes and demo mode, no keys
 uv run pytest --cov=idea_to_mvp                # what CI runs; fails below 80% coverage
 ```
 
-CI also fails on a stale `uv.lock` (`uv lock --check`), on a graph diagram that is out of sync (`uv run python scripts/gen_graph_diagram.py` fixes it), and on a golden blueprint pack that stops validating (`tests/test_golden_blueprints.py`). `uvx pre-commit install` (one time) runs ruff, `ruff format`, and mypy before every commit; `uv run ruff format .` formats the tree by hand.
+CI also fails on unformatted code (`ruff format --check`), on a stale `uv.lock` (`uv lock --check`), on a graph diagram that is out of sync (`uv run python scripts/gen_graph_diagram.py` fixes it), and on a golden blueprint pack that stops validating (`tests/test_golden_blueprints.py`). `uvx pre-commit install` (one time) runs ruff, `ruff format`, and mypy before every commit; `uv run ruff format .` formats the tree by hand.
 
 The starter templates (`src/idea_to_mvp/templates/`) are installed and checked for real by `uv run pytest -m scaffold tests/test_templates.py` (needs node 22.12+, npm, Python 3, and network; the `starter-templates` CI job runs it, the default run leaves it out).
 
@@ -45,7 +46,7 @@ Tests that call real provider APIs carry `@pytest.mark.live`, are skipped by def
 
 ## Benchmark
 
-`idea-to-mvp bench --name <run>` runs the golden ideas (`tests/fixtures/golden_ideas.json`) headless with autopilot and `--implement` and scores each one: delivered and verified, lanes passed, acceptance pass rate, integrity flags, fix attempts, cost, and wall time. It spends money unless `DEMO_MODE=true`, so a real run needs `--live --max-total-usd N` (preview the cost with `--dry-run` first), and it is never part of CI beyond the offline smoke test in `tests/test_bench.py`.
+`idea-to-mvp bench --name <run>` runs the golden ideas (`src/idea_to_mvp/golden_ideas.json`) headless with autopilot and `--implement` and scores each one: delivered and verified, lanes passed, acceptance pass rate, integrity flags, fix attempts, cost, and wall time. It spends money unless `DEMO_MODE=true`, so a real run needs `--live --max-total-usd N` (preview the cost with `--dry-run` first), and it is never part of CI beyond the offline smoke test in `tests/test_bench.py`.
 
 ```bash
 uv run idea-to-mvp bench --name balanced --live --max-total-usd 60 --max-usd-per-idea 10
@@ -65,7 +66,7 @@ If you change planner output, exported Markdown, or prompt-driven behavior, veri
 
 A release is a version bump plus a tag; publishing to PyPI stays a manual step, so no workflow holds a PyPI credential.
 
-1. Bump `version` in `pyproject.toml`, move the `## Unreleased` entries of `CHANGELOG.md` under the new version, and commit.
+1. Bump `version` in `pyproject.toml`, add a `## [<version>] - <date>` section at the top of `CHANGELOG.md` with the release's changes, and commit.
 2. Tag it and push the tag: `git tag -a v0.4.0 -m "v0.4.0"`, then `git push origin v0.4.0`.
 3. The `Release build` workflow (`.github/workflows/release.yml`) runs on the tag: it refuses a tag that does not match `version`, builds the sdist and wheel with `uv build`, runs `twine check --strict` on them, and keeps them as the `dist` artifact.
 4. Download the artifact, try the wheel in a clean environment, and publish by hand: `uvx twine upload dist/*` with your own PyPI token.

@@ -32,6 +32,11 @@ def _e(value: object) -> str:
     return html.escape(str(value if value is not None else ""))
 
 
+def _prose(value: object) -> str:
+    """Agent prose escaped, with its `inline code` spans shown as code."""
+    return re.sub(r"`([^`\n]+)`", r"<code>\1</code>", _e(value))
+
+
 def _read(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
@@ -121,12 +126,12 @@ def _lane_card(lane: Mapping[str, Any]) -> str:
         for run in lane.get("commands_run") or []
         if isinstance(run, Mapping)
     )
-    failures = "".join(f"<li>{_e(failure)}</li>" for failure in lane.get("failures") or [])
+    failures = "".join(f"<li>{_prose(failure)}</li>" for failure in lane.get("failures") or [])
     return (
         f"<section class='lane-card {'passed' if passed else 'failed'}' data-lane='{_e(name)}'>"
         f"<header><strong>{_e(name.capitalize())} lane</strong> "
         f"<span class='badge {'passed' if passed else 'failed'}'>{'PASSED' if passed else 'FAILED'}</span></header>"
-        f"<p>{_e(lane.get('summary'))}</p>"
+        f"<p>{_prose(lane.get('summary'))}</p>"
         + _evidence_line(lane)
         + (f"<p class='lane-label'>Commands</p><ul>{commands}</ul>" if commands else "")
         + (

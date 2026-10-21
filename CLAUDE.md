@@ -13,8 +13,9 @@ cp .env.example .env  # then fill in API keys
 uv run idea-to-mvp   # or: uv run python -m idea_to_mvp
 uv run idea-to-mvp doctor [--offline]   # check keys/models/agent CLI
 
-# Lint / types
+# Lint / format / types
 uv run ruff check .
+uv run ruff format --check .
 uv run mypy
 
 # Test
@@ -26,7 +27,7 @@ uv run pytest --cov=idea_to_mvp                        # what CI runs: fails bel
 
 ## Architecture
 
-Gradio + LangGraph app: idea → panel discussion → summary → gates → architecture → strategy → blueprint pack → implementation (Claude Agent SDK) → verification. The pipeline, module map, state contract, and conventions live in [docs/architecture.md](docs/architecture.md) — read it before changing graph topology, state, or prompts, and update it (only it) when they change. Every setting is documented in `.env.example`.
+Gradio + LangGraph app: idea → panel discussion → summary → gates → architecture → strategy → blueprint pack → implementation (Claude Agent SDK) → verification. The pipeline, module map, state contract, and conventions live in [docs/architecture.md](docs/architecture.md) — read it before changing graph topology, state, or prompts, and update it (only it) when they change. Every setting is documented in `.env.example`. Known limitations and the next release's backlog are in [docs/roadmap.md](docs/roadmap.md); remove an item there when you fix it.
 
 ## Conventions
 
@@ -36,4 +37,5 @@ Gradio + LangGraph app: idea → panel discussion → summary → gates → arch
 - New LLM calls / agent sessions need a fixture in `src/idea_to_mvp/demo/` (offline demo mode; `tests/test_e2e_demo.py` runs the whole pipeline with it). Try UI changes with `DEMO_MODE=true uv run idea-to-mvp`.
 - After changing graph topology run `uv run python scripts/gen_graph_diagram.py`; a test enforces it.
 - Docs are checked by `tests/test_docs_sync.py`: a path, test name (written `tests/<file>.py::<test>`), or setting named in backticks in a doc must exist, and the architecture doc's LangGraph patterns table must keep naming a real file and test per pattern.
+- Never edit `.env` (it holds the user's keys and pinned settings); new settings go into `.env.example` and `config.py`. Live provider calls cost money: tests stay offline, and anything `--live` (or `pytest -m live`) runs only when the user asks.
 - Ruff line length is 100; `uv run ruff check .`, `uv run mypy`, and `uv run pytest` must stay green.

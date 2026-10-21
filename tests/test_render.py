@@ -55,3 +55,9 @@ def test_the_moderators_note_is_a_slim_banner() -> None:
 def test_each_card_of_the_opening_row_knows_whether_it_is_still_being_written() -> None:
     html = openings_row([("PM", "done"), ("Skeptic", "writing")], live=[False, True])
     assert html.count("live-turn") == 1 and html.index("live-turn") > html.index("done")
+
+
+def test_a_list_right_after_a_paragraph_line_is_rendered_as_a_list() -> None:
+    block = turn_block("PM", "**Scope**\n- one\n- two\n\n```\ntext\n- not a list\n```")
+    assert "<li>one</li>" in block and "<li>two</li>" in block
+    assert "- not a list" in block  # fenced code is left alone

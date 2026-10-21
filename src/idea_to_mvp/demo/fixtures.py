@@ -79,7 +79,14 @@ def _human_text(messages: list[BaseMessage]) -> str:
 def idea_from(messages: list[BaseMessage]) -> str:
     match = _IDEA_RE.search(_human_text(messages))
     idea = " ".join(match.group(1).split()) if match else "your product idea"
-    return idea[:110].rstrip(" .")
+    return _short(idea, 110).rstrip(" .")
+
+
+def _short(text: str, limit: int) -> str:
+    """`text` cut at a word boundary to at most `limit` characters, with an ellipsis when it was cut."""
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rsplit(" ", 1)[0].rstrip(" ,.;:") + "…"
 
 
 def workstreams_from(messages: list[BaseMessage]) -> list[str]:
@@ -207,7 +214,7 @@ def summarizer(messages: list[BaseMessage]) -> str:
 def _readme_doc(messages: list[BaseMessage]) -> str:
     idea = idea_from(messages)
     return (
-        f"# {idea[:60]}\n\nMVP of “{idea}”.\n\n## Features\n- Core journey\n- Progress view\n\n"
+        f"# {_short(idea, 60)}\n\nMVP of “{idea}”.\n\n## Features\n- Core journey\n- Progress view\n\n"
         "## Setup\nSee `ARCHITECTURE.md` for the chosen stack.\n\n## Test\nRun the project's test command.\n"
     )
 
@@ -288,7 +295,7 @@ def question_set(messages: list[BaseMessage]) -> QuestionSet:
         (
             "Which single user journey must work end to end in the MVP?",
             "It fixes the scope every other decision hangs on.",
-            f"One core journey for “{idea[:60]}”, from first use to the first valuable result.",
+            f"One core journey for “{_short(idea, 60)}”, from first use to the first valuable result.",
         ),
         (
             "Which capabilities are explicitly out of scope for v0?",
@@ -324,7 +331,7 @@ def architecture_proposal(messages: list[BaseMessage]) -> ArchitectureProposal:
         option_a=ArchitectureOption(
             key="A",
             name="Modular monolith",
-            style=f"Server-rendered modular monolith for “{idea[:60]}”",
+            style=f"Server-rendered modular monolith for “{_short(idea, 60)}”",
             stack=["Python", "FastAPI", "HTMX"],
             persistence="SQLite with migrations",
             integrations=["None at launch"],

@@ -9,6 +9,7 @@ from langchain_core.messages import BaseMessage
 from pydantic import ValidationError
 
 from idea_to_mvp import llm
+from idea_to_mvp.bench import DEFAULT_IDEAS
 from idea_to_mvp.evals import (
     CRITERIA,
     CriterionScore,
@@ -22,7 +23,7 @@ from idea_to_mvp.evals import (
 )
 from idea_to_mvp.llm.structured import StructuredOutputError
 
-GOLDEN_PATH = Path(__file__).parent / "fixtures" / "golden_ideas.json"
+GOLDEN_PATH = DEFAULT_IDEAS
 
 
 def scores(value: int = 4) -> JudgeScores:

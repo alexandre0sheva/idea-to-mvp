@@ -34,7 +34,9 @@ from idea_to_mvp.model_report import configured_choices
 from idea_to_mvp.resilience import error_hint
 from idea_to_mvp.schemas import ProjectPreferences
 
-DEFAULT_IDEAS = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "golden_ideas.json"
+DEFAULT_IDEAS = (
+    Path(__file__).resolve().parent / "golden_ideas.json"
+)  # package data, so an installed bench has it
 SNAPSHOT_VERSION = 1
 MIN_BUDGET_USD = 0.01  # below a cent left is no budget: the idea is not started
 

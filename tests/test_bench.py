@@ -12,9 +12,7 @@ from idea_to_mvp import bench, cli, llm
 from idea_to_mvp.config import get_settings
 from idea_to_mvp.headless import RunSummary
 
-GOLDEN = json.loads(
-    (Path(__file__).parent / "fixtures" / "golden_ideas.json").read_text(encoding="utf-8")
-)
+GOLDEN = json.loads(bench.DEFAULT_IDEAS.read_text(encoding="utf-8"))
 IDEAS = [bench.BenchIdea(id=g["id"], idea=g["idea"], preferences=g["preferences"]) for g in GOLDEN]
 
 
@@ -58,8 +56,13 @@ def test_there_are_about_eight_golden_ideas_across_stacks() -> None:
     }
 
 
+def test_the_golden_ideas_ship_inside_the_package_so_an_installed_bench_finds_them() -> None:
+    package = Path(bench.__file__).resolve().parent
+    assert bench.DEFAULT_IDEAS.is_file() and bench.DEFAULT_IDEAS.parent == package
+
+
 def test_ideas_are_selected_by_id_and_an_unknown_id_is_refused(tmp_path: Path) -> None:
-    path = Path(__file__).parent / "fixtures" / "golden_ideas.json"
+    path = bench.DEFAULT_IDEAS
     assert [i.id for i in bench.load_ideas(path)] == [g["id"] for g in GOLDEN]
     assert [i.id for i in bench.load_ideas(path, ["recipe-planner", "climbing-log"])] == [
         "recipe-planner",

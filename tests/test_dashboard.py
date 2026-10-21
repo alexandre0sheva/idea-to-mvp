@@ -475,6 +475,20 @@ def test_the_other_lanes_show_no_test_counts(tmp_path: Path) -> None:
     assert html.count("agent-reported") == 1
 
 
+def test_inline_code_in_a_lanes_prose_is_shown_as_code_and_markup_stays_escaped(
+    tmp_path: Path,
+) -> None:
+    quality = lane(
+        "quality",
+        passed=False,
+        summary="Ran `ruff check .` on <src>.",
+        failures=["`mypy` found 2 errors"],
+    )
+    html = render_dashboard(state(tmp_path, lanes=[quality]))
+    assert "Ran <code>ruff check .</code> on &lt;src&gt;." in html
+    assert "<li><code>mypy</code> found 2 errors</li>" in html
+
+
 # ------------------------------------------------------------------- test integrity
 
 

@@ -36,6 +36,8 @@ def test_ci_gates_coverage_at_eighty_percent() -> None:
 def test_ci_still_lints_and_type_checks() -> None:
     steps = " ".join(ci_steps())
     assert "ruff check" in steps and "mypy" in steps
+    # The pre-commit hook alone is skipped by whoever has not installed it.
+    assert "ruff format --check" in steps
 
 
 def test_dependabot_watches_uv_and_github_actions() -> None:
@@ -173,6 +175,7 @@ def test_the_pull_request_template_lists_the_checks_ci_runs() -> None:
     text = (ROOT / ".github/PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
     for check in (
         "ruff check",
+        "ruff format --check",
         "mypy",
         "pytest --cov=idea_to_mvp",
         "CHANGELOG.md",

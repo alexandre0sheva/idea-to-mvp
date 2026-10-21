@@ -22,6 +22,8 @@ jobs:
         run: uv sync --locked --python ${{ matrix.python-version }}
       - name: Lint
         run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
       - name: Type check
         run: uv run mypy
       # Also runs the golden blueprint packs and the graph-diagram sync test; coverage below 80% fails the job.

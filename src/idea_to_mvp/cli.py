@@ -199,7 +199,7 @@ def _add_bench(commands: Any) -> None:
         "--ideas-file",
         type=Path,
         metavar="FILE",
-        help="a golden ideas file (default: tests/fixtures/golden_ideas.json)",
+        help="a golden ideas file (default: the eight that ship with the package)",
     )
     bench.add_argument(
         "--root", type=Path, metavar="DIR", help="where runs are kept (default: <OUTPUT_DIR>/bench)"

@@ -411,7 +411,7 @@ The other profiles: `fast` puts every role and session on the cheapest current m
 
 ## Benchmark
 
-`idea-to-mvp bench` (`cli.py` → `bench.py`) runs the golden ideas (`tests/fixtures/golden_ideas.json`, eight ideas across web, mobile, CLI, and API stacks) through the headless layer with autopilot and `--implement` and records what a README can quote. It adds no graph code: each idea is `headless.run_idea` on the bench's own checkpointer, so a bench thread opens in the UI like any other. The experiment discipline is Harness²'s.
+`idea-to-mvp bench` (`cli.py` → `bench.py`) runs the golden ideas (`src/idea_to_mvp/golden_ideas.json`, eight ideas across web, mobile, CLI, and API stacks) through the headless layer with autopilot and `--implement` and records what a README can quote. It adds no graph code: each idea is `headless.run_idea` on the bench's own checkpointer, so a bench thread opens in the UI like any other. The experiment discipline is Harness²'s.
 
 - **A run is a folder.** `<OUTPUT_DIR>/bench/<name>/` holds `config.json` (the snapshot), `results.json` (one `IdeaResult` per idea, rewritten atomically after each idea, so a killed bench loses at most the idea in flight), and `output/`, the run's own `OUTPUT_DIR` (sessions database, workspaces, held-out suites, experience library). Two configurations never share an output root, so one cannot learn from the other's library; within a run the library does accumulate across ideas of a stack, in the order of the ideas file.
 - **The snapshot refuses a different experiment.** It records the mode, the `--set` overrides, the idea ids with a fingerprint of each idea's text and preferences, and a flat view of the effective settings (the profile, the model every role and kind of agent session resolves to, harness tuning, the library and acceptance switches, the fix and budget limits, the turn limits, the sandbox). Calling the same `--name` again with anything different exits 1 and names each difference; the global `--max-total-usd` is not part of it, so a run that ran out of budget can be continued with more.
@@ -546,7 +546,7 @@ All generated data goes under `OUTPUT_DIR` (default `~/idea-to-mvp`, outside the
 4. **Wire it.** Add state fields to `IdeaDiscussionState` and `make_initial_state`, register the node in `graph.py` with `retry_policy=LLM_RETRY`, and add its edges (inside a subgraph, extend its narrow input schema too). Run `uv run python scripts/gen_graph_diagram.py`.
 5. **Show it.** Add its transcript entry to `ui/view.py` (and a `_RUNNING` line if it takes a while) and its card to `ui/render.py`.
 6. **Demo fixture.** Add the canned answer to `demo/fixtures.py` (`RESPONSES` for text, `STRUCTURED` for a schema); the demo-parity rule and `tests/test_e2e_demo.py` depend on it.
-7. **Tests.** Fake `llm.get_runtime` / `llm.invoke_*` as `tests/test_strategy.py` does, and add a golden idea to `tests/fixtures/golden_ideas.json` if it changes the blueprint pack.
+7. **Tests.** Fake `llm.get_runtime` / `llm.invoke_*` as `tests/test_strategy.py` does, and add a golden idea to `src/idea_to_mvp/golden_ideas.json` if it changes the blueprint pack.
 
 ### Add a starter template
 
@@ -568,5 +568,5 @@ See *Starter templates*: a folder under `src/idea_to_mvp/templates/` with `templ
 - **Model-calling nodes:** decorate with `@with_usage(role=...)` and register them with `retry_policy=LLM_RETRY` (in `graph.py`, or in the subgraph builder for the panel and blueprint nodes).
 - **Agent sessions:** build options only through `implementation.options.build_agent_options`; never construct `ClaudeAgentOptions` elsewhere, or the sandbox, guard, and environment scrub are skipped.
 - **Demo parity:** new LLM calls and agent sessions get a demo fixture (see Demo mode); `tests/test_e2e_demo.py` fails otherwise.
-- **Golden packs:** `tests/fixtures/golden_ideas.json` lists the ideas `tests/test_golden_blueprints.py` and the eval script run through the pipeline; add an idea there to put it under both.
+- **Golden packs:** `src/idea_to_mvp/golden_ideas.json` lists the ideas `tests/test_golden_blueprints.py` and the eval script run through the pipeline; add an idea there to put it under both.
 - **Graph diagram:** after changing graph topology run `uv run python scripts/gen_graph_diagram.py`.

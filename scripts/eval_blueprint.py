@@ -6,11 +6,9 @@ DEMO_MODE=true uv run python scripts/eval_blueprint.py --live --all     # offlin
 """
 
 import sys
-from pathlib import Path
 
+from idea_to_mvp.bench import DEFAULT_IDEAS as GOLDEN
 from idea_to_mvp.evals import main
-
-GOLDEN = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "golden_ideas.json"
 
 if __name__ == "__main__":
     sys.exit(main(golden_path=GOLDEN))
