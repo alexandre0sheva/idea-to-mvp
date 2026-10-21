@@ -1,0 +1,22 @@
+{
+  "mode": "agent_team",
+  "reasoning": "[EXECUTION_STRATEGY=agent_team overrides the model's choice of subagents.] This is a small, tightly coupled MVP. Four endpoints share one SQLite schema, one repository layer, the API-key hashing scheme, and the COUNT_FAIL_MODE config. The operator CLI, health checks, and benchmarks all depend on those same contracts. Running parallel worktrees would mostly create merge conflicts around the schema and repository modules. A single lead agent that owns the core contracts and delegates focused pieces (validation, ops/CLI, tests/benchmarks) to subagents keeps the code consistent and is quicker for a project of about three workstreams.",
+  "workstreams": [
+    {
+      "name": "core-api-storage",
+      "focus": "Implement the SQLite schema, the repository layer, and the FastAPI endpoints for link creation, redirect with atomic counting, HEAD, and owner-scoped stats.",
+      "deliverables": "schema.sql (links and api_keys tables); sqlite3 repository with per-request connections, WAL, synchronous=NORMAL, busy_timeout=150ms, and UPDATE...RETURNING redirect counting; API-key auth via sha256 hash lookup; POST /links returning 201 with a 7-char base62 slug, 3-try collision retry, and reserved-path blocking; GET /{slug} returning 302 with Cache-Control: no-store; HEAD /{slug} with no count; GET /links/{slug}/stats returning 404 for non-owners; COUNT_FAIL_MODE strict (503 with Retry-After: 1) or open; per-key rate limiting; URL validation (http/https only, max 2048 chars, ipaddress literal checks including octal and integer forms, localhost rejection); OpenAPI docs describing click semantics."
+    },
+    {
+      "name": "ops-cli-deploy",
+      "focus": "Provide operator tooling, health checks, backups, and containerized deployment for the single-node service.",
+      "deliverables": "/live endpoint (async, no DB access); /ready endpoint (SELECT 1 with a 50ms timeout); operator CLI to issue and revoke API keys mapped to owner_id and to disable or enable links; nightly backup script using the sqlite3 .backup API with off-box copy hooks; Dockerfile and compose file running one uvicorn worker with the AnyIO thread limit set to about 32 and a persistent DB volume; README with operations notes."
+    },
+    {
+      "name": "tests-benchmarks",
+      "focus": "Verify correctness and the performance gates through pytest coverage, load benchmarks, and crash reconciliation.",
+      "deliverables": "pytest suites covering slug collisions and retry, reserved slugs, concurrent increment exactness, HEAD not counting, owner scoping, URL-validation fuzz cases, and strict vs. open mode behavior; locust or k6 scripts for 200 RPS on one hot slug, 200 RPS across 100 slugs, and a 10x burst, reporting p95 latency and 503 rate; kill -9 reconciliation script asserting stored counts are at least the client-observed 302s; benchmark results doc covering synchronous FULL vs. NORMAL."
+    }
+  ],
+  "template": "python-fastapi"
+}

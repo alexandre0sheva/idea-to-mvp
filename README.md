@@ -7,7 +7,7 @@
 
 Turn a rough product idea into a **built, tested first version**. A LangGraph pipeline runs every stage with a dedicated agent: a multi-LLM panel debates the idea, an architect proposes options, a planner writes an agent-ready blueprint, and Claude Agent SDK agents implement the project in parallel and verify it. You approve every gate, and nothing that spends money runs without your say-so.
 
-![The panel: three agents open in parallel, then debate; the stepper tracks the run](docs/assets/panel.png)
+![The demo pipeline: the panel debates, you choose an architecture, agents build on a live board, and a dashboard shows the verdict](docs/assets/demo-pipeline.gif)
 
 ## Quick start (60 seconds)
 
@@ -93,6 +93,42 @@ The implementation stage needs `ANTHROPIC_API_KEY` (it drives the Claude Agent S
 
 ![The delivery dashboard: verdict per lane, requirements table, cost and time](docs/assets/delivery-dashboard.png)
 
+## How it compares
+
+An approach comparison, not a quality ranking: what each project's own README says it does, read on 2026-10-21 (they change, so check them). The measured results for this project are in [Benchmark](#benchmark).
+
+| | idea-to-mvp | [MetaGPT](https://github.com/FoundationAgents/MetaGPT) | [GPT-Engineer](https://github.com/AntonOsika/gpt-engineer) | [OpenHands](https://github.com/All-Hands-AI/OpenHands) and Devin-style agents |
+|---|---|---|---|---|
+| **Starts from** | a rough idea; a panel of three models debates it | a one-line requirement; roles (product manager, architect, project manager, engineer) follow SOPs | a `prompt` file and the `gpte` command (the repository is archived and read-only since 2026-04-22) | a task given to a general coding agent in a canvas or a hosted product |
+| **Where a human decides** | five gates: the MVP answers, the architecture, the blueprint, the spend, and each next version | the README describes none | the README describes none | you steer and review the agent; the OpenHands page describes no approval steps |
+| **Hand-offs** | validated typed objects (strategy, plan, harness edits); a critic and a verify/fix loop | documents per role (user stories, requirements, APIs, ...) | one generated codebase | one agent session |
+| **Where code runs** | an OS sandbox, a tool-call guard, a scrubbed environment, per-run cost caps, git worktrees per task | the README describes no isolation | the README describes no isolation | OpenHands offers Docker, VM, or host runtimes (host mode gives the agent your whole filesystem); hosted products run in their own cloud |
+| **Is "done" true** | test reports the orchestrator parses itself, a test-integrity guard, and held-out acceptance tests the builders never see | the README reports no benchmark scores | the README does not say whether output is tested | the agent's own claim, unless you add checks |
+| **Measured** | `idea-to-mvp bench`: verified deliveries per dollar on eight ideas, per model profile (below) | no scores in the README | none in the README | none on the OpenHands page |
+
+Devin-style products are closed, so only their approach is compared here.
+
+## Benchmark
+
+`idea-to-mvp bench` ran one golden idea, `link-shortener` (a Python, FastAPI, and SQLite service; it states its stack, so the build is repeatable), through the whole pipeline on real models with each profile. Same budget for both ($4 of agent spend and $1.50 per task), `EXECUTION_STRATEGY=agent_team`, `bypassPermissions` inside the sandbox, 2026-10-21, on commit `22ccfe6` plus the changes of this release. Everything is in [`docs/benchmarks/2026-10-21-22ccfe6/`](docs/benchmarks/2026-10-21-22ccfe6): each run's `config.json` and `results.json`, and the `bench --compare` output.
+
+| Run | Profile | Verdict | Lanes | Fix attempts | Cost (planning + agents) | Time | Verified per $ |
+|---|---|---|---|---|---|---|---|
+| `fast-2` | `fast` | verified | 3/3 | 0 | $0.25 ($0.11 + $0.15) | 20 min | 3.93 |
+| `balanced-3` | `balanced` | verified | 3/3 | 2 | $8.06 ($5.32 + $2.74) | 31 min | 0.12 |
+
+What to take from it, and what not to:
+
+- **One idea, one run per profile.** It shows that both profiles can deliver a verified service and what each costs on this idea; it cannot rank the profiles, and a difference of one run is within noise. `quality` was not run, and neither were the other seven ideas (`bench` runs them all when you pay for it).
+- **The tests lane parsed real reports** (94 tests at 98% coverage for `fast`, 139 for `balanced`) and the requirements lane mapped every P0 requirement to a test. Neither run had held-out acceptance tests: the acceptance author wrote none, so the acceptance column of `bench` is empty. Treat "verified" as tests, lint, and requirement coverage, not as a check of the running service by an outside suite.
+- **`balanced` planned much more.** Its documents are now complete (a 24 KB PRD with 33 requirements, 5 tasks, against 94 tests and 3 tasks for `fast`), which is most of its $5.32 of planning; the catalog's typical-run guess for `balanced` ($3.43) is well below what this run cost.
+- **Time:** the first live run of the same kind (an idea with no stated stack, one serial lead session) took 51 minutes. With the plan built task by task in parallel worktrees and a smaller plan, these took 20 and 31 minutes.
+- The runs that came before these were invalid and are kept, with why, under [`docs/benchmarks/2026-10-21-22ccfe6/`](docs/benchmarks/2026-10-21-22ccfe6) (`smoke-live`, `speed-1`, `invalid-budget-runs`): a sandbox that refused to let a lane start the project's server, a budget that built only the first task, and a model that spent its output cap on thinking and returned a truncated PRD. Each is fixed in this release.
+
+## Examples
+
+One complete run per profile, from the benchmark above (the blueprint pack the agents were given, the delivery report, the whole session as Markdown and JSON, and a dashboard screenshot): [`examples/link-shortener-fast`](examples/link-shortener-fast) and [`examples/link-shortener-balanced`](examples/link-shortener-balanced). `uv run python scripts/make_example.py --thread <session> --name <name>` makes one from any delivered session (`--demo "<idea>"` runs the offline demo first), and refuses to publish a file with a key-shaped string.
+
 ## The pipeline
 
 ```
@@ -127,3 +163,7 @@ Before a real implementation run, check `IMPLEMENTER_MAX_TOTAL_USD` (the whole-r
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Credits
+
+The agent harness in every blueprint pack, the behavioral-contrast tuning of it on a pilot task (Propose–Probe–Compose), the blind selection of the pilot builds, the experience library, and the evidence-boundary and answer-free prompt rules port ideas from Google Research's *Harness²: Recursive Agent Harnessing for an Open World* (Xu et al., [arXiv:2610.14224](https://arxiv.org/abs/2610.14224), Apache-2.0). The prompts and code here are this project's own; `docs/architecture.md` says how each idea maps to code.

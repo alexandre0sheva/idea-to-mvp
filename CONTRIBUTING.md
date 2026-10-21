@@ -48,12 +48,12 @@ Tests that call real provider APIs carry `@pytest.mark.live`, are skipped by def
 `idea-to-mvp bench --name <run>` runs the golden ideas (`tests/fixtures/golden_ideas.json`) headless with autopilot and `--implement` and scores each one: delivered and verified, lanes passed, acceptance pass rate, integrity flags, fix attempts, cost, and wall time. It spends money unless `DEMO_MODE=true`, so a real run needs `--live --max-total-usd N` (preview the cost with `--dry-run` first), and it is never part of CI beyond the offline smoke test in `tests/test_bench.py`.
 
 ```bash
-uv run idea-to-mvp bench --name balanced --live --max-total-usd 40 --max-usd-per-idea 6
-uv run idea-to-mvp bench --name fast --live --max-total-usd 40 --max-usd-per-idea 6 --profile fast
+uv run idea-to-mvp bench --name balanced --live --max-total-usd 60 --max-usd-per-idea 10
+uv run idea-to-mvp bench --name fast --live --max-total-usd 60 --max-usd-per-idea 10 --profile fast
 uv run idea-to-mvp bench --compare balanced fast     # only the ideas both runs scored
 ```
 
-A run is a folder under `OUTPUT_DIR/bench/` with its own output root and a settings snapshot: call the same `--name` again to retry the ideas that could not run (they are *unscored*, not zero), but it refuses to continue under other settings, so compare configurations with different names (`--profile`, `--harness-tuning`, `--library`, `--set KEY=VALUE`). Add an idea to the golden file to put it under the bench, the eval script, and the golden pack tests.
+A run is a folder under `OUTPUT_DIR/bench/` with its own output root and a settings snapshot: call the same `--name` again to retry the ideas that could not run (they are *unscored*, not zero), but it refuses to continue under other settings, so compare configurations with different names (`--profile`, `--harness-tuning`, `--library`, `--set KEY=VALUE`). Each running task reserves `IMPLEMENTER_MAX_TASK_USD` (default 5) from the idea's budget, so `--max-usd-per-idea` must be at least twice that (the bench refuses less): a smaller budget starts the first task of a plan and never the rest. For small budgets lower the task cap for the run, e.g. `--max-usd-per-idea 4 --set IMPLEMENTER_MAX_TASK_USD=1.5`. Add an idea to the golden file to put it under the bench, the eval script, and the golden pack tests.
 
 Dependencies live only in `pyproject.toml`; after changing them run `uv lock` and commit `uv.lock` (CI uses `uv sync --locked`).
 

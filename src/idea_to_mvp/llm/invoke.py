@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -48,22 +49,34 @@ def extract_text(message: AIMessage) -> str:
     return ""
 
 
-def invoke_kwargs(runtime: LlmRuntime, max_tokens: int) -> dict[str, Any]:
-    """Per-request provider kwargs (Google needs the output cap on every call)."""
+def invoke_kwargs(runtime: LlmRuntime, max_tokens: int, *, grown: bool = False) -> dict[str, Any]:
+    """Per-request provider kwargs (Google needs the output cap on every call; any provider that retried a cut-off
+    answer with a larger budget says so with `grown`)."""
     if runtime.provider == "google":
         # LangChain's Google wrapper can ignore init-time generation kwargs, so pass the output
         # cap on each request to make Gemini honor the configured limit.
         return {"max_output_tokens": max_tokens}
+    if grown and runtime.provider == "anthropic":
+        return {"max_tokens": max_tokens}
     return {}
 
 
 def _finish_reason(message: AIMessage) -> str:
     metadata = getattr(message, "response_metadata", None) or {}
-    for key in ("finish_reason", "finishReason"):
+    for key in ("finish_reason", "finishReason", "stop_reason"):  # OpenAI and Google, Anthropic
         value = metadata.get(key)
         if value is not None:
             return str(value).strip().upper()
     return ""
+
+
+_ANTHROPIC_CEILING = 16384
+# provider -> (how a cut-off answer's budget grows, how many times it may): Google's output cap is ceilinged at 8192
+# tokens and tried once; Anthropic's thrice as large or 4096 more, up to 16384, tried twice.
+_GROWTH: dict[str, tuple[Callable[[int], int], int]] = {
+    "google": (lambda tokens: min(max(tokens * 2, tokens + 512), 8192), 1),
+    "anthropic": (lambda tokens: min(max(tokens * 3, tokens + 4096), _ANTHROPIC_CEILING), 2),
+}
 
 
 def _looks_complete(text: str) -> bool:
@@ -86,20 +99,25 @@ def invoke_text(
     response = runtime.llm.invoke(messages, **invoke_kwargs(runtime, requested))
     text = extract_text(response)
 
-    if (
-        runtime.provider == "google"
-        and _finish_reason(response) == "MAX_TOKENS"
-        and not _looks_complete(text)
-    ):
-        bigger = min(max(requested * 2, requested + 512), 8192)
-        if bigger > requested:
-            LOGGER.warning(
-                "[Google] model=%s hit MAX_TOKENS with incomplete output; retrying with max_output_tokens=%s",
-                runtime.model,
-                bigger,
-            )
-            response = runtime.llm.invoke(messages, **invoke_kwargs(runtime, bigger))
-            text = extract_text(response)
+    # An answer cut off by the output cap is asked for again with more room. Google's cap is the visible answer's;
+    # Anthropic's covers the thinking too, and a model that thinks adaptively (Opus 5.5) can spend all of it on a hard
+    # prompt and return no text, or half a document.
+    growth, limit = _GROWTH.get(runtime.provider, (None, 0))
+    for _ in range(limit):
+        if growth is None or _finish_reason(response) != "MAX_TOKENS" or _looks_complete(text):
+            break
+        bigger = growth(requested)
+        if bigger <= requested:
+            break
+        LOGGER.warning(
+            "[%s] model=%s hit its output cap with incomplete output; retrying with %s tokens",
+            runtime.provider,
+            runtime.model,
+            bigger,
+        )
+        requested = bigger
+        response = runtime.llm.invoke(messages, **invoke_kwargs(runtime, requested, grown=True))
+        text = extract_text(response)
 
     if not text:
         LOGGER.warning(

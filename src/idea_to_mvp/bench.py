@@ -52,6 +52,7 @@ SNAPSHOT_SETTINGS = (
     "implementer_max_total_usd",
     "implementer_max_task_usd",
     "implementer_max_parallel",
+    "execution_strategy",
     "implementer_max_turns",
     "implementer_max_task_turns",
     "verifier_max_turns",
@@ -449,6 +450,19 @@ class BenchOptions:
         return self.root / self.name
 
 
+def check_task_budget(per_idea: float, settings: Settings) -> None:
+    """Refuse an idea budget that fits one task session: each running task reserves `IMPLEMENTER_MAX_TASK_USD`, so a
+    whole-run cap of the same size starts the first task of a plan and never the rest (the idea is then built
+    incompletely and fails verification for a reason that says nothing about the models)."""
+    cap = settings.implementer_max_task_usd
+    if per_idea < 2 * cap:
+        raise BenchError(
+            f"a budget of ${per_idea:g} per idea lets only one task session start: each running task reserves "
+            f"IMPLEMENTER_MAX_TASK_USD (${cap:g}). Raise --max-usd-per-idea to at least {2 * cap:g}, or lower the "
+            "per-task cap for this run with --set IMPLEMENTER_MAX_TASK_USD=N"
+        )
+
+
 def check_mode(options: BenchOptions, settings: Settings) -> None:
     """The bench spends money unless it is a demo run: it must be asked for explicitly, with a cap."""
     if options.live and settings.demo_mode:
@@ -517,6 +531,7 @@ async def run_bench(options: BenchOptions, *, progress: Progress) -> RunRecord:
     }
     order = [idea.id for idea in options.ideas]
     with applied_env(env) as settings:
+        check_task_budget(per_idea, settings)
         snapshot = take_snapshot(settings, options.overrides, options.ideas)
         earlier = read_run(options.run_dir)
         if earlier is not None:
@@ -808,6 +823,7 @@ def dry_run(options: BenchOptions) -> dict[str, Any]:
     """What the bench would cost at the catalog's typical-run prices, with no model call and nothing written."""
     with applied_env(options.overrides) as settings:
         per_idea = options.per_idea_usd or settings.implementer_max_total_usd
+        check_task_budget(per_idea, settings)
         estimate = get_catalog().estimate_run(settings.model_profile, configured_choices(settings))
         agents = min(estimate.agents, per_idea)
         per_idea_total = estimate.planning + agents

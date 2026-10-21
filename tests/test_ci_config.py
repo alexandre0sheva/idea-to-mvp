@@ -39,12 +39,18 @@ def test_ci_still_lints_and_type_checks() -> None:
 
 
 def test_dependabot_watches_uv_and_github_actions() -> None:
-    ecosystems = {update["package-ecosystem"] for update in load_yaml(".github/dependabot.yml")["updates"]}
+    ecosystems = {
+        update["package-ecosystem"] for update in load_yaml(".github/dependabot.yml")["updates"]
+    }
     assert ecosystems == {"uv", "github-actions"}
 
 
 def test_pre_commit_runs_ruff_and_mypy() -> None:
-    hooks = {hook["id"] for repo in load_yaml(".pre-commit-config.yaml")["repos"] for hook in repo["hooks"]}
+    hooks = {
+        hook["id"]
+        for repo in load_yaml(".pre-commit-config.yaml")["repos"]
+        for hook in repo["hooks"]
+    }
     assert {"ruff", "mypy"} <= hooks
 
 
@@ -59,7 +65,9 @@ def test_the_coverage_gate_is_configured_but_does_not_break_partial_runs() -> No
 def test_the_core_modules_are_type_checked_strictly() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     (override,) = [o for o in config["tool"]["mypy"]["overrides"] if o.get("disallow_untyped_defs")]
-    assert {"idea_to_mvp.llm.*", "idea_to_mvp.schemas", "idea_to_mvp.plan"} <= set(override["module"])
+    assert {"idea_to_mvp.llm.*", "idea_to_mvp.schemas", "idea_to_mvp.plan"} <= set(
+        override["module"]
+    )
 
 
 def test_contributing_documents_live_tests_and_the_eval_script_once() -> None:
@@ -88,7 +96,11 @@ def project() -> dict:
 
 def test_the_package_metadata_is_ready_for_pypi() -> None:
     meta = project()
-    assert meta["name"] == "idea-to-mvp" and meta["license"] == "MIT" and meta["license-files"] == ["LICENSE"]
+    assert (
+        meta["name"] == "idea-to-mvp"
+        and meta["license"] == "MIT"
+        and meta["license-files"] == ["LICENSE"]
+    )
     assert all(author["name"] != "idea-to-mvp contributors" for author in meta["authors"])
     assert {"Homepage", "Repository", "Issues", "Changelog"} <= set(meta["urls"])
     assert all(url.startswith(REPO_URL) for url in meta["urls"].values())
@@ -103,7 +115,10 @@ def test_the_supported_pythons_match_what_ci_tests() -> None:
     job = load_yaml(".github/workflows/ci.yml")["jobs"]["lint-and-test"]
     tested = job["strategy"]["matrix"]["python-version"]
     assert project()["requires-python"] == ">=3.11"
-    assert all(f"Programming Language :: Python :: {version}" in project()["classifiers"] for version in tested)
+    assert all(
+        f"Programming Language :: Python :: {version}" in project()["classifiers"]
+        for version in tested
+    )
 
 
 def test_the_release_workflow_builds_and_checks_on_tags_but_never_publishes() -> None:
@@ -111,22 +126,34 @@ def test_the_release_workflow_builds_and_checks_on_tags_but_never_publishes() ->
     triggers = workflow.get("on", workflow.get(True))  # YAML reads a bare `on` as True
     assert triggers == {"push": {"tags": ["v*"]}}
     assert workflow["permissions"] == {"contents": "read"}  # no id-token: publishing stays manual
-    steps = [str(step.get("run", step.get("uses", ""))) for job in workflow["jobs"].values() for step in job["steps"]]
+    steps = [
+        str(step.get("run", step.get("uses", "")))
+        for job in workflow["jobs"].values()
+        for step in job["steps"]
+    ]
     text = " ".join(steps)
     assert "uv build" in text and "twine check" in text and "upload-artifact" in text
     assert "GITHUB_REF_NAME" in text and "pyproject.toml" in text  # the tag must match the version
-    assert not any(word in text for word in ("twine upload", "pypi-publish", "uv publish", "gh release"))
+    assert not any(
+        word in text for word in ("twine upload", "pypi-publish", "uv publish", "gh release")
+    )
 
 
 def test_pre_commit_formats_with_ruff() -> None:
-    hooks = {hook["id"] for repo in load_yaml(".pre-commit-config.yaml")["repos"] for hook in repo["hooks"]}
+    hooks = {
+        hook["id"]
+        for repo in load_yaml(".pre-commit-config.yaml")["repos"]
+        for hook in repo["hooks"]
+    }
     assert {"ruff", "ruff-format", "mypy"} <= hooks
 
 
 def test_ruff_format_uses_the_lint_line_length_and_skips_the_template_files() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["ruff"]
     assert config["line-length"] == 100
-    assert "src/idea_to_mvp/templates/*/files" in config["extend-exclude"]  # the formatter honours it too
+    assert (
+        "src/idea_to_mvp/templates/*/files" in config["extend-exclude"]
+    )  # the formatter honours it too
 
 
 def test_issue_forms_ask_for_a_reproduction_and_warn_about_secrets() -> None:
@@ -144,7 +171,13 @@ def test_issue_forms_ask_for_a_reproduction_and_warn_about_secrets() -> None:
 
 def test_the_pull_request_template_lists_the_checks_ci_runs() -> None:
     text = (ROOT / ".github/PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
-    for check in ("ruff check", "mypy", "pytest --cov=idea_to_mvp", "CHANGELOG.md", "src/idea_to_mvp/demo/"):
+    for check in (
+        "ruff check",
+        "mypy",
+        "pytest --cov=idea_to_mvp",
+        "CHANGELOG.md",
+        "src/idea_to_mvp/demo/",
+    ):
         assert check in text
 
 
@@ -159,11 +192,15 @@ def test_the_readme_has_its_badges_and_the_install_routes() -> None:
 def test_contributing_explains_the_release_and_the_old_folders() -> None:
     text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     assert "twine check" in text and "ruff format" in text
-    assert "project_blueprints" in text and "generated_projects" in text  # the stale pre-0.3 folders
+    assert (
+        "project_blueprints" in text and "generated_projects" in text
+    )  # the stale pre-0.3 folders
 
 
 def test_the_sdist_is_an_allowlist_that_leaves_out_local_files() -> None:
-    sdist = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["hatch"]["build"]["targets"]["sdist"]
+    sdist = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["hatch"][
+        "build"
+    ]["targets"]["sdist"]
     included = set(sdist["include"])
     assert {"/src", "/tests", "/README.md", "/LICENSE", "/pyproject.toml", "/uv.lock"} <= included
     # `.claude/settings.local.json` and `.env` exist on a developer's machine and must never reach PyPI

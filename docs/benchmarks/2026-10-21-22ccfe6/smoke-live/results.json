@@ -1,0 +1,28 @@
+{
+  "updated": "2026-10-21T11:44:31+00:00",
+  "results": [
+    {
+      "id": "climbing-log",
+      "status": "scored",
+      "verified": false,
+      "reason": "",
+      "lanes_passed": 2,
+      "lanes_total": 3,
+      "acceptance_passed": null,
+      "acceptance_total": null,
+      "integrity_flags": 0,
+      "integrity_open": 0,
+      "fix_attempts": 2,
+      "planning_cost_usd": 0.09022229000000002,
+      "agent_cost_usd": 1.6370077350000005,
+      "unpriced_calls": 0,
+      "wall_seconds": 3053.5493427499896,
+      "budget_usd": 3.0,
+      "exit_code": 2,
+      "thread_id": "bench-climbing-log",
+      "workspace": "/Users/alexander/idea-to-mvp/bench/smoke-live/output/projects/20261021-135858-465716-a-logbook-for-indoor-climbers-log-each-climb-with-grade-and-note",
+      "total_cost_usd": 1.7272300250000006,
+      "acceptance_rate": null
+    }
+  ]
+}

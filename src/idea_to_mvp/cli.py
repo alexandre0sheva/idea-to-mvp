@@ -43,13 +43,23 @@ def _positive_int(text: str) -> int:
 
 
 def _add_run_flags(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--answers", metavar="FILE", type=Path, help="answers to the panel's questions, one per line")
+    parser.add_argument(
+        "--answers",
+        metavar="FILE",
+        type=Path,
+        help="answers to the panel's questions, one per line",
+    )
     parser.add_argument(
         "--autopilot",
         action="store_true",
         help="take the suggested answers and the recommended architecture, and generate the pack",
     )
-    parser.add_argument("--arch", type=int, choices=(1, 2), help="the architecture to build: 1 = option A, 2 = option B")
+    parser.add_argument(
+        "--arch",
+        type=int,
+        choices=(1, 2),
+        help="the architecture to build: 1 = option A, 2 = option B",
+    )
     parser.add_argument(
         "--implement",
         action="store_true",
@@ -57,22 +67,32 @@ def _add_run_flags(parser: argparse.ArgumentParser) -> None:
         "stops there and prints the cost estimate",
     )
     parser.add_argument(
-        "--max-total-usd", type=_positive_float, metavar="N", help="whole-run agent budget (IMPLEMENTER_MAX_TOTAL_USD)"
+        "--max-total-usd",
+        type=_positive_float,
+        metavar="N",
+        help="whole-run agent budget (IMPLEMENTER_MAX_TOTAL_USD)",
     )
     parser.add_argument(
-        "--parallel", type=_positive_int, metavar="N", help="tasks built at once (default: IMPLEMENTER_MAX_PARALLEL)"
+        "--parallel",
+        type=_positive_int,
+        metavar="N",
+        help="tasks built at once (default: IMPLEMENTER_MAX_PARALLEL)",
     )
     parser.add_argument("--json", action="store_true", help="print the summary as JSON")
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = _Parser(prog="idea-to-mvp", description="Take a product idea to a built, tested first version.")
+    parser = _Parser(
+        prog="idea-to-mvp", description="Take a product idea to a built, tested first version."
+    )
     commands = parser.add_subparsers(dest="command")
     doctor = commands.add_parser("doctor", help="check API keys, models, and the agent CLI")
     doctor.add_argument(
         "--offline", action="store_true", help="only check configuration; make no model calls"
     )
-    models = commands.add_parser("models", help="show every profile's models, prices, and the cost of a typical run")
+    models = commands.add_parser(
+        "models", help="show every profile's models, prices, and the cost of a typical run"
+    )
     models.add_argument(
         "--check",
         action="store_true",
@@ -97,10 +117,14 @@ def _build_parser() -> argparse.ArgumentParser:
     resume.add_argument("thread", help="the session id (see `idea-to-mvp sessions`)")
     _add_run_flags(resume)
     resume.add_argument(
-        "--feedback", metavar="TEXT", help="at the iterate gate: the changes for the next version (needs --implement)"
+        "--feedback",
+        metavar="TEXT",
+        help="at the iterate gate: the changes for the next version (needs --implement)",
     )
     sessions = commands.add_parser("sessions", help="list the saved sessions, newest first")
-    sessions.add_argument("--limit", type=_positive_int, default=50, help="how many to list (default 50)")
+    sessions.add_argument(
+        "--limit", type=_positive_int, default=50, help="how many to list (default 50)"
+    )
     sessions.add_argument("--json", action="store_true", help="print the list as JSON")
     _add_publish(commands)
     _add_bench(commands)
@@ -124,13 +148,25 @@ def _add_publish(commands: Any) -> None:
         epilog="exit codes: 0 published (or --dry-run showed a clean plan), 3 not confirmed, 1 error or a plan with problems",
     )
     publish.add_argument("thread", help="the session id (see `idea-to-mvp sessions`)")
-    publish.add_argument("--repo", metavar="[OWNER/]NAME", help="the new repository (default: the project's name, in your account or GITHUB_OWNER)")
     publish.add_argument(
-        "--visibility", choices=("private", "public"), help="private (default, or PUBLISH_VISIBILITY) or public"
+        "--repo",
+        metavar="[OWNER/]NAME",
+        help="the new repository (default: the project's name, in your account or GITHUB_OWNER)",
     )
-    publish.add_argument("--yes", action="store_true", help="confirm without asking (the preview is still printed)")
-    publish.add_argument("--dry-run", action="store_true", help="print the plan and stop; create nothing")
-    publish.add_argument("--json", action="store_true", help="print the plan (--dry-run) or the result as JSON")
+    publish.add_argument(
+        "--visibility",
+        choices=("private", "public"),
+        help="private (default, or PUBLISH_VISIBILITY) or public",
+    )
+    publish.add_argument(
+        "--yes", action="store_true", help="confirm without asking (the preview is still printed)"
+    )
+    publish.add_argument(
+        "--dry-run", action="store_true", help="print the plan and stop; create nothing"
+    )
+    publish.add_argument(
+        "--json", action="store_true", help="print the plan (--dry-run) or the result as JSON"
+    )
 
 
 def _add_bench(commands: Any) -> None:
@@ -145,19 +181,64 @@ def _add_bench(commands: Any) -> None:
         epilog="exit codes: 0 every idea verified, 2 a delivery failed verification, 3 some ideas unscored "
         "(call again to retry them), 1 error",
     )
-    bench.add_argument("--name", help="the run's folder name (required unless --compare or --dry-run)")
-    bench.add_argument("--live", action="store_true", help="use the real providers and agent sessions (spends money)")
-    bench.add_argument("--dry-run", action="store_true", help="print the settings and the estimated cost; run nothing")
+    bench.add_argument(
+        "--name", help="the run's folder name (required unless --compare or --dry-run)"
+    )
+    bench.add_argument(
+        "--live",
+        action="store_true",
+        help="use the real providers and agent sessions (spends money)",
+    )
+    bench.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the settings and the estimated cost; run nothing",
+    )
     bench.add_argument("--ideas", metavar="ID,ID", help="only these golden ideas (default: all)")
-    bench.add_argument("--ideas-file", type=Path, metavar="FILE", help="a golden ideas file (default: tests/fixtures/golden_ideas.json)")
-    bench.add_argument("--root", type=Path, metavar="DIR", help="where runs are kept (default: <OUTPUT_DIR>/bench)")
-    bench.add_argument("--profile", metavar="NAME", help="MODEL_PROFILE for this run: fast, balanced, or quality")
-    bench.add_argument("--harness-tuning", metavar="MODE", help="HARNESS_TUNING for this run: off or pilot")
-    bench.add_argument("--library", metavar="MODE", help="EXPERIENCE_LIBRARY for this run: on or off (its folder is the run's own)")
-    bench.add_argument("--set", action="append", metavar="KEY=VALUE", help="any other setting for this run, e.g. MAX_FIX_ATTEMPTS=1 (repeatable)")
-    bench.add_argument("--max-usd-per-idea", type=_positive_float, metavar="N", help="agent budget of one idea (IMPLEMENTER_MAX_TOTAL_USD)")
-    bench.add_argument("--max-total-usd", type=_positive_float, metavar="N", help="cap on everything the run spends; ideas it cannot afford stay unscored")
-    bench.add_argument("--compare", nargs="+", metavar="RUN", help="print these runs (names or folders) side by side on the ideas all of them scored")
+    bench.add_argument(
+        "--ideas-file",
+        type=Path,
+        metavar="FILE",
+        help="a golden ideas file (default: tests/fixtures/golden_ideas.json)",
+    )
+    bench.add_argument(
+        "--root", type=Path, metavar="DIR", help="where runs are kept (default: <OUTPUT_DIR>/bench)"
+    )
+    bench.add_argument(
+        "--profile", metavar="NAME", help="MODEL_PROFILE for this run: fast, balanced, or quality"
+    )
+    bench.add_argument(
+        "--harness-tuning", metavar="MODE", help="HARNESS_TUNING for this run: off or pilot"
+    )
+    bench.add_argument(
+        "--library",
+        metavar="MODE",
+        help="EXPERIENCE_LIBRARY for this run: on or off (its folder is the run's own)",
+    )
+    bench.add_argument(
+        "--set",
+        action="append",
+        metavar="KEY=VALUE",
+        help="any other setting for this run, e.g. MAX_FIX_ATTEMPTS=1 (repeatable)",
+    )
+    bench.add_argument(
+        "--max-usd-per-idea",
+        type=_positive_float,
+        metavar="N",
+        help="agent budget of one idea (IMPLEMENTER_MAX_TOTAL_USD)",
+    )
+    bench.add_argument(
+        "--max-total-usd",
+        type=_positive_float,
+        metavar="N",
+        help="cap on everything the run spends; ideas it cannot afford stay unscored",
+    )
+    bench.add_argument(
+        "--compare",
+        nargs="+",
+        metavar="RUN",
+        help="print these runs (names or folders) side by side on the ideas all of them scored",
+    )
     bench.add_argument("--json", action="store_true", help="print the result as JSON")
 
 
@@ -206,7 +287,10 @@ def _mcp() -> int:
     try:
         from idea_to_mvp.mcp_server import serve
     except ImportError as exc:  # the optional `mcp` extra is missing (or too old)
-        print(f"idea-to-mvp: the MCP server needs the mcp package ({exc}); install idea-to-mvp[mcp]", file=sys.stderr)
+        print(
+            f"idea-to-mvp: the MCP server needs the mcp package ({exc}); install idea-to-mvp[mcp]",
+            file=sys.stderr,
+        )
         return 1
     return serve()
 
@@ -262,8 +346,12 @@ async def _drive(args: argparse.Namespace, options: Any, settings: Any) -> Any:
     registry = SessionRegistry(settings.checkpoint_path)
     async with open_graph(settings) as graph:
         if args.command == "run":
-            return await run_idea(graph, registry, args.idea, options, settings=settings, progress=_progress)
-        return await resume_thread(graph, registry, args.thread, options, settings=settings, progress=_progress)
+            return await run_idea(
+                graph, registry, args.idea, options, settings=settings, progress=_progress
+            )
+        return await resume_thread(
+            graph, registry, args.thread, options, settings=settings, progress=_progress
+        )
 
 
 def _publish(args: argparse.Namespace) -> int:
@@ -281,11 +369,19 @@ async def _publish_thread(args: argparse.Namespace, settings: Any) -> int:
     async with open_graph(settings) as graph:
         view = await read_thread(graph, args.thread)
         if not view.values.get("user_idea"):
-            print(f"idea-to-mvp: no saved session {args.thread!r} (see `idea-to-mvp sessions`)", file=sys.stderr)
+            print(
+                f"idea-to-mvp: no saved session {args.thread!r} (see `idea-to-mvp sessions`)",
+                file=sys.stderr,
+            )
             return 1
         client = publish.make_client(settings)
         plan = await asyncio.to_thread(
-            publish.plan_publish, view.values, settings, client, repo=args.repo, visibility=args.visibility
+            publish.plan_publish,
+            view.values,
+            settings,
+            client,
+            repo=args.repo,
+            visibility=args.visibility,
         )
         if args.dry_run and args.json:
             print(json.dumps(plan.to_dict(), indent=2))
@@ -297,21 +393,38 @@ async def _publish_thread(args: argparse.Namespace, settings: Any) -> int:
             return 0
         if not args.yes:
             if not sys.stdin.isatty():
-                print("idea-to-mvp: not a terminal; pass --yes to publish what is shown above", file=sys.stderr)
+                print(
+                    "idea-to-mvp: not a terminal; pass --yes to publish what is shown above",
+                    file=sys.stderr,
+                )
                 return 1
-            print(f"Create the {plan.visibility} repository {plan.full_name} and push? [y/N] ", end="", file=sys.stderr, flush=True)
+            print(
+                f"Create the {plan.visibility} repository {plan.full_name} and push? [y/N] ",
+                end="",
+                file=sys.stderr,
+                flush=True,
+            )
             if sys.stdin.readline().strip().lower() not in ("y", "yes"):
                 print("Nothing was pushed.", file=sys.stderr)
                 return 3
         assert client is not None  # a plan without problems has a client
         try:
-            record, unrecorded = await publish_and_record(graph, args.thread, plan, client, confirm=plan.fingerprint)
+            record, unrecorded = await publish_and_record(
+                graph, args.thread, plan, client, confirm=plan.fingerprint
+            )
         except publish.PublishError as error:
             print(f"idea-to-mvp: {error}", file=sys.stderr)
             return 1
         if unrecorded:  # the push happened; say where it went even if the session could not note it
-            print(f"idea-to-mvp: published, but the session could not record it ({unrecorded})", file=sys.stderr)
-    print(json.dumps(record, indent=2) if args.json else f"Published {record['repo']} ({record['visibility']}): {record['url']}")
+            print(
+                f"idea-to-mvp: published, but the session could not record it ({unrecorded})",
+                file=sys.stderr,
+            )
+    print(
+        json.dumps(record, indent=2)
+        if args.json
+        else f"Published {record['repo']} ({record['visibility']}): {record['url']}"
+    )
     return 0
 
 

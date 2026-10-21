@@ -1,0 +1,33 @@
+Comparing fast-2, balanced-3 on 1 idea(s) scored in every run: link-shortener
+
+Settings that differ
+setting             fast-2             balanced-3
+------------------  -----------------  -----------------
+model_profile       fast               balanced
+models.architect    claude-haiku-5-5   claude-opus-5-5
+models.escalation   claude-sonnet-5-5  claude-opus-5-5
+models.implementer  claude-haiku-5-5   claude-sonnet-5-5
+models.pm           gpt-6-luna         gpt-6.1-sol
+models.research     claude-haiku-5-5   claude-sonnet-5-5
+models.summarizer   claude-haiku-5-5   claude-sonnet-5-5
+models.tech_lead    claude-haiku-5-5   claude-sonnet-5-5
+models.verifier     claude-haiku-5-5   claude-sonnet-5-5
+
+result                      fast-2      balanced-3
+--------------------------  ----------  ----------
+verified deliveries         1/1 (100%)  1/1 (100%)
+verified per dollar         3.93        0.12
+cost per verified delivery  $0.25       $8.06
+cost per scored idea        $0.25       $8.06
+lanes passed                100%        100%
+acceptance tests passed     n/a         n/a
+fix attempts                0           2
+integrity flags             0           0
+mean wall time              1,187s      1,856s
+unscored ideas              0           0
+
+idea            fast-2     balanced-3
+--------------  ---------  ----------
+link-shortener  ok  $0.25  ok  $8.06
+
+Verified per dollar (verified deliveries / spend on scored ideas) is the number that says which configuration is worth its price.

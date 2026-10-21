@@ -1,6 +1,7 @@
 import pytest
 
 from idea_to_mvp import llm
+from idea_to_mvp.config import clear_settings_cache
 from idea_to_mvp.llm.structured import StructuredOutputError
 from idea_to_mvp.nodes.strategy import fallback_strategy, strategy_node
 from idea_to_mvp.schemas import ExecutionStrategy, Workstream
@@ -129,3 +130,45 @@ def test_an_older_strategy_without_a_template_still_loads() -> None:
     assert (
         "template" in ExecutionStrategy.model_json_schema()["required"]
     )  # a model must always answer it
+
+
+# ------------------------------------------------------------------ EXECUTION_STRATEGY
+
+
+def _chosen(mode: str) -> ExecutionStrategy:
+    return ExecutionStrategy(
+        mode=mode,
+        reasoning="The model's own reasoning.",
+        workstreams=[Workstream(name="core", focus="all", deliverables="app")],
+        template="none",
+    )
+
+
+@pytest.mark.parametrize(
+    ("setting", "chosen", "expected"),
+    [
+        ("auto", "subagents", "subagents"),
+        ("auto", "agent_team", "agent_team"),
+        ("agent_team", "subagents", "agent_team"),
+        ("subagents", "agent_team", "subagents"),
+        ("agent_team", "agent_team", "agent_team"),
+    ],
+)
+def test_execution_strategy_overrides_the_models_mode_unless_auto(
+    fake_runtime, monkeypatch, setting: str, chosen: str, expected: str
+) -> None:
+    monkeypatch.setenv("EXECUTION_STRATEGY", setting)
+    clear_settings_cache()
+    monkeypatch.setattr(llm, "invoke_structured", lambda *a, **k: _chosen(chosen))
+    try:
+        strategy = strategy_node(_state())["execution_strategy"]
+    finally:
+        clear_settings_cache()
+    assert strategy["mode"] == expected
+    assert [w["name"] for w in strategy["workstreams"]] == ["core"]  # only the mode is replaced
+    if expected != chosen:
+        # the reasoning says why the card shows a different mode than the model argued for
+        assert "EXECUTION_STRATEGY" in strategy["reasoning"] and chosen in strategy["reasoning"]
+        assert "The model's own reasoning." in strategy["reasoning"]
+    else:
+        assert strategy["reasoning"] == "The model's own reasoning."

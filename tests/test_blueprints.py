@@ -401,3 +401,18 @@ def test_the_plan_writer_node_replaces_the_commands_with_the_templates(monkeypat
     plan = json.loads(update["blueprint_docs"]["plan.json"])
     template = get_template("python-fastapi")
     assert template is not None and plan["commands"]["test"] == template.commands.test
+
+
+def test_the_plan_writer_is_given_a_small_mvp_scope_budget() -> None:
+    """A live run built 284 tests in 37 files for a one-screen log, in 37 minutes: the plan writer must size the work."""
+    text = PLAN_WRITER_SYSTEM
+    assert "Scope budget" in text
+    for rule in (
+        "size the build, never the quality",
+        "planned and tested in full",
+        "unless a P0 requirement names it",
+        "normally 3 to 5",
+        "one test file per module",
+        "keep `coverage_target` at 80",
+    ):
+        assert rule in text, rule

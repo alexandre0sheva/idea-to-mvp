@@ -137,6 +137,10 @@ class Settings(BaseSettings):
     # Independent plan tasks run concurrently, each in its own git worktree and merged back afterwards.
     # 1 = one task at a time, directly in the workspace.
     implementer_max_parallel: int = Field(default=3, ge=1)
+    # Who decides how the plan is built: `auto` takes the strategy model's choice; `agent_team` builds one fresh
+    # session per plan task (in parallel worktrees where tasks are independent); `subagents` builds everything in one
+    # lead session.
+    execution_strategy: Literal["auto", "agent_team", "subagents"] = "auto"
     verifier_max_turns: int = 40  # per verification lane
     # Fix-and-reverify rounds a failed verification gets before the delivery report.
     max_fix_attempts: int = 2

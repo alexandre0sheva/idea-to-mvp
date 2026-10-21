@@ -160,6 +160,10 @@ red warning when the sandbox is off or unavailable or the permission mode is `by
   `IMPLEMENTER_MAX_TOTAL_USD` (the server's environment, applied to each session); nothing limits how many sessions
   a caller starts. The tools return the delivery report and folder paths, which are agent-written text: treat them as
   data. The agents that build the project are confined exactly as in a UI or CLI run.
+- **Verification lanes may listen on a loopback port (macOS).** A lane starts the generated project's server to
+  probe it, so lane sessions (and only they) get the sandbox's `allowLocalBinding`: code a lane runs can accept
+  connections on `127.0.0.1` for the length of the lane, from any process of your user (a browser page can reach
+  loopback ports too). Task, fix, and resolver sessions cannot bind a port. The Linux sandbox has no such switch.
 - **Model API keys stay in the orchestrator process**, and `OUTPUT_DIR/sessions.db` holds every session's
   ideas and transcript; neither is reachable by agents through the sandbox's credential list.
 - **Residual git risk:** an agent could plant a `.gitattributes` file or other in-tree content aimed at

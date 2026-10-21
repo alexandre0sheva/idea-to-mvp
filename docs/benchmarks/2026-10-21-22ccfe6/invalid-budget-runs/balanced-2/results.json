@@ -1,0 +1,28 @@
+{
+  "updated": "2026-10-21T13:18:45+00:00",
+  "results": [
+    {
+      "id": "link-shortener",
+      "status": "scored",
+      "verified": false,
+      "reason": "",
+      "lanes_passed": 2,
+      "lanes_total": 3,
+      "acceptance_passed": null,
+      "acceptance_total": null,
+      "integrity_flags": 1,
+      "integrity_open": 0,
+      "fix_attempts": 2,
+      "planning_cost_usd": 2.3628922500000007,
+      "agent_cost_usd": 1.7775101000000002,
+      "unpriced_calls": 0,
+      "wall_seconds": 1072.4518375410698,
+      "budget_usd": 4.0,
+      "exit_code": 2,
+      "thread_id": "bench-link-shortener",
+      "workspace": "/Users/alexander/idea-to-mvp/bench/balanced-2/output/projects/20261021-160940-311081-a-small-url-shortener-service-with-an-http-api-create-a-short-li",
+      "total_cost_usd": 4.1404023500000005,
+      "acceptance_rate": null
+    }
+  ]
+}

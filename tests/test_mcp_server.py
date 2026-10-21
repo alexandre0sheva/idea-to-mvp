@@ -19,7 +19,8 @@ from idea_to_mvp.mcp_server import GateAnswer, build_resume, create_server
 
 IDEA = "a habit tracker"
 QUESTIONS = [
-    {"question": f"Q{n}?", "why_it_matters": "it matters", "suggested_answer": f"suggestion {n}"} for n in range(1, 6)
+    {"question": f"Q{n}?", "why_it_matters": "it matters", "suggested_answer": f"suggestion {n}"}
+    for n in range(1, 6)
 ]
 
 
@@ -40,7 +41,11 @@ async def call_error(client: Client, name: str, **arguments: Any) -> str:
     return " ".join(getattr(block, "text", "") for block in result.content)
 
 
-async def settled(client: Client, thread: str, until: Callable[[dict[str, Any]], bool] = lambda s: not s["running"]) -> dict[str, Any]:
+async def settled(
+    client: Client,
+    thread: str,
+    until: Callable[[dict[str, Any]], bool] = lambda s: not s["running"],
+) -> dict[str, Any]:
     """`get_status` until the run is idle (or `until` says so)."""
     for _ in range(600):
         status = await call(client, "get_status", thread_id=thread)
@@ -65,7 +70,9 @@ async def test_the_server_offers_exactly_the_five_tools(server) -> None:
     assert set(tools) == {"start_run", "get_status", "answer_gate", "list_sessions", "get_delivery"}
     assert all(tool.description for tool in tools.values())
     assert "confirm_spend" in tools["answer_gate"].input_schema["properties"]
-    read_only = {name for name, tool in tools.items() if tool.annotations and tool.annotations.read_only_hint}
+    read_only = {
+        name for name, tool in tools.items() if tool.annotations and tool.annotations.read_only_hint
+    }
     assert read_only == {"get_status", "list_sessions", "get_delivery"}
 
 
@@ -83,18 +90,30 @@ async def test_a_whole_demo_run_through_the_tools(server, demo_env: Path) -> Non
         assert not (demo_env / "projects").exists()  # no agent session yet
 
         # the implement gate spends money: no confirmation, no agents
-        refused = await call_error(client, "answer_gate", thread_id=thread, gate="implement_gate", implement=True)
+        refused = await call_error(
+            client, "answer_gate", thread_id=thread, gate="implement_gate", implement=True
+        )
         assert "confirm_spend" in refused
-        assert (await call(client, "get_status", thread_id=thread))["gate"]["kind"] == "implement_gate"
+        assert (await call(client, "get_status", thread_id=thread))["gate"][
+            "kind"
+        ] == "implement_gate"
         assert not (demo_env / "projects").exists()
 
         accepted = await call(
-            client, "answer_gate", thread_id=thread, gate="implement_gate", implement=True, confirm_spend=True, parallel=1
+            client,
+            "answer_gate",
+            thread_id=thread,
+            gate="implement_gate",
+            implement=True,
+            confirm_spend=True,
+            parallel=1,
         )
         assert accepted["state"] == "running"
         status = await settled(client, thread)
         assert status["state"] == "delivered" and status["verification"] == "passed"
-        assert status["gate"]["kind"] == "iterate_gate" and "report" not in status["gate"]["payload"]
+        assert (
+            status["gate"]["kind"] == "iterate_gate" and "report" not in status["gate"]["payload"]
+        )
         assert any("start T01" in line for line in status["progress"])
 
         delivery = await call(client, "get_delivery", thread_id=thread)
@@ -103,14 +122,21 @@ async def test_a_whole_demo_run_through_the_tools(server, demo_env: Path) -> Non
         assert Path(delivery["workspace"]).is_relative_to(demo_env / "projects")
 
         rows = (await call(client, "list_sessions"))["sessions"]
-        assert rows[0]["thread_id"] == thread and rows[0]["waiting_at"] == "iterate_gate" and rows[0]["running"] is False
+        assert (
+            rows[0]["thread_id"] == thread
+            and rows[0]["waiting_at"] == "iterate_gate"
+            and rows[0]["running"] is False
+        )
 
 
 async def test_every_gate_is_answered_with_its_own_arguments(server) -> None:
     async with Client(server) as client:
         thread = (await call(client, "start_run", idea=IDEA))["thread_id"]
         status = await settled(client, thread)
-        assert status["gate"]["kind"] == "answers" and len(status["gate"]["payload"]["question_items"]) == 5
+        assert (
+            status["gate"]["kind"] == "answers"
+            and len(status["gate"]["payload"]["question_items"]) == 5
+        )
         assert "answers" in status["gate"]["answer_with"]
 
         # the gate must be named, so a stale answer cannot land on the wrong one
@@ -118,7 +144,13 @@ async def test_every_gate_is_answered_with_its_own_arguments(server) -> None:
             client, "answer_gate", thread_id=thread, gate="arch_choice", option="A"
         )
 
-        await call(client, "answer_gate", thread_id=thread, gate="answers", answers="Solo climbers\nLogging only")
+        await call(
+            client,
+            "answer_gate",
+            thread_id=thread,
+            gate="answers",
+            answers="Solo climbers\nLogging only",
+        )
         status = await settled(client, thread)
         assert status["gate"]["kind"] == "arch_choice" and status["gate"]["payload"]["proposal"]
 
@@ -140,16 +172,34 @@ async def test_a_new_version_needs_feedback_and_confirm_spend(server) -> None:
     async with Client(server) as client:
         thread = (await call(client, "start_run", idea=IDEA, autopilot=True))["thread_id"]
         await settled(client, thread)
-        await call(client, "answer_gate", thread_id=thread, gate="implement_gate", implement=True, confirm_spend=True)
+        await call(
+            client,
+            "answer_gate",
+            thread_id=thread,
+            gate="implement_gate",
+            implement=True,
+            confirm_spend=True,
+        )
         assert (await settled(client, thread))["state"] == "delivered"
 
         assert "confirm_spend" in await call_error(
-            client, "answer_gate", thread_id=thread, gate="iterate_gate", feedback="add a streak counter"
+            client,
+            "answer_gate",
+            thread_id=thread,
+            gate="iterate_gate",
+            feedback="add a streak counter",
         )
-        assert "feedback" in await call_error(client, "answer_gate", thread_id=thread, gate="iterate_gate", confirm_spend=True)
+        assert "feedback" in await call_error(
+            client, "answer_gate", thread_id=thread, gate="iterate_gate", confirm_spend=True
+        )
 
         await call(
-            client, "answer_gate", thread_id=thread, gate="iterate_gate", feedback="add a streak counter", confirm_spend=True
+            client,
+            "answer_gate",
+            thread_id=thread,
+            gate="iterate_gate",
+            feedback="add a streak counter",
+            confirm_spend=True,
         )
         status = await settled(client, thread)
         assert status["state"] == "delivered" and status["iteration"] == 2
@@ -160,7 +210,9 @@ async def test_unknown_sessions_and_undelivered_runs_are_tool_errors(server) -> 
     async with Client(server) as client:
         assert "no saved session" in await call_error(client, "get_status", thread_id="nope")
         assert "no saved session" in await call_error(client, "get_delivery", thread_id="nope")
-        assert "no saved session" in await call_error(client, "answer_gate", thread_id="nope", gate="answers", answers="x")
+        assert "no saved session" in await call_error(
+            client, "answer_gate", thread_id="nope", gate="answers", answers="x"
+        )
         assert "idea" in await call_error(client, "start_run", idea="   ")
         assert (await call(client, "list_sessions"))["sessions"] == []
 
@@ -175,7 +227,9 @@ async def test_a_session_that_is_running_takes_no_second_answer(
     release = asyncio.Event()
     seen: list[str] = []
 
-    async def slow_run(graph, registry, idea, options, *, settings, progress, thread_id, preferences=None):
+    async def slow_run(
+        graph, registry, idea, options, *, settings, progress, thread_id, preferences=None
+    ):
         seen.append(thread_id)
         registry.record(thread_id, {}, None, title=idea)
         progress("fake step")
@@ -186,8 +240,14 @@ async def test_a_session_that_is_running_takes_no_second_answer(
     async with Client(server) as client:
         thread = (await call(client, "start_run", idea=IDEA))["thread_id"]
         status = await settled(client, thread, lambda s: s["progress"] != [])
-        assert status["state"] == "running" and status["running"] and status["progress"] == ["fake step"]
-        assert "still running" in await call_error(client, "answer_gate", thread_id=thread, gate="answers", answers="x")
+        assert (
+            status["state"] == "running"
+            and status["running"]
+            and status["progress"] == ["fake step"]
+        )
+        assert "still running" in await call_error(
+            client, "answer_gate", thread_id=thread, gate="answers", answers="x"
+        )
         assert (await call(client, "list_sessions"))["sessions"][0]["running"] is True
         release.set()
         await asyncio.sleep(0.1)
@@ -195,7 +255,9 @@ async def test_a_session_that_is_running_takes_no_second_answer(
     assert seen == [thread]
 
 
-async def test_a_pipeline_error_is_reported_in_the_status(server, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_pipeline_error_is_reported_in_the_status(
+    server, monkeypatch: pytest.MonkeyPatch
+) -> None:
     async def broken_run(*_args: object, **_kwargs: object):
         raise RuntimeError("provider exploded")
 
@@ -220,7 +282,9 @@ def test_an_answers_gate_takes_text_or_the_suggestions() -> None:
         with pytest.raises(ToolError, match="answers"):
             build_resume(payload, empty)
     with pytest.raises(ToolError, match="no suggested"):
-        build_resume({"kind": "answers", "question_items": []}, GateAnswer(use_suggested_answers=True))
+        build_resume(
+            {"kind": "answers", "question_items": []}, GateAnswer(use_suggested_answers=True)
+        )
 
 
 def test_an_architecture_needs_a_letter_and_the_pack_an_explicit_yes() -> None:
@@ -232,8 +296,13 @@ def test_an_architecture_needs_a_letter_and_the_pack_an_explicit_yes() -> None:
         build_resume({"kind": "arch_choice"}, GateAnswer())
     with pytest.raises(ToolError, match="option"):
         build_resume({"kind": "arch_choice"}, GateAnswer(option="C"))
-    assert build_resume({"kind": "plan_gate"}, GateAnswer(generate=True)).resume == {"generate": True, "notes": ""}
-    assert build_resume({"kind": "plan_gate"}, GateAnswer(generate=False)).resume["generate"] is False
+    assert build_resume({"kind": "plan_gate"}, GateAnswer(generate=True)).resume == {
+        "generate": True,
+        "notes": "",
+    }
+    assert (
+        build_resume({"kind": "plan_gate"}, GateAnswer(generate=False)).resume["generate"] is False
+    )
     with pytest.raises(ToolError, match="generate"):
         build_resume({"kind": "plan_gate"}, GateAnswer())
 
@@ -242,10 +311,15 @@ def test_only_the_gates_that_start_agent_sessions_need_confirm_spend() -> None:
     gate = {"kind": "implement_gate"}
     with pytest.raises(ToolError, match="confirm_spend"):
         build_resume(gate, GateAnswer(implement=True))
-    built = build_resume(gate, GateAnswer(implement=True, confirm_spend=True, parallel=2, harness_tuning=True))
+    built = build_resume(
+        gate, GateAnswer(implement=True, confirm_spend=True, parallel=2, harness_tuning=True)
+    )
     assert built.resume == {"implement": True, "notes": "", "parallel": 2, "harness_tuning": True}
     # the gate's own default for harness tuning stands unless the caller sets it
-    assert "harness_tuning" not in build_resume(gate, GateAnswer(implement=True, confirm_spend=True)).resume
+    assert (
+        "harness_tuning"
+        not in build_resume(gate, GateAnswer(implement=True, confirm_spend=True)).resume
+    )
     assert build_resume(gate, GateAnswer(implement=False)).resume["implement"] is False
     with pytest.raises(ToolError, match="implement"):
         build_resume(gate, GateAnswer())
@@ -283,11 +357,12 @@ def test_the_mcp_command_says_how_to_install_a_missing_package(
 async def test_the_server_speaks_mcp_over_stdio(demo_env: Path) -> None:
     """The real command in a subprocess: stdout carries only protocol, so a stray print cannot break a client."""
     env = {"DEMO_MODE": "true", "OUTPUT_DIR": str(demo_env), "CHECKPOINTER": "sqlite"}
-    params = StdioServerParameters(command=sys.executable, args=["-m", "idea_to_mvp", "mcp"], env=env, cwd=demo_env)
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "idea_to_mvp", "mcp"], env=env, cwd=demo_env
+    )
     async with Client(params) as client:
         assert len((await client.list_tools()).tools) == 5
         assert (await call(client, "list_sessions"))["sessions"] == []
         thread = (await call(client, "start_run", idea=IDEA, autopilot=True))["thread_id"]
         status = await settled(client, thread)
         assert status["gate"]["kind"] == "implement_gate"
-

@@ -118,8 +118,12 @@ def build_resume(payload: Mapping[str, Any], answer: GateAnswer) -> Decision:
         if answer.use_suggested_answers:
             if suggested := suggested_answers(payload.get("question_items") or []):
                 return Decision(suggested)
-            raise ToolFailure("The questions have no suggested answers for every question: pass answers.")
-        raise ToolFailure("Pass answers (one per line, numbered or not) or use_suggested_answers=true.")
+            raise ToolFailure(
+                "The questions have no suggested answers for every question: pass answers."
+            )
+        raise ToolFailure(
+            "Pass answers (one per line, numbered or not) or use_suggested_answers=true."
+        )
     if kind == "arch_choice":
         option = (answer.option or "").strip().upper()
         if option not in ("A", "B"):
@@ -127,14 +131,22 @@ def build_resume(payload: Mapping[str, Any], answer: GateAnswer) -> Decision:
         return Decision({"option": option, "notes": notes})
     if kind == "plan_gate":
         if answer.generate is None:
-            raise ToolFailure("Pass generate=true to write the blueprint pack, or false to end the session.")
+            raise ToolFailure(
+                "Pass generate=true to write the blueprint pack, or false to end the session."
+            )
         return Decision({"generate": answer.generate, "notes": notes})
     if kind == "implement_gate":
         if answer.implement is None:
-            raise ToolFailure("Pass implement=true to build (with confirm_spend=true), or false to stop here.")
+            raise ToolFailure(
+                "Pass implement=true to build (with confirm_spend=true), or false to stop here."
+            )
         if answer.implement and not answer.confirm_spend:
             raise _needs_confirmation("implement_gate", "Building")
-        resume: dict[str, Any] = {"implement": answer.implement, "notes": notes, "parallel": max(0, answer.parallel)}
+        resume: dict[str, Any] = {
+            "implement": answer.implement,
+            "notes": notes,
+            "parallel": max(0, answer.parallel),
+        }
         if answer.harness_tuning is not None:  # left out, the gate's own default stands
             resume["harness_tuning"] = answer.harness_tuning
         return Decision(resume, spends=answer.implement)
@@ -176,7 +188,9 @@ class _Run:
 class Orchestrator:
     """The five tools' logic on an open graph; the MCP layer only forwards to it."""
 
-    def __init__(self, graph: CompiledStateGraph, registry: SessionRegistry, settings: Settings) -> None:
+    def __init__(
+        self, graph: CompiledStateGraph, registry: SessionRegistry, settings: Settings
+    ) -> None:
         self.graph = graph
         self.registry = registry
         self.settings = settings
@@ -184,7 +198,9 @@ class Orchestrator:
 
     async def shutdown(self) -> None:
         """Stop the runs in flight; their checkpoints stay, so `idea-to-mvp resume <session>` continues them."""
-        tasks = [run.task for run in self._runs.values() if run.task is not None and not run.task.done()]
+        tasks = [
+            run.task for run in self._runs.values() if run.task is not None and not run.task.done()
+        ]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -202,8 +218,13 @@ class Orchestrator:
             thread_id,
             run,
             lambda: run_idea(
-                self.graph, self.registry, idea, options,
-                settings=self.settings, progress=run.progress.append, thread_id=thread_id,
+                self.graph,
+                self.registry,
+                idea,
+                options,
+                settings=self.settings,
+                progress=run.progress.append,
+                thread_id=thread_id,
             ),
         )
         return {
@@ -215,14 +236,18 @@ class Orchestrator:
     async def get_status(self, thread_id: str) -> dict[str, Any]:
         run = self._runs.get(thread_id)
         view = await read_thread(self.graph, thread_id)
-        if not view.values.get("user_idea") and run is None:  # a run of ours that failed at once is still reported
+        if (
+            not view.values.get("user_idea") and run is None
+        ):  # a run of ours that failed at once is still reported
             raise ToolFailure(f"There is no saved session `{thread_id}`: see list_sessions.")
         return self._status(thread_id, view, run)
 
     async def answer_gate(self, thread_id: str, gate: str, answer: GateAnswer) -> dict[str, Any]:
         run = self._runs.get(thread_id)
         if run and run.running:
-            raise ToolFailure("The session is still running: poll get_status until `running` is false.")
+            raise ToolFailure(
+                "The session is still running: poll get_status until `running` is false."
+            )
         view = await read_thread(self.graph, thread_id)
         if not view.values.get("user_idea"):
             raise ToolFailure(f"There is no saved session `{thread_id}`: see list_sessions.")
@@ -239,16 +264,29 @@ class Orchestrator:
             thread_id,
             run,
             lambda: drive(
-                self.graph, self.registry, thread_id, command, HeadlessOptions(),
-                settings=self.settings, progress=run.progress.append,
+                self.graph,
+                self.registry,
+                thread_id,
+                command,
+                HeadlessOptions(),
+                settings=self.settings,
+                progress=run.progress.append,
             ),
         )
-        return {"thread_id": thread_id, "state": "running", "answered": kind, "spends": decision.spends}
+        return {
+            "thread_id": thread_id,
+            "state": "running",
+            "answered": kind,
+            "spends": decision.spends,
+        }
 
     async def list_sessions(self, limit: int = 20) -> dict[str, Any]:
         rows = session_rows(self.registry.list(limit=max(1, limit)))
         return {
-            "sessions": [{**row, "running": bool((run := self._runs.get(row["thread_id"])) and run.running)} for row in rows]
+            "sessions": [
+                {**row, "running": bool((run := self._runs.get(row["thread_id"])) and run.running)}
+                for row in rows
+            ]
         }
 
     async def get_delivery(self, thread_id: str) -> dict[str, Any]:
@@ -328,8 +366,14 @@ class Orchestrator:
         }
         if gate is not None:
             kind = str(gate.get("kind") or "")
-            payload = {key: value for key, value in gate.items() if key not in _LEFT_OUT_OF_PAYLOADS}
-            status["gate"] = {"kind": kind, "payload": _plain(payload), "answer_with": ANSWER_WITH.get(kind, "")}
+            payload = {
+                key: value for key, value in gate.items() if key not in _LEFT_OUT_OF_PAYLOADS
+            }
+            status["gate"] = {
+                "kind": kind,
+                "payload": _plain(payload),
+                "answer_with": ANSWER_WITH.get(kind, ""),
+            }
         if state == "error" and run and run.error:
             status["error"] = run.error
         if state in ("error", "interrupted") and summary.next_command:
@@ -361,8 +405,12 @@ def create_server(settings: Settings) -> MCPServer:
         return holder[0]
 
     server = MCPServer("idea-to-mvp", instructions=INSTRUCTIONS, lifespan=lifespan)
-    read_only = types.ToolAnnotations(read_only_hint=True, destructive_hint=False, open_world_hint=False)
-    writes = types.ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=True)
+    read_only = types.ToolAnnotations(
+        read_only_hint=True, destructive_hint=False, open_world_hint=False
+    )
+    writes = types.ToolAnnotations(
+        read_only_hint=False, destructive_hint=False, open_world_hint=True
+    )
 
     @server.tool(annotations=writes)
     async def start_run(idea: str, autopilot: bool = False) -> dict[str, Any]:
@@ -409,8 +457,15 @@ def create_server(settings: Settings) -> MCPServer:
         the gate's payload first.
         """
         answer = GateAnswer(
-            answers=answers, use_suggested_answers=use_suggested_answers, option=option, generate=generate,
-            implement=implement, parallel=parallel, harness_tuning=harness_tuning, feedback=feedback, notes=notes,
+            answers=answers,
+            use_suggested_answers=use_suggested_answers,
+            option=option,
+            generate=generate,
+            implement=implement,
+            parallel=parallel,
+            harness_tuning=harness_tuning,
+            feedback=feedback,
+            notes=notes,
             confirm_spend=confirm_spend,
         )
         return await orchestrator().answer_gate(thread_id, gate, answer)

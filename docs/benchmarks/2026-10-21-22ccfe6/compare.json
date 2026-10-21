@@ -1,0 +1,131 @@
+{
+  "runs": [
+    {
+      "name": "fast-2",
+      "mode": "live",
+      "totals": {
+        "ideas": 1,
+        "scored": 1,
+        "unscored": 0,
+        "verified": 1,
+        "verified_rate": 1.0,
+        "lane_pass_rate": 1.0,
+        "acceptance_rate": null,
+        "fix_attempts": 0,
+        "integrity_flags": 0,
+        "spend_usd": 0.254251905,
+        "unscored_spend_usd": 0,
+        "unpriced_calls": 0,
+        "cost_per_idea": 0.254251905,
+        "cost_per_verified": 0.254251905,
+        "verified_per_usd": 3.9331072072006696,
+        "mean_wall_seconds": 1187.021694624913
+      }
+    },
+    {
+      "name": "balanced-3",
+      "mode": "live",
+      "totals": {
+        "ideas": 1,
+        "scored": 1,
+        "unscored": 0,
+        "verified": 1,
+        "verified_rate": 1.0,
+        "lane_pass_rate": 1.0,
+        "acceptance_rate": null,
+        "fix_attempts": 2,
+        "integrity_flags": 0,
+        "spend_usd": 8.061029099999999,
+        "unscored_spend_usd": 0,
+        "unpriced_calls": 0,
+        "cost_per_idea": 8.061029099999999,
+        "cost_per_verified": 8.061029099999999,
+        "verified_per_usd": 0.1240536397517781,
+        "mean_wall_seconds": 1855.5550129170297
+      }
+    }
+  ],
+  "common_ideas": [
+    "link-shortener"
+  ],
+  "differences": [
+    {
+      "setting": "model_profile",
+      "values": {
+        "fast-2": "fast",
+        "balanced-3": "balanced"
+      }
+    },
+    {
+      "setting": "models.architect",
+      "values": {
+        "fast-2": "claude-haiku-5-5",
+        "balanced-3": "claude-opus-5-5"
+      }
+    },
+    {
+      "setting": "models.escalation",
+      "values": {
+        "fast-2": "claude-sonnet-5-5",
+        "balanced-3": "claude-opus-5-5"
+      }
+    },
+    {
+      "setting": "models.implementer",
+      "values": {
+        "fast-2": "claude-haiku-5-5",
+        "balanced-3": "claude-sonnet-5-5"
+      }
+    },
+    {
+      "setting": "models.pm",
+      "values": {
+        "fast-2": "gpt-6-luna",
+        "balanced-3": "gpt-6.1-sol"
+      }
+    },
+    {
+      "setting": "models.research",
+      "values": {
+        "fast-2": "claude-haiku-5-5",
+        "balanced-3": "claude-sonnet-5-5"
+      }
+    },
+    {
+      "setting": "models.summarizer",
+      "values": {
+        "fast-2": "claude-haiku-5-5",
+        "balanced-3": "claude-sonnet-5-5"
+      }
+    },
+    {
+      "setting": "models.tech_lead",
+      "values": {
+        "fast-2": "claude-haiku-5-5",
+        "balanced-3": "claude-sonnet-5-5"
+      }
+    },
+    {
+      "setting": "models.verifier",
+      "values": {
+        "fast-2": "claude-haiku-5-5",
+        "balanced-3": "claude-sonnet-5-5"
+      }
+    }
+  ],
+  "notes": [],
+  "ideas": {
+    "link-shortener": {
+      "fast-2": {
+        "verified": true,
+        "cost_usd": 0.254251905,
+        "fix_attempts": 0
+      },
+      "balanced-3": {
+        "verified": true,
+        "cost_usd": 8.061029099999999,
+        "fix_attempts": 2
+      }
+    }
+  }
+}

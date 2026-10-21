@@ -122,6 +122,15 @@ PLAN_WRITER_SYSTEM = (
     "- starter template: when the project context names one, its files already exist before T01. Plan no task "
     "that creates the project skeleton, the test runner, the linter, `.gitignore`, or `scripts/check.sh`; T01 "
     "builds the product's first slice on top of them. `commands` are the template's own, exactly as listed.\n"
+    "- Scope budget (size the build, never the quality): plan exactly what the PRD requires and nothing more. Every "
+    "P0 requirement (every requirement, when the PRD marks none as P0) is planned and tested in full; add no "
+    "feature, tooling, or polish the PRD does not require (offline support, export, i18n, auth, analytics, admin "
+    "screens, CI configuration) unless a P0 requirement names it. Group the work into as few tasks as keep each one "
+    "coherent, normally 3 to 5: merge setup, small helpers, and their tests into the task that needs them, and split "
+    "only where it lets independent tasks run in parallel; use more only when a P0 requirement cannot be built in "
+    "five without a giant task. Tests prove the acceptance criteria and nothing is left untested: each criterion "
+    "gets a test that fails when the behaviour breaks, one test file per module, no duplicate tests of one "
+    "behaviour; keep `coverage_target` at 80.\n"
     "Keep the writing dense and implementation-oriented."
 )
 

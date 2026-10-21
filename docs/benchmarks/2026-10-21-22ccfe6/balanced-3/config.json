@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "mode": "live",
+  "settings": {
+    "model_profile": "balanced",
+    "harness_tuning": "off",
+    "test_integrity": "block",
+    "max_fix_attempts": 2,
+    "implementer_max_total_usd": 4.0,
+    "implementer_max_task_usd": 1.5,
+    "implementer_max_parallel": 3,
+    "execution_strategy": "agent_team",
+    "implementer_max_turns": 120,
+    "implementer_max_task_turns": 40,
+    "verifier_max_turns": 40,
+    "implementer_permission_mode": "bypassPermissions",
+    "implementer_sandbox": "auto",
+    "enable_research": false,
+    "default_rounds": 3,
+    "panel_mode": "moderated",
+    "max_iterations": 5,
+    "library": "on",
+    "acceptance": "on",
+    "models.architect": "claude-opus-5-5",
+    "models.escalation": "claude-opus-5-5",
+    "models.implementer": "claude-sonnet-5-5",
+    "models.moderator": "claude-haiku-5-5",
+    "models.pm": "gpt-6.1-sol",
+    "models.research": "claude-sonnet-5-5",
+    "models.skeptic": "gemini-3.8-flash",
+    "models.summarizer": "claude-sonnet-5-5",
+    "models.tech_lead": "claude-sonnet-5-5",
+    "models.verifier": "claude-sonnet-5-5"
+  },
+  "overrides": {
+    "IMPLEMENTER_PERMISSION_MODE": "bypassPermissions",
+    "EXECUTION_STRATEGY": "agent_team",
+    "IMPLEMENTER_MAX_TASK_USD": "1.5",
+    "MODEL_PROFILE": "balanced"
+  },
+  "ideas": [
+    {
+      "id": "link-shortener",
+      "sha": "2f3b037ee663"
+    }
+  ],
+  "created": "2026-10-21T13:35:45+00:00"
+}

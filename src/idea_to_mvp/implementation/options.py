@@ -154,7 +154,10 @@ def scrubbed_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     }
 
 
-def _sandbox_settings(settings: Settings) -> SandboxSettings:
+def _sandbox_settings(settings: Settings, *, local_binding: bool = False) -> SandboxSettings:
+    """The OS sandbox. `local_binding` lets the session listen on a loopback port (macOS Seatbelt; Linux's
+    bubblewrap sandbox has no such switch): a verification lane starts the project's server to probe it, and without
+    this a web project's quality lane fails with `listen EPERM` whatever the code does."""
     home = Path.home()
     deny_read = [str(home / relative) for relative in _CREDENTIAL_PATHS]
     deny_read.append(str(Path.cwd() / ".env"))  # the orchestrator's own secrets
@@ -162,7 +165,10 @@ def _sandbox_settings(settings: Settings) -> SandboxSettings:
         "enabled": True,
         "autoAllowBashIfSandboxed": True,
         "allowUnsandboxedCommands": False,
-        "network": {"allowedDomains": list(settings.implementer_allowed_domains)},
+        "network": {
+            "allowedDomains": list(settings.implementer_allowed_domains),
+            **({"allowLocalBinding": True} if local_binding else {}),
+        },
         "filesystem": {
             "denyRead": deny_read
         },  # writes are already limited to the working directory
@@ -220,7 +226,7 @@ def build_agent_options(
         disallowed_tools=[*_DISALLOWED_TOOLS, *extra_disallowed_tools],
         output_format={"type": "json_schema", "schema": output_schema} if output_schema else None,
         env=scrubbed_env(),
-        sandbox=_sandbox_settings(settings) if enabled else None,
+        sandbox=_sandbox_settings(settings, local_binding=role == "verifier") if enabled else None,
         hooks={
             "PreToolUse": [
                 HookMatcher(matcher=GUARDED_TOOLS, hooks=[bind_workspace(Path(workspace))])

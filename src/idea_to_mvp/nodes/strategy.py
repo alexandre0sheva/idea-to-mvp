@@ -5,6 +5,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from idea_to_mvp import llm
+from idea_to_mvp.config import get_settings
 from idea_to_mvp.nodes.common import preferences_block
 from idea_to_mvp.schemas import ExecutionStrategy, Workstream
 from idea_to_mvp.state import IdeaDiscussionState
@@ -36,6 +37,18 @@ def fallback_strategy() -> ExecutionStrategy:
     )
 
 
+def apply_override(strategy: ExecutionStrategy) -> ExecutionStrategy:
+    """The strategy with its mode replaced when `EXECUTION_STRATEGY` names one; the reasoning says so, so the
+    strategy card never argues for a mode it does not use."""
+    forced = get_settings().execution_strategy
+    if forced == "auto" or forced == strategy.mode:
+        return strategy
+    note = f"[EXECUTION_STRATEGY={forced} overrides the model's choice of {strategy.mode}.]"
+    return strategy.model_copy(
+        update={"mode": forced, "reasoning": f"{note} {strategy.reasoning}".strip()}
+    )
+
+
 @with_usage(role="strategy")
 def strategy_node(state: IdeaDiscussionState) -> dict[str, Any]:
     runtime = llm.get_runtime("strategy")
@@ -61,4 +74,4 @@ def strategy_node(state: IdeaDiscussionState) -> dict[str, Any]:
         ExecutionStrategy,
         fallback=fallback_strategy,
     )
-    return {"execution_strategy": strategy.model_dump(), "stage": "strategy"}
+    return {"execution_strategy": apply_override(strategy).model_dump(), "stage": "strategy"}

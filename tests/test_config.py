@@ -284,3 +284,14 @@ def test_a_pinned_verifier_or_escalation_model_wins_over_the_implementer_and_the
     alone = Settings(_env_file=None, escalation_model="claude-fable-5-1")
     assert resolve_agent_model(alone, "escalation") == "claude-fable-5-1"
     assert resolve_agent_model(alone, "implementer") == PROFILES["balanced"]["implementer"][1]
+
+
+def test_execution_strategy_defaults_to_the_models_choice_and_rejects_other_values(
+    monkeypatch,
+) -> None:
+    assert Settings(_env_file=None).execution_strategy == "auto"
+    for value in ("agent_team", "subagents"):
+        assert Settings(_env_file=None, execution_strategy=value).execution_strategy == value
+    monkeypatch.setenv("EXECUTION_STRATEGY", "parallel")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

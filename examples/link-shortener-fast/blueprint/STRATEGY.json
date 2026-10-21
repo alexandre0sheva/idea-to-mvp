@@ -1,0 +1,22 @@
+{
+  "mode": "agent_team",
+  "reasoning": "[EXECUTION_STRATEGY=agent_team overrides the model's choice of subagents.] The MVP is small and its parts share contracts: the create and redirect endpoints, the click queue, the flush worker, and the stats response all depend on the same link and counter model. Splitting them across independent agent sessions would cause constant contract drift, so one lead session delegating to a few specialized subagents fits better. Three workstreams keeps coordination low while still separating the API surface, the click pipeline, and verification.",
+  "workstreams": [
+    {
+      "name": "link-api",
+      "focus": "Build the HTTP surface for creating, redirecting, and reporting on links, with API-key auth and URL validation.",
+      "deliverables": "POST /links with API-key auth, per-key fixed-window rate limit, http/https allowlist, 2048 length cap, hostname check, and own-domain rejection; random collision-checked codes; GET /{code} 302 redirect with a 10k-entry LRU lookup; unknown codes return 404; GET /links/{code}/stats returning redirect_requests, dropped_increments, and an approximate-count note; plain-SQL migrations at startup; tests for invalid URLs, missing codes, and code uniqueness."
+    },
+    {
+      "name": "click-pipeline",
+      "focus": "Record redirect clicks off the request path without ever blocking a redirect, and drain them safely on shutdown.",
+      "deliverables": "Bounded asyncio.Queue with put_nowait and a drop counter; batched flush worker running one transaction per flush with UPDATE ... SET clicks = clicks + ? per code; SQLite WAL mode with busy_timeout; SIGTERM handler that drains the queue fully; tests for queue-full drops, flush correctness, and served-minus-drops equals counted clicks after graceful shutdown."
+    },
+    {
+      "name": "ops-verification",
+      "focus": "Provide deployment configuration and the load and durability checks that gate the MVP launch.",
+      "deliverables": "Health endpoint; API key loaded from an environment variable; persistent-volume DB path configuration; single-worker uvicorn run config; 10s writer-stall benchmark at 200 concurrent redirects checking zero 5xx on redirect, p99 under 20ms, and drops matching the counter; graceful-drain count verification; short operator notes on restart behavior, approximate counts, and the pilot measurement of bot-to-human ratio."
+    }
+  ],
+  "template": "python-fastapi"
+}

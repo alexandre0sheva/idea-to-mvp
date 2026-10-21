@@ -461,6 +461,8 @@ def test_the_global_cap_leaves_the_last_ideas_unrun(
         "climbing-log,invoice-tool,recipe-planner",
         "--max-usd-per-idea",
         "5",
+        "--set",
+        "IMPLEMENTER_MAX_TASK_USD=2",  # a per-idea budget must fit two task reservations
         "--max-total-usd",
         "7",
     )
@@ -543,3 +545,37 @@ def test_bench_takes_a_name_unless_it_compares(capsys: pytest.CaptureFixture[str
     with pytest.raises(SystemExit) as raised:
         cli.main(["bench", "--ideas", "climbing-log"])
     assert raised.value.code == 1
+
+
+# ------------------------------------------------------------------ a budget that fits one task is refused
+
+
+def test_a_per_idea_budget_that_fits_one_task_session_is_refused(
+    cwd: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each running task reserves IMPLEMENTER_MAX_TASK_USD, so with a whole-run cap of the same size only the first
+    task of a plan ever starts (a live run delivered T01 of five tasks and failed verification for the missing rest)."""
+    monkeypatch.setenv("IMPLEMENTER_MAX_TASK_USD", "5")
+    code, _report, err = run_bench(
+        capsys, "--name", "tight", "--ideas", "climbing-log", "--max-usd-per-idea", "6"
+    )
+    assert code == 1 and "IMPLEMENTER_MAX_TASK_USD" in err and "at least 10" in err
+    assert not (cwd / "bench" / "tight").exists()  # refused before anything was written
+
+    code, _report, _err = run_bench(
+        capsys,
+        "--name",
+        "tight",
+        "--ideas",
+        "climbing-log",
+        "--max-usd-per-idea",
+        "6",
+        "--set",
+        "IMPLEMENTER_MAX_TASK_USD=2",
+    )
+    assert code == 0  # lowering the per-task cap for the run is the other way out
+
+    code, _report, err = run_bench(
+        capsys, "--dry-run", "--ideas", "climbing-log", "--max-usd-per-idea", "6"
+    )
+    assert code == 1 and "at least 10" in err

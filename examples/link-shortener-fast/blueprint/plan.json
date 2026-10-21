@@ -1,0 +1,91 @@
+{
+  "contracts": [
+    {
+      "id": "C1",
+      "name": "Core contract",
+      "description": "The interface shared between workstreams."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T01",
+      "title": "Project setup and link-api",
+      "goal": "Establish the MVP baseline and deliver this workstream's first slice.",
+      "workstream": "link-api",
+      "depends_on": [],
+      "requirement_ids": [
+        "R1"
+      ],
+      "contracts_in": [],
+      "contracts_out": [
+        "C1"
+      ],
+      "scope": "Code, configuration, and tests for this workstream.",
+      "acceptance": [
+        "R1 demonstrably satisfied."
+      ],
+      "tests": [
+        "Unit and integration tests for every acceptance criterion."
+      ],
+      "coverage_target": 80,
+      "handoff": "Updated docs and task notes."
+    },
+    {
+      "id": "T02",
+      "title": "Build click-pipeline",
+      "goal": "Deliver the click-pipeline workstream.",
+      "workstream": "click-pipeline",
+      "depends_on": [
+        "T01"
+      ],
+      "requirement_ids": [
+        "R1"
+      ],
+      "contracts_in": [
+        "C1"
+      ],
+      "contracts_out": [],
+      "scope": "Code, configuration, and tests for this workstream.",
+      "acceptance": [
+        "R1 demonstrably satisfied."
+      ],
+      "tests": [
+        "Unit and integration tests for every acceptance criterion."
+      ],
+      "coverage_target": 80,
+      "handoff": "Updated docs and task notes."
+    },
+    {
+      "id": "T03",
+      "title": "Build ops-verification",
+      "goal": "Deliver the ops-verification workstream.",
+      "workstream": "ops-verification",
+      "depends_on": [
+        "T01"
+      ],
+      "requirement_ids": [
+        "R1"
+      ],
+      "contracts_in": [
+        "C1"
+      ],
+      "contracts_out": [],
+      "scope": "Code, configuration, and tests for this workstream.",
+      "acceptance": [
+        "R1 demonstrably satisfied."
+      ],
+      "tests": [
+        "Unit and integration tests for every acceptance criterion."
+      ],
+      "coverage_target": 80,
+      "handoff": "Updated docs and task notes."
+    }
+  ],
+  "commands": {
+    "install": "python3 -m venv .venv && .venv/bin/python -m pip install --quiet -e \".[dev]\"",
+    "test": ".venv/bin/python -m pytest",
+    "lint": ".venv/bin/ruff check .",
+    "run": ".venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
+    "test_report": ".venv/bin/python -m pytest --junitxml=.idea-to-mvp/reports/junit.xml --cov=app --cov-report=xml:.idea-to-mvp/reports/coverage.xml"
+  }
+}

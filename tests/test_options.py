@@ -191,6 +191,21 @@ def test_the_os_sandbox_confines_shell_commands(workspace: Path) -> None:
     assert sandbox["network"]["allowedDomains"] == domains
 
 
+def test_only_verification_lanes_may_bind_a_local_port(workspace: Path) -> None:
+    """A lane starts the project's server to probe it (a live run's quality lane failed with `listen EPERM`); the
+    sessions that write code keep the sandbox's default of no listening sockets."""
+    for role in ("verifier",):
+        options = build_agent_options(
+            workspace=workspace, settings=settings_with(), max_turns=5, role=role
+        )
+        assert options.sandbox["network"]["allowLocalBinding"] is True
+    for role in ("implementer", "escalation"):
+        options = build_agent_options(
+            workspace=workspace, settings=settings_with(), max_turns=5, role=role
+        )
+        assert "allowLocalBinding" not in options.sandbox["network"]
+
+
 def test_the_sandbox_denies_reading_credentials_and_the_orchestrators_dotenv(
     workspace: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
