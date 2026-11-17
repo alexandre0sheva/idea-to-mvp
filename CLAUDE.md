@@ -13,6 +13,9 @@ cp .env.example .env  # then fill in API keys
 uv run idea-to-mvp   # or: uv run python -m idea_to_mvp
 uv run idea-to-mvp doctor [--offline]   # check keys/models/agent CLI
 
+# Website (GitHub Pages; `tests/test_site.py` builds it too)
+uv run mkdocs build --strict   # pages: README.md + CONTRIBUTING/SECURITY/CHANGELOG + docs/, see mkdocs.yml
+
 # Lint / format / types
 uv run ruff check .
 uv run ruff format --check .

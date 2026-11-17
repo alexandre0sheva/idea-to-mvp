@@ -10,3 +10,4 @@ project_blueprints/
 generated_projects/
 .coverage
 htmlcov/
+site/

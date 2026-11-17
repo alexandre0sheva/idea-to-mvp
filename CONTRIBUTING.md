@@ -44,6 +44,17 @@ The starter templates (`src/idea_to_mvp/templates/`) are installed and checked f
 
 Tests that call real provider APIs carry `@pytest.mark.live`, are skipped by default, and need keys: `uv run pytest -m live`. The opt-in blueprint quality eval, which spends tokens and is never run by CI, is `uv run python scripts/eval_blueprint.py --live --idea climbing-log` (add `DEMO_MODE=true` to try it offline).
 
+## The website
+
+The public site ([alexandre0sheva.github.io/idea-to-mvp](https://alexandre0sheva.github.io/idea-to-mvp/), GitHub Pages) is built by MkDocs Material from the files that are already here: `README.md` is the home page, `CONTRIBUTING.md`, `SECURITY.md` and `CHANGELOG.md` are pages, and the rest of `docs/` is as it is. Nothing is copied; `scripts/mkdocs_hooks.py` adds the root files and repoints every relative link to the site's page, or to the repository for a file the site does not carry (`src/`, `examples/`, `.env.example`). A new page needs a line in the `nav` of `mkdocs.yml`.
+
+```bash
+uv run mkdocs build --strict    # the site, in site/ (what CI builds); a broken link or anchor fails it
+uv run mkdocs serve             # preview at http://127.0.0.1:8000/
+```
+
+`tests/test_site.py` builds it on every test run, and `.github/workflows/pages.yml` deploys it from `main` (one-time: Settings, Pages, Source: *GitHub Actions*). Pull requests build it without deploying.
+
 ## Benchmark
 
 `idea-to-mvp bench --name <run>` runs the golden ideas (`src/idea_to_mvp/golden_ideas.json`) headless with autopilot and `--implement` and scores each one: delivered and verified, lanes passed, acceptance pass rate, integrity flags, fix attempts, cost, and wall time. It spends money unless `DEMO_MODE=true`, so a real run needs `--live --max-total-usd N` (preview the cost with `--dry-run` first), and it is never part of CI beyond the offline smoke test in `tests/test_bench.py`.

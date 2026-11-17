@@ -1,0 +1,72 @@
+# The public website (GitHub Pages). Nothing in it is a copy: the home page is README.md, and CONTRIBUTING.md,
+# SECURITY.md and CHANGELOG.md are pages too, added by scripts/mkdocs_hooks.py, which also repoints every relative
+# link to where the site keeps the file (or to the repository when the site does not carry it). The other pages are
+# docs/*.md as they are. Build it locally with
+#   uv sync && uv run mkdocs build --strict
+# (CONTRIBUTING.md, "The website"); .github/workflows/pages.yml publishes it.
+site_name: Idea-to-MVP
+site_description: Turn a product idea into a built, tested first version - a multi-LLM panel, human gates, a blueprint pack, and sandboxed Claude agents.
+site_url: https://alexandre0sheva.github.io/idea-to-mvp/
+repo_url: https://github.com/alexandre0sheva/idea-to-mvp
+repo_name: alexandre0sheva/idea-to-mvp
+# The home page and the root files are generated from files outside docs/, so there is no per-page edit link.
+edit_uri: ""
+docs_dir: docs
+site_dir: site
+strict: true
+
+hooks:
+  - scripts/mkdocs_hooks.py
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: {icon: material/weather-night, name: Switch to dark mode}
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: {icon: material/weather-sunny, name: Switch to light mode}
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.highlight
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      # GitHub's anchors, so the docs' own links (and the README's `#benchmark`) work on both.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+  - pymdownx.highlight
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+validation:
+  # The benchmark folder's per-run READMEs are reached by links from the benchmark page, not from the menu.
+  omitted_files: info
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - How it works:
+      - Architecture: architecture.md
+      - Security: security.md
+  - Evidence:
+      - Benchmark: benchmarks/2026-10-21-22ccfe6/README.md
+  - Project:
+      - Roadmap: roadmap.md
+      - Contributing: contributing.md
+      - Changelog: changelog.md

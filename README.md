@@ -5,6 +5,8 @@
 ![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+**[Website](https://alexandre0sheva.github.io/idea-to-mvp/)** · **[Architecture](https://alexandre0sheva.github.io/idea-to-mvp/architecture/)** · **[Benchmark](https://alexandre0sheva.github.io/idea-to-mvp/benchmarks/2026-10-21-22ccfe6/)** · **[Roadmap](https://alexandre0sheva.github.io/idea-to-mvp/roadmap/)** · **[Changelog](https://alexandre0sheva.github.io/idea-to-mvp/changelog/)**
+
 Turn a rough product idea into a **built, tested first version**. A LangGraph pipeline runs every stage with a dedicated agent: a multi-LLM panel debates the idea, an architect proposes options, a planner writes an agent-ready blueprint, and Claude Agent SDK agents implement the project in parallel and verify it. You approve every gate, and nothing that spends money runs without your say-so.
 
 ![The demo pipeline: the panel debates, you choose an architecture, agents build on a live board, and a dashboard shows the verdict](docs/assets/demo-pipeline.gif)
@@ -154,6 +156,7 @@ Every 🔒 is a real pause: the whole session is one checkpointed LangGraph thre
 
 ## Learn more
 
+- [The website](https://alexandre0sheva.github.io/idea-to-mvp/): this README, the architecture, the benchmark, the roadmap, and the changelog as searchable pages (built from the files in this repository; see CONTRIBUTING.md, "The website")
 - [docs/architecture.md](docs/architecture.md): the graph, the state contract, the LangGraph patterns used (each mapped to code and a test), and how to add an agent or a gate
 - [.env.example](.env.example): every setting, with its default and meaning
 - [SECURITY.md](SECURITY.md): the agent-execution threat model and how to report a vulnerability

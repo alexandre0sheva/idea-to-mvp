@@ -1,0 +1,76 @@
+name: Website
+
+# Builds the public site (MkDocs Material: README.md as the home page, docs/, CONTRIBUTING.md, SECURITY.md and
+# CHANGELOG.md; see mkdocs.yml and scripts/mkdocs_hooks.py) and deploys it to GitHub Pages. One-time setup by the
+# repository owner: Settings -> Pages -> Source: "GitHub Actions". The site is then published at
+# https://alexandre0sheva.github.io/idea-to-mvp/ on every push to main that touches the paths below. No secrets are
+# used: the build is offline, and a pull request only builds (a broken link fails it), it never deploys.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "CHANGELOG.md"
+      - "docs/**"
+      - "mkdocs.yml"
+      - "scripts/mkdocs_hooks.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    paths:
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "CHANGELOG.md"
+      - "docs/**"
+      - "mkdocs.yml"
+      - "scripts/mkdocs_hooks.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Build the site (a broken link or anchor fails here)
+        run: uv run --locked --only-group site mkdocs build --strict
+      - uses: actions/configure-pages@v6
+        if: github.event_name != 'pull_request'
+      - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

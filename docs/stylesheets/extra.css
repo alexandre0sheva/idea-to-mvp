@@ -1,0 +1,4 @@
+/* The README is the home page: its tables and screenshots need room, and the GIF must not overflow. */
+.md-grid { max-width: 72rem; }
+.md-typeset img { height: auto; }
+.md-typeset table:not([class]) { font-size: 0.72rem; }

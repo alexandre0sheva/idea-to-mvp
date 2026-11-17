@@ -105,7 +105,11 @@ def test_the_package_metadata_is_ready_for_pypi() -> None:
     )
     assert all(author["name"] != "idea-to-mvp contributors" for author in meta["authors"])
     assert {"Homepage", "Repository", "Issues", "Changelog"} <= set(meta["urls"])
-    assert all(url.startswith(REPO_URL) for url in meta["urls"].values())
+    docs = meta["urls"].get("Documentation", "")  # the GitHub Pages site (mkdocs.yml's site_url)
+    assert docs == "https://alexandre0sheva.github.io/idea-to-mvp/"
+    assert all(
+        url.startswith(REPO_URL) for name, url in meta["urls"].items() if name != "Documentation"
+    )
     assert len(meta["keywords"]) >= 5 and len(meta["description"]) > 30
     classifiers = set(meta["classifiers"])
     assert {f"Programming Language :: Python :: 3.{minor}" for minor in (11, 12, 13)} <= classifiers
